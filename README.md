@@ -19,6 +19,7 @@ src/treeskel/    Python package
   io.py          filename parsing, dataset indexing, image loading
   splits.py      row-grouped hold-out and k-fold cross-validation splits
 tests/           pytest test suite
+docs/progress/   session-by-session progress notes (incl. AI use)
 ```
 
 ## Setup
