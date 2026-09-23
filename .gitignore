@@ -1,0 +1,16 @@
+# Full dataset lives outside git (see README) - only data/sample/ is committed
+data/raw/
+data/processed/
+outputs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Generated documentation and reports (rebuilt from source)
+docs/_build/
