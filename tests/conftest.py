@@ -25,10 +25,15 @@ def write_png(path: Path, arr: np.ndarray) -> Path:
 def make_tree(tmp_path):
     """Factory writing a synthetic tree's files into ``tmp_path``.
 
-    ``make_tree("R03U04", skip=[("winter", "D")])`` writes all four images
-    except those listed in ``skip``.
+    ``make_tree("R03N04", skip=[("winter", "D")], mask=True)`` writes all
+    four images except those listed in ``skip``, plus a 256x256 summer mask
+    if ``mask`` is True.
     """
-    def _make(tree_id: str, skip=()):
+    def _make(tree_id: str, skip=(), mask=False):
+        if mask:
+            m = np.zeros((256, 256), np.uint8)
+            m[:, 120:136] = 255  # a vertical "trunk"
+            write_png(tmp_path / f"{tree_id}_Summer_GT-1-2-3.png", m)
         for season in ("Summer", "Winter"):
             for mod in ("RGB", "D"):
                 if (season.lower(), mod) in skip:

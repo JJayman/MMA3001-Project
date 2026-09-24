@@ -8,13 +8,28 @@ from treeskel.io import (
     find_identical_images,
     index_dataset,
     load_depth,
+    load_mask,
     load_rgb,
     load_tree,
+    mask_to_image_frame,
     parse_filename,
+    to_mask_frame,
 )
 
 
 class TestParseFilename:
+    def test_n_naming_and_masks(self):
+        info = parse_filename("R20N03_Summer_GT-14-21-52.png")
+        assert info.tree_id == "R20N03"
+        assert (info.row, info.position) == (20, 3)
+        assert info.modality == "mask"
+        assert parse_filename("R20N05_Winter_D-13-26-50.png").modality == "depth"
+        assert parse_filename("R20N05_Summer_RGB-14-22-1.png").time == "14:22:01"
+
+    def test_u_and_n_ids_are_different_trees(self):
+        assert parse_filename("R01U01_Summer_D-1-2-3.png").tree_id == "R01U01"
+        assert parse_filename("R01N01_Summer_D-1-2-3.png").tree_id == "R01N01"
+
     def test_parses_all_fields(self):
         info = parse_filename("R01U01_Summer_D-12-40-11.png")
         assert info.tree_id == "R01U01"
@@ -176,3 +191,66 @@ class TestExclusionsAndDuplicates:
 
     def test_sample_has_no_identical_images(self, sample_dir):
         assert find_identical_images(sorted(sample_dir.glob("*.png"))) == []
+
+
+class TestMasks:
+    def test_index_records_optional_mask(self, make_tree):
+        root = make_tree("R01N01", mask=True)
+        make_tree("R01N02")
+        idx = index_dataset(root)
+        assert [t.tree_id for t in idx.trees] == ["R01N01", "R01N02"]
+        assert [t.has_mask for t in idx.trees] == [True, False]
+
+    def test_load_mask(self, tmp_path):
+        m = np.zeros((256, 256), np.uint8)
+        m[10:20, 30:40] = 200
+        m[0, 0] = 100  # below threshold: not branch
+        out = load_mask(write_png(tmp_path / "m.png", m))
+        assert out.dtype == bool and out.shape == (256, 256)
+        assert out.sum() == 100
+
+    def test_load_mask_accepts_rgb_greyscale(self, tmp_path):
+        m = np.zeros((256, 256, 3), np.uint8)
+        m[5, 5] = 255
+        assert load_mask(write_png(tmp_path / "m.png", m)).sum() == 1
+
+    @pytest.mark.parametrize("arr, msg", [
+        (np.zeros((480, 640), np.uint8), "expected"),
+        (np.dstack([np.zeros((256, 256), np.uint8), np.full((256, 256), 9, np.uint8),
+                    np.zeros((256, 256), np.uint8)]), "channels differ"),
+    ])
+    def test_load_mask_rejects_bad_files(self, tmp_path, arr, msg):
+        with pytest.raises(ValueError, match=msg):
+            load_mask(write_png(tmp_path / "m.png", arr))
+
+    def test_to_mask_frame_takes_centre_crop(self):
+        img = np.zeros((480, 640), np.uint8)
+        img[:, 80:560] = 200          # the centre 480 columns
+        out = to_mask_frame(img, nearest=True)
+        assert out.shape == (256, 256)
+        assert (out == 200).all()     # nothing from outside the crop
+
+    def test_to_mask_frame_rgb_and_bool(self):
+        rgb = np.full((480, 640, 3), 50, np.uint8)
+        assert to_mask_frame(rgb).shape == (256, 256, 3)
+        b = np.zeros((480, 640), bool)
+        b[:, 300:340] = True
+        out = to_mask_frame(b)
+        assert out.dtype == bool and out.any()
+
+    def test_mask_roundtrip_through_image_frame(self):
+        m = np.zeros((256, 256), bool)
+        m[40:200, 100:140] = True
+        full, covered = mask_to_image_frame(m)
+        assert full.shape == covered.shape == (480, 640)
+        assert not full[:, :80].any() and not full[:, 560:].any()
+        assert covered[:, 80:560].all() and not covered[:, :80].any()
+        back = to_mask_frame(full, nearest=True)
+        # Nearest-neighbour both ways loses at most a pixel at the edges.
+        assert (back ^ m).sum() <= 2 * (160 + 40)
+
+    def test_wrong_sizes_rejected(self):
+        with pytest.raises(ValueError):
+            to_mask_frame(np.zeros((256, 256), np.uint8))
+        with pytest.raises(ValueError):
+            mask_to_image_frame(np.zeros((480, 640), bool))

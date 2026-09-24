@@ -1,17 +1,31 @@
 """Dataset indexing and image loading for the orchard RGB-D dataset.
 
-Each tree has four 640x480 PNG files, one RGB and one depth image per season::
+The dataset used ("Dataset (With Summer GT)") has five PNG files per tree::
 
-    R01U01_Summer_RGB-12-40-11.png
-    R01U01_Summer_D-12-40-11.png
-    R01U01_Winter_RGB-11-23-20.png
-    R01U01_Winter_D-11-23-20.png
+    R20N03_Summer_RGB-14-21-52.png   640x480 colour
+    R20N03_Summer_D-14-21-52.png     640x480 depth
+    R20N03_Summer_GT-14-21-52.png    256x256 main-branch mask (summer only)
+    R20N03_Winter_RGB-13-26-42.png   640x480 colour
+    R20N03_Winter_D-13-26-42.png     640x480 depth
 
-The name encodes the orchard row (``R01``), the tree's position in that row
-(``U01``), the season, the modality (``RGB`` or ``D`` for depth) and the capture
-clock time ``H-M-S`` (not zero-padded, e.g. ``12-52-3``).
+The name encodes the orchard row (``R20``), the tree number within the row
+(``N03``), the season, the file type (``RGB``, ``D`` for depth or ``GT`` for
+the mask) and the capture clock time ``H-M-S`` (not zero-padded, e.g.
+``14-22-1``). R and N follow the orchard map supplied with the dataset: rows
+run west to east and N counts trees north to south, so ``R20N03_Summer`` and
+``R20N03_Winter`` are the same physical tree.
 
-The row 4 winter files use a variant that also embeds an original capture id,
+An earlier version of the dataset numbered trees by photo order (``U``, for
+"unmatched", e.g. ``R01U01``). Those names are still accepted so the original
+sample can be read, but U numbers are not guaranteed to be the same tree in
+both seasons.
+
+Masks are hand-labelled, 256x256, and assumed to use the same geometry as
+Chen et al. (2020): the photo's centre 480x480 (columns 80-559) resized to
+256x256. :func:`to_mask_frame` and :func:`mask_to_image_frame` convert between
+the two frames.
+
+The row 4 winter files in the U version use a variant that also embeds an original capture id,
 with an underscore before the time::
 
     R04U01_Winter_RGB-R04N03_RGB_12-17-14.png
@@ -45,16 +59,22 @@ SEASONS = ("summer", "winter")
 """Seasons present in the dataset, in lowercase canonical form."""
 
 IMAGE_SHAPE = (480, 640)
-"""Expected (height, width) of every image in pixels."""
+"""Expected (height, width) of every RGB and depth image in pixels."""
+
+MASK_SHAPE = (256, 256)
+"""Expected (height, width) of every mask in pixels."""
+
+CROP_COLS = (80, 560)
+"""Columns of the 640-wide photo covered by a mask (the centre 480x480)."""
 
 EXCLUDED_ROWS: dict[int, str] = {
-    4: "All 31 winter depth images are identical (the same image repeated), "
-       "so row 4 has no usable winter depth.",
+    4: "All winter depth images in row 4 are identical (the same image "
+       "repeated), so the row has no usable winter depth.",
 }
 """Rows left out of the dataset by default, with the reason for each."""
 
 _FILENAME_RE = re.compile(
-    r"^R(?P<row>\d+)U(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D)-"
+    r"^R(?P<row>\d+)(?P<kind>[UN])(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D|GT)-"
     # Optional embedded original id, e.g. "R04N03_RGB_" (row 4 winter files).
     r"(?:R(?P<src_row>\d+)N(?P<src_num>\d+)_(?P<src_mod>RGB|D)_)?"
     r"(?P<h>\d{1,2})-(?P<m>\d{1,2})-(?P<s>\d{1,2})\.png$",
@@ -62,16 +82,19 @@ _FILENAME_RE = re.compile(
 )
 
 
+_MODALITIES = {"RGB": "rgb", "D": "depth", "GT": "mask"}
+
+
 @dataclass(frozen=True)
 class FileInfo:
     """Metadata parsed from a single dataset filename.
 
     Attributes:
-        tree_id: Tree code, e.g. ``"R01U01"``.
-        row: Orchard row number (the ``01`` in ``R01``).
-        position: Tree position within its row (the ``01`` in ``U01``).
+        tree_id: Tree code, e.g. ``"R20N03"``.
+        row: Orchard row number (the ``20`` in ``R20``).
+        position: Tree number within its row (the ``03`` in ``N03``).
         season: ``"summer"`` or ``"winter"``.
-        modality: ``"rgb"`` or ``"depth"``.
+        modality: ``"rgb"``, ``"depth"`` or ``"mask"``.
         time: Capture clock time as ``"HH:MM:SS"``.
         source_id: Embedded original capture id such as ``"R04N03"``, or
             ``None`` for the standard naming.
@@ -93,7 +116,7 @@ def parse_filename(name: str | Path) -> FileInfo:
     """Parse a dataset filename into its components.
 
     Args:
-        name: Filename or path, e.g. ``"R01U01_Summer_D-12-40-11.png"``.
+        name: Filename or path, e.g. ``"R20N03_Summer_D-14-21-52.png"``.
 
     Returns:
         The parsed :class:`FileInfo`.
@@ -104,6 +127,8 @@ def parse_filename(name: str | Path) -> FileInfo:
             the outer name.
 
     Example:
+        >>> parse_filename("R20N05_Summer_GT-14-22-1.png").modality
+        'mask'
         >>> parse_filename("R02U10_Summer_RGB-12-52-3.png").time
         '12:52:03'
         >>> parse_filename("R04U01_Winter_RGB-R04N03_RGB_12-17-14.png").source_id
@@ -125,12 +150,12 @@ def parse_filename(name: str | Path) -> FileInfo:
         source_id = f"R{int(m['src_row']):02d}N{int(m['src_num']):02d}"
         source_modality = "rgb" if m["src_mod"].upper() == "RGB" else "depth"
     return FileInfo(
-        # Rebuild the id so "r1u1" and "R01U01" style variants map to one tree.
-        tree_id=f"R{row:02d}U{pos:02d}",
+        # Rebuild the id so "r1n1" and "R01N01" style variants map to one tree.
+        tree_id=f"R{row:02d}{m['kind'].upper()}{pos:02d}",
         row=row,
         position=pos,
         season=m["season"].lower(),
-        modality="rgb" if m["modality"].upper() == "RGB" else "depth",
+        modality=_MODALITIES[m["modality"].upper()],
         time=f"{h:02d}:{mi:02d}:{s:02d}",
         source_id=source_id,
         source_modality=source_modality,
@@ -142,9 +167,9 @@ class TreeRecord:
     """All files belonging to one tree.
 
     Attributes:
-        tree_id: Tree code, e.g. ``"R01U01"``.
+        tree_id: Tree code, e.g. ``"R20N03"``.
         row: Orchard row number, used as the grouping key for splits.
-        position: Tree position within its row.
+        position: Tree number within its row.
         paths: Mapping ``(season, modality) -> Path`` of the files found.
     """
 
@@ -164,8 +189,17 @@ class TreeRecord:
 
     @property
     def is_complete(self) -> bool:
-        """True if all four images (2 seasons x RGB/depth) are present."""
+        """True if all four images (2 seasons x RGB/depth) are present.
+
+        The mask is not required: it is used for validation only, so a tree
+        without one can still be used for training.
+        """
         return not self.missing()
+
+    @property
+    def has_mask(self) -> bool:
+        """True if the tree has a summer mask."""
+        return ("summer", "mask") in self.paths
 
 
 @dataclass
@@ -194,10 +228,11 @@ def index_dataset(
     """Scan a directory (recursively) and group image files by tree.
 
     Invalid inputs are reported rather than raised, so a single bad file does
-    not stop a run over the full 544-tree dataset: badly named files go to
+    not stop a run over the full dataset: badly named files go to
     ``unrecognised``, repeated files to ``duplicates`` (the first one found in
     sorted order is kept), and trees without all four images to ``incomplete``.
-    Trees in excluded rows go to ``excluded``.
+    Trees in excluded rows go to ``excluded``. Masks are optional (see
+    :attr:`TreeRecord.has_mask`).
 
     Args:
         root: Directory containing the PNG files (sub-folders are searched).
@@ -347,3 +382,85 @@ def load_tree(rec: TreeRecord, season: str) -> dict[str, np.ndarray]:
         raise ValueError(f"Unknown season {season!r}; expected one of {SEASONS}")
     depth, valid = load_depth(rec.paths[(season, "depth")])
     return {"rgb": load_rgb(rec.paths[(season, "rgb")]), "depth": depth, "valid": valid}
+
+
+def load_mask(path: str | Path) -> np.ndarray:
+    """Load a 256x256 main-branch mask as a boolean array.
+
+    Masks are white (branch) on black. Pixels brighter than 127 count as
+    branch, so light anti-aliasing at the edges does not matter.
+
+    Args:
+        path: Path to a ``_GT`` mask PNG.
+
+    Returns:
+        ``bool`` array of shape ``(256, 256)``, True on branch pixels.
+
+    Raises:
+        ValueError: If the mask is not 256x256 or is not greyscale.
+    """
+    path = Path(path)
+    arr = np.asarray(Image.open(path))
+    if arr.shape[:2] != MASK_SHAPE:
+        raise ValueError(f"{path.name}: expected {MASK_SHAPE} mask, got {arr.shape[:2]}")
+    if arr.ndim == 3:
+        chans = arr[..., :3]
+        if not (np.array_equal(chans[..., 0], chans[..., 1])
+                and np.array_equal(chans[..., 0], chans[..., 2])):
+            raise ValueError(f"{path.name}: mask channels differ; not a mask")
+        arr = chans[..., 0]
+    return arr > 127
+
+
+def to_mask_frame(image: np.ndarray, nearest: bool = False) -> np.ndarray:
+    """Crop and resize a 640x480 image to the 256x256 frame of the masks.
+
+    Takes the centre 480x480 (columns 80-559) and resizes it to 256x256, the
+    geometry assumed for the masks.
+
+    Args:
+        image: ``(480, 640)`` or ``(480, 640, C)`` array (``uint8`` or ``bool``).
+        nearest: Use nearest-neighbour resampling. Use this for depth (so
+            invalid zeros are not blended with valid values) and for masks.
+            Otherwise bilinear, which suits RGB images.
+
+    Returns:
+        Array of shape ``(256, 256)`` or ``(256, 256, C)``, same dtype.
+
+    Raises:
+        ValueError: If ``image`` is not 480x640.
+    """
+    if image.shape[:2] != IMAGE_SHAPE:
+        raise ValueError(f"expected {IMAGE_SHAPE} image, got {image.shape[:2]}")
+    crop = np.ascontiguousarray(image[:, CROP_COLS[0]:CROP_COLS[1]])
+    is_bool = crop.dtype == bool
+    pil = Image.fromarray(crop.astype(np.uint8) * 255 if is_bool else crop)
+    out = np.asarray(pil.resize(MASK_SHAPE[::-1],
+                                Image.NEAREST if nearest or is_bool else Image.BILINEAR))
+    return out > 127 if is_bool else out
+
+
+def mask_to_image_frame(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Map a 256x256 mask back onto the full 640x480 photo.
+
+    Args:
+        mask: ``bool`` array of shape ``(256, 256)``.
+
+    Returns:
+        ``(full, covered)``: ``full`` is a ``(480, 640)`` bool mask; ``covered``
+        is True on the columns the mask describes (80-559). Outside
+        ``covered``, the mask says nothing, so those pixels must be ignored
+        in evaluation rather than treated as "not branch".
+
+    Raises:
+        ValueError: If ``mask`` is not 256x256.
+    """
+    if mask.shape != MASK_SHAPE:
+        raise ValueError(f"expected {MASK_SHAPE} mask, got {mask.shape}")
+    side = IMAGE_SHAPE[0]
+    big = Image.fromarray(mask.astype(np.uint8) * 255).resize((side, side), Image.NEAREST)
+    full = np.zeros(IMAGE_SHAPE, bool)
+    full[:, CROP_COLS[0]:CROP_COLS[1]] = np.asarray(big) > 127
+    covered = np.zeros(IMAGE_SHAPE, bool)
+    covered[:, CROP_COLS[0]:CROP_COLS[1]] = True
+    return full, covered
