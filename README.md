@@ -20,6 +20,7 @@ src/treeskel/    Python package
   splits.py      row-grouped hold-out and k-fold cross-validation splits
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
+splits.json      fixed test rows and cross-validation folds (do not change)
 ```
 
 ## Setup
@@ -52,7 +53,9 @@ and is not redistributed here. Put it in `data/raw/`, which is git-ignored.
 
 Whole orchard rows are held out as a final test set (about 15% of trees), and
 5-fold cross-validation grouped by row is used on the remaining rows for model
-selection. Grouping by row stops neighbouring trees, which share background,
+selection. The split is fixed in `splits.json` (test rows 12, 18, 21) and was
+committed before any model was trained. Row 4 is excluded because all of its
+winter depth images are identical, leaving 513 trees in 22 rows. Grouping by row stops neighbouring trees, which share background,
 lighting and capture session, from appearing in both training and test data.
 
 
