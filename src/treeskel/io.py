@@ -68,16 +68,18 @@ CROP_COLS = (80, 560)
 """Columns of the 640-wide photo covered by a mask (the centre 480x480)."""
 
 EXCLUDED_ROWS: dict[int, str] = {
-    4: "All winter depth images in row 4 are identical (the same image "
-       "repeated), so the row has no usable winter depth.",
+    4: "Every winter depth image in row 4 is a copy of R03N34's winter depth "
+       "image, so the row has no usable winter depth.",
 }
 """Rows left out of the dataset by default, with the reason for each."""
 
-EXCLUDED_TREES: dict[str, str] = {
-    "R03N34": "Winter depth image is identical to the repeated row 4 winter "
-              "depth images, so it cannot be trusted to belong to this tree.",
-}
-"""Individual trees left out of the dataset by default, with the reason."""
+EXCLUDED_TREES: dict[str, str] = {}
+"""Individual trees left out of the dataset by default, with the reason.
+
+Empty at present. R03N34's winter depth image is identical to row 4's, but it
+was checked against R03N34's own RGB image and is genuine: row 4 holds the
+copies (see :data:`EXCLUDED_ROWS`).
+"""
 
 _FILENAME_RE = re.compile(
     r"^R(?P<row>\d+)(?P<kind>[UN])(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D|GT)-"
