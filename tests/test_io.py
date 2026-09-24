@@ -91,7 +91,9 @@ class TestIndexDataset:
         idx = index_dataset(sample_dir)
         assert len(idx.trees) == 8
         assert not idx.incomplete and not idx.unrecognised and not idx.duplicates
-        assert idx.trees[0].tree_id == "R01U01"
+        assert idx.trees[0].tree_id == "R01N01"
+        assert all(t.has_mask for t in idx.trees)
+        assert [t.tree_id for t in idx.excluded] == ["R04N01"]  # row 4
 
     def test_reports_incomplete_and_unrecognised(self, make_tree):
         root = make_tree("R03U04")
@@ -189,8 +191,13 @@ class TestExclusionsAndDuplicates:
         p3 = write_png(tmp_path / "b.png", b)
         assert find_identical_images([p3, p2, p1]) == [[p1, p2]]
 
-    def test_sample_has_no_identical_images(self, sample_dir):
-        assert find_identical_images(sorted(sample_dir.glob("*.png"))) == []
+    def test_sample_finds_real_row4_copy(self, sample_dir):
+        # The sample includes R04N01, whose winter depth is a copy of R03N34's.
+        groups = find_identical_images(sorted(sample_dir.glob("*.png")))
+        assert [[p.name for p in g] for g in groups] == [[
+            "R03N34_Winter_D-11-39-13.png",
+            "R04N01_Winter_D-R04N05_RGB_12-17-20.png",
+        ]]
 
 
 class TestMasks:

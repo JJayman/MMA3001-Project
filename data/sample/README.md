@@ -1,43 +1,21 @@
 # Sample data
 
-> **Note:** this sample is from the *earlier* version of the dataset, which
-> numbered trees by photo order (`U`, "unmatched"). The project now uses
-> "Dataset (With Summer GT)" (`N` numbering, with masks). This sample will be
-> replaced with the same trees from that dataset.
+Nine trees from "Dataset (With Summer GT)", five files each, committed so the
+tests and demos run without the full dataset:
 
-A small sample of the orchard RGB-D dataset (8 trees from rows 1, 2, 6 and 17),
-committed so that the tests and demos run without the full dataset.
-
-Each tree has four 640x480 PNG files:
-
-| File | Contents |
+| Trees | Why they are included |
 |---|---|
-| `R01U01_Summer_RGB-12-40-11.png` | Summer colour image |
-| `R01U01_Summer_D-12-40-11.png` | Summer depth image |
-| `R01U01_Winter_RGB-11-23-20.png` | Winter colour image |
-| `R01U01_Winter_D-11-23-20.png` | Winter depth image |
+| R01N01, R01N02 | Development row |
+| R03N33, R03N34 | Test row. R03N34's winter depth is the genuine image that row 4 copies |
+| R04N01 | Row 4 (excluded): its winter depth is a copy of R03N34's, and it uses the embedded-id file name |
+| R12N02, R12N03 | Test row |
+| R15N05 | Development row |
+| R20N06 | Short row (6 trees) |
 
-Filename format: `R<row>U<position in row>_<Season>_<RGB|D>-<H>-<M>-<S>.png`,
-where `H-M-S` is the capture clock time (not zero-padded).
+The full dataset is provided by the MMA3001 teaching team and is **not**
+stored in this repository. Place it in `data/raw/` (git-ignored).
 
-Row 4 winter files use a variant with an embedded original id, e.g.
-`R04U01_Winter_RGB-R04N03_RGB_12-17-14.png` (the depth files also embed
-`_RGB_`); the loader accepts both.
-
-**Row 4 is excluded** (31 trees): all of its winter depth images are the same
-image repeated, so there is no usable winter depth for that row. Its winter
-depth files also embed `_RGB_` in their names, which suggests an export error.
-The exclusion is recorded in `treeskel.io.EXCLUDED_ROWS`, leaving 513 trees in
-22 rows. `python -m treeskel.splits DIR --check-images` reports groups of
-identical images, so a problem like this is caught automatically.
-
-Depth images are 8-bit greyscale (three identical channels). They are a scaled
-visualisation, not metric distance: brighter = closer, and 0 = no reading.
-
-The full dataset (544 trees, 23 rows) is provided by the MMA3001 teaching team
-and is **not** stored in this repository. Place it in `data/raw/` (git-ignored).
-
-## Dataset (With Summer GT), the version now used
+## Dataset (With Summer GT)
 
 Five files per tree, all in one folder:
 
@@ -54,8 +32,15 @@ Five files per tree, all in one folder:
   east, and N counts trees north to south. So `R20N03_Summer` and
   `R20N03_Winter` are the same physical tree.
 - Masks are assumed to cover the photo's centre 480x480 (columns 80–559),
-  resized to 256x256, as in Chen et al. (2020). To be verified by overlay.
+  resized to 256x256, as in Chen et al. (2020). **Checked by overlay on this
+  sample:** the shape matches, but each mask sits about 15–45 px left of the
+  visible trunk, and the shift varies by tree
+  ([example](../../docs/figures/mask_alignment_R12N02.jpg)). Stretching the
+  mask to the full width fits worse. Pixel-level comparison therefore needs
+  a per-tree alignment first.
 - Masks are used for **validation only**, not training.
+- Depth images are 8-bit greyscale (three identical channels): a scaled
+  visualisation, not metric distance. Brighter = closer; 0 = no reading.
 - Row 4's 21 winter depth images are all copies of R03N34's winter depth
   image (R03N34 was photographed just before row 4). R03N34's image was
   checked against its own RGB image and is genuine, so R03N34 is kept and
