@@ -115,7 +115,7 @@ def test_cli_reports_embedded_id_offset(sample_dir, tmp_path, capsys):
     assert main([str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "Complete trees: 2" in out
-    assert "N number minus U position -> count: {3: 1}" in out
+    assert "embedded number minus tree number -> count: {3: 1}" in out
     assert "embedded RGB/D label differs: 1" in out
 
 
@@ -206,3 +206,15 @@ def test_cli_counts_masks_and_checks_them(make_tree, tmp_path, capsys):
     assert "Complete trees: 2" in out
     assert "Complete trees with a summer mask: 1 of 2" in out
     assert "Image check: 0 problem file(s)" in out
+
+
+def test_cli_reports_excluded_tree(make_tree, tmp_path, capsys):
+    make_tree("R03N34")
+    make_tree("R03N33")
+    make_tree("R05N01")
+    assert main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Complete trees: 2" in out
+    assert "Excluded tree R03N34: Winter depth image is identical" in out
+    assert main([str(tmp_path), "--include-all-rows"]) == 0
+    assert "Complete trees: 3" in capsys.readouterr().out
