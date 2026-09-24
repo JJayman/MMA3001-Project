@@ -254,3 +254,12 @@ class TestMasks:
             to_mask_frame(np.zeros((256, 256), np.uint8))
         with pytest.raises(ValueError):
             mask_to_image_frame(np.zeros((480, 640), bool))
+
+
+def test_exclude_trees(make_tree):
+    root = make_tree("R03N34")
+    make_tree("R03N33")
+    assert len(index_dataset(root).trees) == 2  # R03N34 is kept by default
+    idx = index_dataset(root, exclude_trees=["R03N34"])
+    assert [t.tree_id for t in idx.trees] == ["R03N33"]
+    assert [t.tree_id for t in idx.excluded] == ["R03N34"]

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import treeskel.splits as splits_mod
 from treeskel.io import TreeRecord
 from treeskel.splits import (
     load_split,
@@ -115,7 +116,7 @@ def test_cli_reports_embedded_id_offset(sample_dir, tmp_path, capsys):
     assert main([str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "Complete trees: 2" in out
-    assert "N number minus U position -> count: {3: 1}" in out
+    assert "embedded number minus tree number -> count: {3: 1}" in out
     assert "embedded RGB/D label differs: 1" in out
 
 
@@ -151,7 +152,7 @@ def test_cli_reports_excluded_row_and_identical_images(sample_dir, tmp_path, cap
     assert main([str(tmp_path), "--check-images"]) == 0
     out = capsys.readouterr().out
     assert "Complete trees: 2" in out
-    assert "Excluded row 4 (2 trees): All winter depth images in row 4 are identical" in out
+    assert "Excluded row 4 (2 trees): Every winter depth image in row 4 is a copy" in out
     assert "Identical-image groups: 1" in out
     assert "2 files: R04U01_Winter_D-" in out
 
@@ -206,3 +207,16 @@ def test_cli_counts_masks_and_checks_them(make_tree, tmp_path, capsys):
     assert "Complete trees: 2" in out
     assert "Complete trees with a summer mask: 1 of 2" in out
     assert "Image check: 0 problem file(s)" in out
+
+
+def test_cli_reports_excluded_tree(make_tree, tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(splits_mod.EXCLUDED_TREES, "R03N34", "test reason")
+    make_tree("R03N34")
+    make_tree("R03N33")
+    make_tree("R05N01")
+    assert main([str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Complete trees: 2" in out
+    assert "Excluded tree R03N34: test reason" in out
+    assert main([str(tmp_path), "--include-all-rows"]) == 0
+    assert "Complete trees: 3" in capsys.readouterr().out

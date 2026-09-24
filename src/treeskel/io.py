@@ -68,10 +68,18 @@ CROP_COLS = (80, 560)
 """Columns of the 640-wide photo covered by a mask (the centre 480x480)."""
 
 EXCLUDED_ROWS: dict[int, str] = {
-    4: "All winter depth images in row 4 are identical (the same image "
-       "repeated), so the row has no usable winter depth.",
+    4: "Every winter depth image in row 4 is a copy of R03N34's winter depth "
+       "image, so the row has no usable winter depth.",
 }
 """Rows left out of the dataset by default, with the reason for each."""
+
+EXCLUDED_TREES: dict[str, str] = {}
+"""Individual trees left out of the dataset by default, with the reason.
+
+Empty at present. R03N34's winter depth image is identical to row 4's, but it
+was checked against R03N34's own RGB image and is genuine: row 4 holds the
+copies (see :data:`EXCLUDED_ROWS`).
+"""
 
 _FILENAME_RE = re.compile(
     r"^R(?P<row>\d+)(?P<kind>[UN])(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D|GT)-"
@@ -211,8 +219,9 @@ class DatasetIndex:
         incomplete: Trees missing at least one image; excluded from ``trees``.
         unrecognised: Files whose names did not match the convention.
         duplicates: Files that repeat an already-seen ``(tree, season, modality)``.
-        excluded: Trees in deliberately excluded rows (see :data:`EXCLUDED_ROWS`),
-            whether complete or not; not in ``trees`` or ``incomplete``.
+        excluded: Trees deliberately left out (see :data:`EXCLUDED_ROWS` and
+            :data:`EXCLUDED_TREES`), whether complete or not; not in
+            ``trees`` or ``incomplete``.
     """
 
     trees: list[TreeRecord]
@@ -223,7 +232,9 @@ class DatasetIndex:
 
 
 def index_dataset(
-    root: str | Path, exclude_rows: Iterable[int] | None = None
+    root: str | Path,
+    exclude_rows: Iterable[int] | None = None,
+    exclude_trees: Iterable[str] | None = None,
 ) -> DatasetIndex:
     """Scan a directory (recursively) and group image files by tree.
 
@@ -231,13 +242,15 @@ def index_dataset(
     not stop a run over the full dataset: badly named files go to
     ``unrecognised``, repeated files to ``duplicates`` (the first one found in
     sorted order is kept), and trees without all four images to ``incomplete``.
-    Trees in excluded rows go to ``excluded``. Masks are optional (see
+    Trees in excluded rows, and excluded individual trees, go to ``excluded``. Masks are optional (see
     :attr:`TreeRecord.has_mask`).
 
     Args:
         root: Directory containing the PNG files (sub-folders are searched).
         exclude_rows: Rows to leave out. ``None`` (default) uses
             :data:`EXCLUDED_ROWS`; pass ``()`` to keep every row.
+        exclude_trees: Tree ids to leave out. ``None`` (default) uses
+            :data:`EXCLUDED_TREES`; pass ``()`` to keep every tree.
 
     Returns:
         A :class:`DatasetIndex`.
@@ -268,15 +281,20 @@ def index_dataset(
         else:
             rec.paths[key] = path
 
-    skip = set(EXCLUDED_ROWS if exclude_rows is None else exclude_rows)
+    skip_rows = set(EXCLUDED_ROWS if exclude_rows is None else exclude_rows)
+    skip_trees = set(EXCLUDED_TREES if exclude_trees is None else exclude_trees)
+
+    def skipped(r: TreeRecord) -> bool:
+        return r.row in skip_rows or r.tree_id in skip_trees
+
     ordered = [records[k] for k in sorted(records)]
-    kept = [r for r in ordered if r.row not in skip]
+    kept = [r for r in ordered if not skipped(r)]
     return DatasetIndex(
         trees=[r for r in kept if r.is_complete],
         incomplete=[r for r in kept if not r.is_complete],
         unrecognised=unrecognised,
         duplicates=duplicates,
-        excluded=[r for r in ordered if r.row in skip],
+        excluded=[r for r in ordered if skipped(r)],
     )
 
 

@@ -56,8 +56,10 @@ Five files per tree, all in one folder:
 - Masks are assumed to cover the photo's centre 480x480 (columns 80–559),
   resized to 256x256, as in Chen et al. (2020). To be verified by overlay.
 - Masks are used for **validation only**, not training.
-- Row 4's winter depth images are also all identical in this version, so
-  row 4 stays excluded.
+- Row 4's 21 winter depth images are all copies of R03N34's winter depth
+  image (R03N34 was photographed just before row 4). R03N34's image was
+  checked against its own RGB image and is genuine, so R03N34 is kept and
+  row 4 is excluded. That leaves 541 trees in 19 rows.
 
 ## Capture setup
 

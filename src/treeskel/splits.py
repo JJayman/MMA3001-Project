@@ -28,6 +28,7 @@ from sklearn.model_selection import GroupKFold
 
 from treeskel.io import (
     EXCLUDED_ROWS,
+    EXCLUDED_TREES,
     TreeRecord,
     find_identical_images,
     index_dataset,
@@ -246,14 +247,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="open every image, check its size and type, and look for "
                          "identical images (slower)")
     ap.add_argument("--include-all-rows", action="store_true",
-                    help="do not apply the default row exclusions")
+                    help="do not apply the default row and tree exclusions")
     args = ap.parse_args(argv)
 
-    idx = index_dataset(args.data_dir, () if args.include_all_rows else None)
+    none = () if args.include_all_rows else None
+    idx = index_dataset(args.data_dir, none, none)
     print(f"Complete trees: {len(idx.trees)}")
-    for row in sorted({t.row for t in idx.excluded}):
+    ex_rows = {t.row for t in idx.excluded if t.row in EXCLUDED_ROWS}
+    for row in sorted(ex_rows):
         n = sum(t.row == row for t in idx.excluded)
-        print(f"Excluded row {row} ({n} trees): {EXCLUDED_ROWS.get(row, '')}")
+        print(f"Excluded row {row} ({n} trees): {EXCLUDED_ROWS[row]}")
+    for t in idx.excluded:
+        if t.row not in ex_rows:
+            print(f"Excluded tree {t.tree_id}: {EXCLUDED_TREES.get(t.tree_id, '')}")
     print(f"Incomplete trees (excluded): {len(idx.incomplete)}")
     for r in idx.incomplete:
         print(f"  {r.tree_id}: missing {r.missing()}")
@@ -279,7 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if info.modality == "rgb":
                 offsets[int(info.source_id.split("N")[1]) - info.position] += 1
     if offsets:
-        print(f"Embedded-id files: N number minus U position -> count: {dict(sorted(offsets.items()))}")
+        print(f"Embedded-id files: embedded number minus tree number -> count: {dict(sorted(offsets.items()))}")
         print(f"Embedded-id files whose embedded RGB/D label differs: {label_mismatch}")
 
     if args.check_images:
