@@ -16,7 +16,15 @@ Filename format: `R<row>U<position in row>_<Season>_<RGB|D>-<H>-<M>-<S>.png`,
 where `H-M-S` is the capture clock time (not zero-padded).
 
 Row 4 winter files use a variant with an embedded original id, e.g.
-`R04U01_Winter_RGB-R04N03_RGB_12-17-14.png`; the loader accepts both.
+`R04U01_Winter_RGB-R04N03_RGB_12-17-14.png` (the depth files also embed
+`_RGB_`); the loader accepts both.
+
+**Row 4 is excluded** (31 trees): all of its winter depth images are the same
+image repeated, so there is no usable winter depth for that row. Its winter
+depth files also embed `_RGB_` in their names, which suggests an export error.
+The exclusion is recorded in `treeskel.io.EXCLUDED_ROWS`, leaving 513 trees in
+22 rows. `python -m treeskel.splits DIR --check-images` reports groups of
+identical images, so a problem like this is caught automatically.
 
 Depth images are 8-bit greyscale (three identical channels). They are a scaled
 visualisation, not metric distance: brighter = closer, and 0 = no reading.

@@ -16,8 +16,13 @@ with an underscore before the time::
 
     R04U01_Winter_RGB-R04N03_RGB_12-17-14.png
 
-The embedded id (``R04N03``) is kept as :attr:`FileInfo.source_id`. Its row and
-modality must match the outer ones, or the file is rejected.
+The embedded id (``R04N03``) is kept as :attr:`FileInfo.source_id`. Its row
+must match the outer row, or the file is rejected. Its modality is *not* trusted:
+every row 4 winter depth file embeds ``_RGB_`` (e.g.
+``R04U01_Winter_D-R04N03_RGB_12-17-14.png``), so the outer ``D``/``RGB`` label
+decides the modality, and the embedded one is kept as
+:attr:`FileInfo.source_modality` for reporting. :func:`load_depth` rejects any
+"depth" file that is really a colour image, which catches a wrong outer label.
 
 Depth images are stored as 8-bit greyscale (three identical channels). They are
 a scaled visualisation of depth, not metric distance: brighter pixels are closer
@@ -26,7 +31,10 @@ to the camera and 0 means "no reading" (out of range or sensor dropout).
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,6 +46,12 @@ SEASONS = ("summer", "winter")
 
 IMAGE_SHAPE = (480, 640)
 """Expected (height, width) of every image in pixels."""
+
+EXCLUDED_ROWS: dict[int, str] = {
+    4: "All 31 winter depth images are identical (the same image repeated), "
+       "so row 4 has no usable winter depth.",
+}
+"""Rows left out of the dataset by default, with the reason for each."""
 
 _FILENAME_RE = re.compile(
     r"^R(?P<row>\d+)U(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D)-"
@@ -61,6 +75,8 @@ class FileInfo:
         time: Capture clock time as ``"HH:MM:SS"``.
         source_id: Embedded original capture id such as ``"R04N03"``, or
             ``None`` for the standard naming.
+        source_modality: Modality written in the embedded id (``"rgb"`` or
+            ``"depth"``), or ``None``. May disagree with ``modality``.
     """
 
     tree_id: str
@@ -70,6 +86,7 @@ class FileInfo:
     modality: str
     time: str
     source_id: str | None = None
+    source_modality: str | None = None
 
 
 def parse_filename(name: str | Path) -> FileInfo:
@@ -83,8 +100,8 @@ def parse_filename(name: str | Path) -> FileInfo:
 
     Raises:
         ValueError: If the name does not follow the dataset naming convention,
-            has an impossible time, or embeds an id whose row or modality
-            disagrees with the outer name.
+            has an impossible time, or embeds an id whose row disagrees with
+            the outer name.
 
     Example:
         >>> parse_filename("R02U10_Summer_RGB-12-52-3.png").time
@@ -100,12 +117,13 @@ def parse_filename(name: str | Path) -> FileInfo:
     h, mi, s = int(m["h"]), int(m["m"]), int(m["s"])
     if not (h < 24 and mi < 60 and s < 60):
         raise ValueError(f"Invalid capture time in filename: {base!r}")
-    source_id = None
+    source_id = source_modality = None
     if m["src_row"] is not None:
-        # A mismatch would mean the file was renamed to the wrong tree or type.
-        if int(m["src_row"]) != row or m["src_mod"].upper() != m["modality"].upper():
-            raise ValueError(f"Embedded id disagrees with filename: {base!r}")
+        # A row mismatch would mean the file was renamed to the wrong tree.
+        if int(m["src_row"]) != row:
+            raise ValueError(f"Embedded row disagrees with filename: {base!r}")
         source_id = f"R{int(m['src_row']):02d}N{int(m['src_num']):02d}"
+        source_modality = "rgb" if m["src_mod"].upper() == "RGB" else "depth"
     return FileInfo(
         # Rebuild the id so "r1u1" and "R01U01" style variants map to one tree.
         tree_id=f"R{row:02d}U{pos:02d}",
@@ -115,6 +133,7 @@ def parse_filename(name: str | Path) -> FileInfo:
         modality="rgb" if m["modality"].upper() == "RGB" else "depth",
         time=f"{h:02d}:{mi:02d}:{s:02d}",
         source_id=source_id,
+        source_modality=source_modality,
     )
 
 
@@ -158,24 +177,32 @@ class DatasetIndex:
         incomplete: Trees missing at least one image; excluded from ``trees``.
         unrecognised: Files whose names did not match the convention.
         duplicates: Files that repeat an already-seen ``(tree, season, modality)``.
+        excluded: Trees in deliberately excluded rows (see :data:`EXCLUDED_ROWS`),
+            whether complete or not; not in ``trees`` or ``incomplete``.
     """
 
     trees: list[TreeRecord]
     incomplete: list[TreeRecord]
     unrecognised: list[Path]
     duplicates: list[Path]
+    excluded: list[TreeRecord] = field(default_factory=list)
 
 
-def index_dataset(root: str | Path) -> DatasetIndex:
+def index_dataset(
+    root: str | Path, exclude_rows: Iterable[int] | None = None
+) -> DatasetIndex:
     """Scan a directory (recursively) and group image files by tree.
 
     Invalid inputs are reported rather than raised, so a single bad file does
     not stop a run over the full 544-tree dataset: badly named files go to
     ``unrecognised``, repeated files to ``duplicates`` (the first one found in
     sorted order is kept), and trees without all four images to ``incomplete``.
+    Trees in excluded rows go to ``excluded``.
 
     Args:
         root: Directory containing the PNG files (sub-folders are searched).
+        exclude_rows: Rows to leave out. ``None`` (default) uses
+            :data:`EXCLUDED_ROWS`; pass ``()`` to keep every row.
 
     Returns:
         A :class:`DatasetIndex`.
@@ -206,13 +233,41 @@ def index_dataset(root: str | Path) -> DatasetIndex:
         else:
             rec.paths[key] = path
 
+    skip = set(EXCLUDED_ROWS if exclude_rows is None else exclude_rows)
     ordered = [records[k] for k in sorted(records)]
+    kept = [r for r in ordered if r.row not in skip]
     return DatasetIndex(
-        trees=[r for r in ordered if r.is_complete],
-        incomplete=[r for r in ordered if not r.is_complete],
+        trees=[r for r in kept if r.is_complete],
+        incomplete=[r for r in kept if not r.is_complete],
         unrecognised=unrecognised,
         duplicates=duplicates,
+        excluded=[r for r in ordered if r.row in skip],
     )
+
+
+def find_identical_images(paths: Iterable[str | Path]) -> list[list[Path]]:
+    """Find groups of files whose pixel content is exactly identical.
+
+    Different trees should never share an image, so any group returned points
+    to a copying or export error (this is how row 4's repeated winter depth
+    images were found). Pixels are compared, not file bytes, so the same image
+    saved with different PNG settings still counts as identical.
+
+    Args:
+        paths: Image files to compare.
+
+    Returns:
+        Groups of two or more identical files, each sorted, ordered by first
+        file name.
+    """
+    groups: dict[str, list[Path]] = defaultdict(list)
+    for p in paths:
+        p = Path(p)
+        arr = np.asarray(Image.open(p))
+        h = hashlib.sha1(str(arr.shape).encode() + arr.tobytes()).hexdigest()
+        groups[h].append(p)
+    return sorted((sorted(g) for g in groups.values() if len(g) > 1),
+                  key=lambda g: g[0].name)
 
 
 def _check_shape(arr: np.ndarray, path: Path) -> None:
