@@ -11,7 +11,9 @@ data, so every split here keeps whole rows together:
    model selection (cross-validation).
 
 Run ``python -m treeskel.splits <data_dir>`` to print a summary for a dataset,
-and add ``--save splits.json`` to record the split so it never changes later.
+and add ``--save splits.json`` to record the split. From then on, use
+``--load splits.json`` (and :func:`load_split` in code) so the split never
+changes, even if the code that chooses it does.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from treeskel.io import (
     find_identical_images,
     index_dataset,
     load_depth,
+    load_mask,
     load_rgb,
     parse_filename,
 )
@@ -138,29 +141,76 @@ def row_kfold(
 
 
 def split_to_dict(
-    test_rows: Sequence[int], folds: Sequence[tuple[list[TreeRecord], list[TreeRecord]]]
+    trees: Sequence[TreeRecord],
+    test_rows: Sequence[int],
+    folds: Sequence[tuple[list[TreeRecord], list[TreeRecord]]],
 ) -> dict:
     """Describe a split as plain data (rows only) for saving to JSON.
 
     Args:
+        trees: All trees the split was made from.
         test_rows: Held-out test rows.
         folds: Output of :func:`row_kfold`.
 
     Returns:
-        ``{"test_rows": [...], "fold_val_rows": [[...], ...]}``.
+        ``{"all_rows": [...], "n_trees": int, "test_rows": [...],
+        "fold_val_rows": [[...], ...]}``. ``all_rows`` and ``n_trees`` let
+        :func:`load_split` detect a split being used with a different dataset.
     """
     return {
+        "all_rows": sorted(row_counts(trees)),
+        "n_trees": len(trees),
         "test_rows": sorted(int(r) for r in test_rows),
         "fold_val_rows": [sorted(row_counts(val)) for _, val in folds],
     }
+
+
+def load_split(
+    path: str, trees: Sequence[TreeRecord]
+) -> tuple[list[int], list[tuple[list[TreeRecord], list[TreeRecord]]]]:
+    """Rebuild a saved split for the given trees.
+
+    Args:
+        path: JSON file written by ``--save``.
+        trees: All trees (excluded rows already removed).
+
+    Returns:
+        ``(test_rows, folds)``, in the same form as :func:`select_test_rows`
+        and :func:`row_kfold`.
+
+    Raises:
+        ValueError: If the file's rows do not match the trees' rows (the split
+            was made for a different dataset), or the folds do not cover every
+            development row exactly once.
+    """
+    with open(path) as f:
+        d = json.load(f)
+    rows = set(row_counts(trees))
+    saved = set(d.get("all_rows", []))
+    if saved != rows:
+        raise ValueError(
+            f"{path} was made for rows {sorted(saved)}, but the data has rows "
+            f"{sorted(rows)}; make a new split with --save"
+        )
+    test_rows = [int(r) for r in d["test_rows"]]
+    fold_rows = [set(map(int, f)) for f in d["fold_val_rows"]]
+    dev_rows = rows - set(test_rows)
+    flat = [r for f in fold_rows for r in f]
+    if sorted(flat) != sorted(dev_rows):
+        raise ValueError(f"{path}: folds do not cover each development row exactly once")
+    dev, _ = train_test_split_by_row(trees, test_rows)
+    folds = [([t for t in dev if t.row not in f], [t for t in dev if t.row in f])
+             for f in fold_rows]
+    return sorted(test_rows), folds
 
 
 def check_images(trees: Sequence[TreeRecord]) -> list[tuple[str, str]]:
     """Open every image and check it loads as the type its name says.
 
     RGB files must be 640x480 colour images; depth files must be 640x480
-    greyscale (identical channels). This catches files with a wrong
-    ``RGB``/``D`` label, which the filename alone cannot reveal.
+    greyscale (identical channels); masks must be 256x256 greyscale. This
+    catches files with a wrong ``RGB``/``D``/``GT`` label, which the filename
+    alone cannot reveal.
 
     Args:
         trees: Tree records whose files should be checked.
@@ -172,10 +222,7 @@ def check_images(trees: Sequence[TreeRecord]) -> list[tuple[str, str]]:
     for t in trees:
         for (_, modality), path in sorted(t.paths.items()):
             try:
-                if modality == "depth":
-                    load_depth(path)
-                else:
-                    load_rgb(path)
+                {"depth": load_depth, "mask": load_mask, "rgb": load_rgb}[modality](path)
             except Exception as e:  # report every failure; don't stop the scan
                 bad.append((path.name, str(e)))
     return bad
@@ -184,11 +231,14 @@ def check_images(trees: Sequence[TreeRecord]) -> list[tuple[str, str]]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Print a dataset and split summary, optionally saving the split.
 
-    Usage: ``python -m treeskel.splits DATA_DIR [--save splits.json] [--check-images]``.
+    Usage: ``python -m treeskel.splits DATA_DIR [--save | --load splits.json]
+    [--check-images]``.
     """
     ap = argparse.ArgumentParser(prog="python -m treeskel.splits", description=__doc__.splitlines()[0])
     ap.add_argument("data_dir", help="folder containing the dataset PNG files")
-    ap.add_argument("--save", metavar="JSON", help="write the test rows and folds to this file")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--save", metavar="JSON", help="make a new split and write it to this file")
+    mode.add_argument("--load", metavar="JSON", help="use the split saved in this file")
     ap.add_argument("--test-fraction", type=float, default=0.15)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
@@ -212,6 +262,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  {p.name}")
     print(f"Duplicate files: {len(idx.duplicates)}")
     print(f"Trees per row: {row_counts(idx.trees)}")
+    n_mask = sum(t.has_mask for t in idx.trees)
+    print(f"Complete trees with a summer mask: {n_mask} of {len(idx.trees)}")
 
     # Files with an embedded original id (row 4 winter): show how the U
     # position relates to the embedded N number, so renaming can be checked.
@@ -244,18 +296,23 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if len(row_counts(idx.trees)) < 2:
         return 0
-    test_rows = select_test_rows(idx.trees, args.test_fraction, args.seed)
-    dev, test = train_test_split_by_row(idx.trees, test_rows)
+    if args.load:
+        test_rows, folds = load_split(args.load, idx.trees)
+        print(f"Loaded split from {args.load}")
+    else:
+        test_rows = select_test_rows(idx.trees, args.test_fraction, args.seed)
+        dev, _ = train_test_split_by_row(idx.trees, test_rows)
+        k = min(args.folds, len(row_counts(dev)))
+        folds = row_kfold(dev, k) if k >= 2 else []
+    _, test = train_test_split_by_row(idx.trees, test_rows)
     print(f"Test rows {test_rows}: {len(test)} trees "
           f"({len(test) / len(idx.trees):.1%})")
-    k = min(args.folds, len(row_counts(dev)))
-    folds = row_kfold(dev, k) if k >= 2 else []
     for i, (tr, va) in enumerate(folds):
         print(f"Fold {i}: train {len(tr)}, val {len(va)}, "
               f"val rows {sorted(row_counts(va))}")
     if args.save:
         with open(args.save, "w") as f:
-            json.dump(split_to_dict(test_rows, folds), f, indent=2)
+            json.dump(split_to_dict(idx.trees, test_rows, folds), f, indent=2)
         print(f"Saved split to {args.save}")
     return 0
 

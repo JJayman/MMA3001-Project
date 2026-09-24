@@ -1,5 +1,10 @@
 # Sample data
 
+> **Note:** this sample is from the *earlier* version of the dataset, which
+> numbered trees by photo order (`U`, "unmatched"). The project now uses
+> "Dataset (With Summer GT)" (`N` numbering, with masks). This sample will be
+> replaced with the same trees from that dataset.
+
 A small sample of the orchard RGB-D dataset (8 trees from rows 1, 2, 6 and 17),
 committed so that the tests and demos run without the full dataset.
 
@@ -31,6 +36,28 @@ visualisation, not metric distance: brighter = closer, and 0 = no reading.
 
 The full dataset (544 trees, 23 rows) is provided by the MMA3001 teaching team
 and is **not** stored in this repository. Place it in `data/raw/` (git-ignored).
+
+## Dataset (With Summer GT), the version now used
+
+Five files per tree, all in one folder:
+
+| File | Contents |
+|---|---|
+| `R20N03_Summer_RGB-14-21-52.png` | Summer colour image, 640x480 |
+| `R20N03_Summer_D-14-21-52.png` | Summer depth image, 640x480 |
+| `R20N03_Summer_GT-14-21-52.png` | Summer main-branch mask (trunk + two V leaders), 256x256 |
+| `R20N03_Winter_RGB-13-26-42.png` | Winter colour image, 640x480 |
+| `R20N03_Winter_D-13-26-42.png` | Winter depth image, 640x480 |
+
+- 2,810 files (562 trees) in 20 rows.
+- R and N follow the orchard map supplied with the dataset: rows run west to
+  east, and N counts trees north to south. So `R20N03_Summer` and
+  `R20N03_Winter` are the same physical tree.
+- Masks are assumed to cover the photo's centre 480x480 (columns 80–559),
+  resized to 256x256, as in Chen et al. (2020). To be verified by overlay.
+- Masks are used for **validation only**, not training.
+- Row 4's winter depth images are also all identical in this version, so
+  row 4 stays excluded.
 
 ## Capture setup
 

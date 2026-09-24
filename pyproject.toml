@@ -16,5 +16,6 @@ dev = ["pytest>=7.4", "pdoc>=14.0"]
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src"]
+addopts = "--doctest-modules"
 pythonpath = ["src"]

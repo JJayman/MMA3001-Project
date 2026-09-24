@@ -6,6 +6,7 @@ import pytest
 
 from treeskel.io import TreeRecord
 from treeskel.splits import (
+    load_split,
     main,
     row_counts,
     row_kfold,
@@ -150,9 +151,58 @@ def test_cli_reports_excluded_row_and_identical_images(sample_dir, tmp_path, cap
     assert main([str(tmp_path), "--check-images"]) == 0
     out = capsys.readouterr().out
     assert "Complete trees: 2" in out
-    assert "Excluded row 4 (2 trees): All 31 winter depth images are identical" in out
+    assert "Excluded row 4 (2 trees): All winter depth images in row 4 are identical" in out
     assert "Identical-image groups: 1" in out
     assert "2 files: R04U01_Winter_D-" in out
 
     assert main([str(tmp_path), "--include-all-rows"]) == 0
     assert "Complete trees: 4" in capsys.readouterr().out
+
+
+def test_split_save_and_load_roundtrip(sample_dir, tmp_path, capsys):
+    out = tmp_path / "splits.json"
+    assert main([str(sample_dir), "--save", str(out)]) == 0
+    saved = capsys.readouterr().out
+    assert main([str(sample_dir), "--load", str(out)]) == 0
+    loaded = capsys.readouterr().out
+    assert "Loaded split from" in loaded
+    # Same test rows and folds either way.
+    pick = lambda text: [l for l in text.splitlines() if l.startswith(("Test rows", "Fold"))]
+    assert pick(saved) == pick(loaded)
+
+
+def test_load_split_rejects_other_dataset(tmp_path):
+    out = tmp_path / "splits.json"
+    out.write_text(json.dumps({"all_rows": [1, 2, 3], "n_trees": 9,
+                               "test_rows": [1], "fold_val_rows": [[2], [3]]}))
+    with pytest.raises(ValueError, match="different|make a new split"):
+        load_split(str(out), fake_trees([3, 3, 3, 3]))
+
+
+def test_load_split_rejects_bad_folds(tmp_path):
+    out = tmp_path / "splits.json"
+    out.write_text(json.dumps({"all_rows": [1, 2, 3, 4], "n_trees": 12,
+                               "test_rows": [1], "fold_val_rows": [[2], [2, 3]]}))
+    with pytest.raises(ValueError, match="exactly once"):
+        load_split(str(out), fake_trees([3, 3, 3, 3]))
+
+
+def test_load_split_rebuilds_folds(tmp_path):
+    trees = fake_trees([3, 3, 3, 3])
+    out = tmp_path / "splits.json"
+    out.write_text(json.dumps({"all_rows": [1, 2, 3, 4], "n_trees": 12,
+                               "test_rows": [4], "fold_val_rows": [[1], [2, 3]]}))
+    test_rows, folds = load_split(str(out), trees)
+    assert test_rows == [4]
+    assert [sorted({t.row for t in va}) for _, va in folds] == [[1], [2, 3]]
+    assert [sorted({t.row for t in tr}) for tr, _ in folds] == [[2, 3], [1]]
+
+
+def test_cli_counts_masks_and_checks_them(make_tree, tmp_path, capsys):
+    make_tree("R01N01", mask=True)
+    make_tree("R02N01")
+    assert main([str(tmp_path), "--check-images"]) == 0
+    out = capsys.readouterr().out
+    assert "Complete trees: 2" in out
+    assert "Complete trees with a summer mask: 1 of 2" in out
+    assert "Image check: 0 problem file(s)" in out

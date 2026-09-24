@@ -36,26 +36,28 @@ pip install -e ".[dev]"
 ```bash
 pytest                                     # run the tests
 python -m treeskel.splits data/sample      # dataset summary and splits
-python -m treeskel.splits data/raw         # same for the full dataset
+python -m treeskel.splits data/raw --check-images --save splits.json   # make the split (once)
+python -m treeskel.splits data/raw --load splits.json                   # reuse it
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
 ## Data
 
-Each tree (e.g. `R01U01` = row 1, tree 1) has a summer and a winter RGB image
-and depth image, 640x480 PNG. Depth is 8-bit relative depth (brighter = closer,
+Each tree (e.g. `R20N03` = row 20, tree 3 on the orchard map) has a summer
+and a winter RGB image and depth image (640x480 PNG), plus a hand-labelled
+256x256 summer mask of the main branches, used for validation only. Depth is 8-bit relative depth (brighter = closer,
 0 = no reading), not metric. See [`data/sample/README.md`](data/sample/README.md).
 
-The full dataset (544 trees in 23 rows) comes from the MMA3001 teaching team
+The full dataset ("Dataset (With Summer GT)", 562 trees in 20 rows) comes from the MMA3001 teaching team
 and is not redistributed here. Put it in `data/raw/`, which is git-ignored.
 
 ## Validation design
 
 Whole orchard rows are held out as a final test set (about 15% of trees), and
 5-fold cross-validation grouped by row is used on the remaining rows for model
-selection. The split is fixed in `splits.json` (test rows 12, 18, 21) and was
-committed before any model was trained. Row 4 is excluded because all of its
-winter depth images are identical, leaving 513 trees in 22 rows. Grouping by row stops neighbouring trees, which share background,
+selection. The split is saved in `splits.json`, committed before any model is
+trained, and reloaded with `--load` so it never changes. Row 4 is excluded
+because all of its winter depth images are identical. Grouping by row stops neighbouring trees, which share background,
 lighting and capture session, from appearing in both training and test data.
 
 
