@@ -16,14 +16,22 @@ run west to east and N counts trees north to south, so ``R20N03_Summer`` and
 ``R20N03_Winter`` are the same physical tree.
 
 An earlier version of the dataset numbered trees by photo order (``U``, for
-"unmatched", e.g. ``R01U01``). Those names are still accepted so the original
-sample can be read, but U numbers are not guaranteed to be the same tree in
-both seasons.
+"unmatched", e.g. ``R01U01``). Those names are still accepted, but U numbers
+are not guaranteed to be the same tree in both seasons, so that version is
+not used.
 
 Masks are hand-labelled, 256x256, and assumed to use the same geometry as
 Chen et al. (2020): the photo's centre 480x480 (columns 80-559) resized to
 256x256. :func:`to_mask_frame` and :func:`mask_to_image_frame` convert between
 the two frames.
+
+**Masks do not line up exactly with the summer photos.** Overlays on the
+sample show the right shape, but shifted left of the visible trunk by about
+15-45 px, with the shift varying from tree to tree (see
+``docs/figures/mask_alignment_R12N02.jpg``). Stretching the mask to the full
+width fits worse. The masks may have been drawn on a slightly different view
+(e.g. the paper's autumn images), so pixel-level comparisons need a per-tree
+alignment first.
 
 The row 4 winter files in the U version use a variant that also embeds an original capture id,
 with an underscore before the time::

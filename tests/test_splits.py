@@ -2,7 +2,10 @@
 
 import json
 
+import numpy as np
+
 import pytest
+from PIL import Image
 
 import treeskel.splits as splits_mod
 from treeskel.io import TreeRecord
@@ -100,33 +103,30 @@ def test_cli_saves_split(sample_dir, tmp_path):
     assert main([str(sample_dir), "--save", str(out)]) == 0
     saved = json.loads(out.read_text())
     all_rows = set(saved["test_rows"]).union(*map(set, saved["fold_val_rows"]))
-    assert all_rows == {1, 2, 6, 17}
+    assert all_rows == {1, 3, 12, 15, 20}
     assert not set(saved["test_rows"]) & set().union(*map(set, saved["fold_val_rows"]))
 
 
-def test_cli_reports_embedded_id_offset(sample_dir, tmp_path, capsys):
-    # Copy two sample trees, renaming one tree's winter files to the row 4 style.
-    for src in sample_dir.glob("R01U0*.png"):
-        name = src.name
-        if name.startswith("R01U02_Winter"):
-            mod = "RGB" if "_RGB-" in name else "D"
-            # Real row 4 depth files embed "_RGB_" regardless of type.
-            name = f"R01U02_Winter_{mod}-R01N05_RGB_11-23-42.png"
-        (tmp_path / name).write_bytes(src.read_bytes())
-    assert main([str(tmp_path)]) == 0
+def test_cli_reports_embedded_id_offset(make_tree, tmp_path, capsys):
+    make_tree("R01N01")
+    root = make_tree("R01N02", skip=[("winter", "RGB"), ("winter", "D")])
+    img = np.full((480, 640, 3), 100, np.uint8)
+    # Real row 4 files embed "_RGB_" in both the RGB and the depth file names.
+    Image.fromarray(img).save(root / "R01N02_Winter_RGB-R01N05_RGB_11-23-42.png")
+    Image.fromarray(img).save(root / "R01N02_Winter_D-R01N05_RGB_11-23-42.png")
+    assert main([str(root)]) == 0
     out = capsys.readouterr().out
     assert "Complete trees: 2" in out
     assert "embedded number minus tree number -> count: {3: 1}" in out
     assert "embedded RGB/D label differs: 1" in out
 
-
 def test_check_images_flags_mislabelled_depth(sample_dir, tmp_path, capsys):
-    for src in sample_dir.glob("R01U01*.png"):
+    for src in sample_dir.glob("R01N01*.png"):
         name = src.name
         # Swap the winter RGB image into the winter depth file's name.
-        if name.startswith("R01U01_Winter_D-"):
+        if name.startswith("R01N01_Winter_D-"):
             continue
-        if name.startswith("R01U01_Winter_RGB-"):
+        if name.startswith("R01N01_Winter_RGB-"):
             (tmp_path / name.replace("_RGB-", "_D-")).write_bytes(src.read_bytes())
         (tmp_path / name).write_bytes(src.read_bytes())
     assert main([str(tmp_path), "--check-images"]) == 0
@@ -140,25 +140,18 @@ def test_check_images_passes_on_sample(sample_dir, capsys):
     assert "Image check: 0 problem file(s)" in capsys.readouterr().out
 
 
-def test_cli_reports_excluded_row_and_identical_images(sample_dir, tmp_path, capsys):
-    # Two row 4 trees whose winter depth images are the same image, like the real data.
-    depth = next(sample_dir.glob("R01U01_Winter_D-*.png")).read_bytes()
-    for src in sample_dir.glob("R01U0*.png"):
-        name = src.name.replace("R01", "R04", 1)
-        data = depth if "_Winter_D-" in name else src.read_bytes()
-        (tmp_path / name).write_bytes(data)
-    for src in sample_dir.glob("R02U*.png"):
-        (tmp_path / src.name).write_bytes(src.read_bytes())
-    assert main([str(tmp_path), "--check-images"]) == 0
+def test_cli_reports_excluded_row_and_identical_images(sample_dir, capsys):
+    # The real sample contains row 4 tree R04N01, whose winter depth image is
+    # a copy of R03N34's.
+    assert main([str(sample_dir), "--check-images"]) == 0
     out = capsys.readouterr().out
-    assert "Complete trees: 2" in out
-    assert "Excluded row 4 (2 trees): Every winter depth image in row 4 is a copy" in out
+    assert "Complete trees: 8" in out
+    assert "Excluded row 4 (1 trees): Every winter depth image in row 4 is a copy" in out
     assert "Identical-image groups: 1" in out
-    assert "2 files: R04U01_Winter_D-" in out
+    assert "2 files: R03N34_Winter_D-11-39-13.png, R04N01_Winter_D-" in out
 
-    assert main([str(tmp_path), "--include-all-rows"]) == 0
-    assert "Complete trees: 4" in capsys.readouterr().out
-
+    assert main([str(sample_dir), "--include-all-rows"]) == 0
+    assert "Complete trees: 9" in capsys.readouterr().out
 
 def test_split_save_and_load_roundtrip(sample_dir, tmp_path, capsys):
     out = tmp_path / "splits.json"
