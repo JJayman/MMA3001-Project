@@ -24,7 +24,7 @@ from collections.abc import Sequence
 import numpy as np
 from sklearn.model_selection import GroupKFold
 
-from treeskel.io import TreeRecord, index_dataset, parse_filename
+from treeskel.io import TreeRecord, index_dataset, load_depth, load_rgb, parse_filename
 
 
 def row_counts(trees: Sequence[TreeRecord]) -> dict[int, int]:
@@ -147,10 +147,36 @@ def split_to_dict(
     }
 
 
+def check_images(trees: Sequence[TreeRecord]) -> list[tuple[str, str]]:
+    """Open every image and check it loads as the type its name says.
+
+    RGB files must be 640x480 colour images; depth files must be 640x480
+    greyscale (identical channels). This catches files with a wrong
+    ``RGB``/``D`` label, which the filename alone cannot reveal.
+
+    Args:
+        trees: Tree records whose files should be checked.
+
+    Returns:
+        List of ``(filename, error message)`` for every file that failed.
+    """
+    bad = []
+    for t in trees:
+        for (_, modality), path in sorted(t.paths.items()):
+            try:
+                if modality == "depth":
+                    load_depth(path)
+                else:
+                    load_rgb(path)
+            except Exception as e:  # report every failure; don't stop the scan
+                bad.append((path.name, str(e)))
+    return bad
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Print a dataset and split summary, optionally saving the split.
 
-    Usage: ``python -m treeskel.splits DATA_DIR [--save splits.json]``.
+    Usage: ``python -m treeskel.splits DATA_DIR [--save splits.json] [--check-images]``.
     """
     ap = argparse.ArgumentParser(prog="python -m treeskel.splits", description=__doc__.splitlines()[0])
     ap.add_argument("data_dir", help="folder containing the dataset PNG files")
@@ -158,6 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--test-fraction", type=float, default=0.15)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--check-images", action="store_true",
+                    help="open every image and check its size and type (slower)")
     args = ap.parse_args(argv)
 
     idx = index_dataset(args.data_dir)
@@ -173,14 +201,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Files with an embedded original id (row 4 winter): show how the U
     # position relates to the embedded N number, so renaming can be checked.
+    # Incomplete trees are included, since a naming problem often causes them.
     offsets = Counter()
-    for t in idx.trees:
+    label_mismatch = 0
+    for t in idx.trees + idx.incomplete:
         for path in t.paths.values():
             info = parse_filename(path)
-            if info.source_id is not None and info.modality == "rgb":
+            if info.source_id is None:
+                continue
+            label_mismatch += info.source_modality != info.modality
+            if info.modality == "rgb":
                 offsets[int(info.source_id.split("N")[1]) - info.position] += 1
     if offsets:
         print(f"Embedded-id files: N number minus U position -> count: {dict(sorted(offsets.items()))}")
+        print(f"Embedded-id files whose embedded RGB/D label differs: {label_mismatch}")
+
+    if args.check_images:
+        bad = check_images(idx.trees + idx.incomplete)
+        print(f"Image check: {len(bad)} problem file(s)")
+        for name, err in bad:
+            print(f"  {name}: {err}")
 
     if len(row_counts(idx.trees)) < 2:
         return 0

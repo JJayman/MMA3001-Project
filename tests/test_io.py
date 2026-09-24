@@ -43,8 +43,13 @@ class TestParseFilename:
     def test_standard_name_has_no_source_id(self):
         assert parse_filename("R01U01_Summer_D-12-40-11.png").source_id is None
 
+    def test_outer_label_decides_modality(self):
+        # Real row 4 winter depth files embed "_RGB_"; the outer "D" wins.
+        info = parse_filename("R04U01_Winter_D-R04N03_RGB_12-17-14.png")
+        assert info.modality == "depth"
+        assert info.source_modality == "rgb"
+
     @pytest.mark.parametrize("bad", [
-        "R04U01_Winter_RGB-R04N03_D_12-17-14.png",   # embedded modality differs
         "R04U01_Winter_RGB-R05N03_RGB_12-17-14.png",  # embedded row differs
         "R04U01_Winter_RGB-R04N03_RGB-12-17-14.png",  # wrong separator
     ])

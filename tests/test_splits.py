@@ -108,7 +108,31 @@ def test_cli_reports_embedded_id_offset(sample_dir, tmp_path, capsys):
         name = src.name
         if name.startswith("R01U02_Winter"):
             mod = "RGB" if "_RGB-" in name else "D"
-            name = f"R01U02_Winter_{mod}-R01N05_{mod}_11-23-42.png"
+            # Real row 4 depth files embed "_RGB_" regardless of type.
+            name = f"R01U02_Winter_{mod}-R01N05_RGB_11-23-42.png"
         (tmp_path / name).write_bytes(src.read_bytes())
     assert main([str(tmp_path)]) == 0
-    assert "N number minus U position -> count: {3: 1}" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Complete trees: 2" in out
+    assert "N number minus U position -> count: {3: 1}" in out
+    assert "embedded RGB/D label differs: 1" in out
+
+
+def test_check_images_flags_mislabelled_depth(sample_dir, tmp_path, capsys):
+    for src in sample_dir.glob("R01U01*.png"):
+        name = src.name
+        # Swap the winter RGB image into the winter depth file's name.
+        if name.startswith("R01U01_Winter_D-"):
+            continue
+        if name.startswith("R01U01_Winter_RGB-"):
+            (tmp_path / name.replace("_RGB-", "_D-")).write_bytes(src.read_bytes())
+        (tmp_path / name).write_bytes(src.read_bytes())
+    assert main([str(tmp_path), "--check-images"]) == 0
+    out = capsys.readouterr().out
+    assert "Image check: 1 problem file(s)" in out
+    assert "channels differ" in out
+
+
+def test_check_images_passes_on_sample(sample_dir, capsys):
+    assert main([str(sample_dir), "--check-images"]) == 0
+    assert "Image check: 0 problem file(s)" in capsys.readouterr().out

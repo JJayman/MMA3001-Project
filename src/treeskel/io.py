@@ -16,8 +16,13 @@ with an underscore before the time::
 
     R04U01_Winter_RGB-R04N03_RGB_12-17-14.png
 
-The embedded id (``R04N03``) is kept as :attr:`FileInfo.source_id`. Its row and
-modality must match the outer ones, or the file is rejected.
+The embedded id (``R04N03``) is kept as :attr:`FileInfo.source_id`. Its row
+must match the outer row, or the file is rejected. Its modality is *not* trusted:
+every row 4 winter depth file embeds ``_RGB_`` (e.g.
+``R04U01_Winter_D-R04N03_RGB_12-17-14.png``), so the outer ``D``/``RGB`` label
+decides the modality, and the embedded one is kept as
+:attr:`FileInfo.source_modality` for reporting. :func:`load_depth` rejects any
+"depth" file that is really a colour image, which catches a wrong outer label.
 
 Depth images are stored as 8-bit greyscale (three identical channels). They are
 a scaled visualisation of depth, not metric distance: brighter pixels are closer
@@ -61,6 +66,8 @@ class FileInfo:
         time: Capture clock time as ``"HH:MM:SS"``.
         source_id: Embedded original capture id such as ``"R04N03"``, or
             ``None`` for the standard naming.
+        source_modality: Modality written in the embedded id (``"rgb"`` or
+            ``"depth"``), or ``None``. May disagree with ``modality``.
     """
 
     tree_id: str
@@ -70,6 +77,7 @@ class FileInfo:
     modality: str
     time: str
     source_id: str | None = None
+    source_modality: str | None = None
 
 
 def parse_filename(name: str | Path) -> FileInfo:
@@ -83,8 +91,8 @@ def parse_filename(name: str | Path) -> FileInfo:
 
     Raises:
         ValueError: If the name does not follow the dataset naming convention,
-            has an impossible time, or embeds an id whose row or modality
-            disagrees with the outer name.
+            has an impossible time, or embeds an id whose row disagrees with
+            the outer name.
 
     Example:
         >>> parse_filename("R02U10_Summer_RGB-12-52-3.png").time
@@ -100,12 +108,13 @@ def parse_filename(name: str | Path) -> FileInfo:
     h, mi, s = int(m["h"]), int(m["m"]), int(m["s"])
     if not (h < 24 and mi < 60 and s < 60):
         raise ValueError(f"Invalid capture time in filename: {base!r}")
-    source_id = None
+    source_id = source_modality = None
     if m["src_row"] is not None:
-        # A mismatch would mean the file was renamed to the wrong tree or type.
-        if int(m["src_row"]) != row or m["src_mod"].upper() != m["modality"].upper():
-            raise ValueError(f"Embedded id disagrees with filename: {base!r}")
+        # A row mismatch would mean the file was renamed to the wrong tree.
+        if int(m["src_row"]) != row:
+            raise ValueError(f"Embedded row disagrees with filename: {base!r}")
         source_id = f"R{int(m['src_row']):02d}N{int(m['src_num']):02d}"
+        source_modality = "rgb" if m["src_mod"].upper() == "RGB" else "depth"
     return FileInfo(
         # Rebuild the id so "r1u1" and "R01U01" style variants map to one tree.
         tree_id=f"R{row:02d}U{pos:02d}",
@@ -115,6 +124,7 @@ def parse_filename(name: str | Path) -> FileInfo:
         modality="rgb" if m["modality"].upper() == "RGB" else "depth",
         time=f"{h:02d}:{mi:02d}:{s:02d}",
         source_id=source_id,
+        source_modality=source_modality,
     )
 
 
