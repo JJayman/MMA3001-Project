@@ -136,3 +136,23 @@ def test_check_images_flags_mislabelled_depth(sample_dir, tmp_path, capsys):
 def test_check_images_passes_on_sample(sample_dir, capsys):
     assert main([str(sample_dir), "--check-images"]) == 0
     assert "Image check: 0 problem file(s)" in capsys.readouterr().out
+
+
+def test_cli_reports_excluded_row_and_identical_images(sample_dir, tmp_path, capsys):
+    # Two row 4 trees whose winter depth images are the same image, like the real data.
+    depth = next(sample_dir.glob("R01U01_Winter_D-*.png")).read_bytes()
+    for src in sample_dir.glob("R01U0*.png"):
+        name = src.name.replace("R01", "R04", 1)
+        data = depth if "_Winter_D-" in name else src.read_bytes()
+        (tmp_path / name).write_bytes(data)
+    for src in sample_dir.glob("R02U*.png"):
+        (tmp_path / src.name).write_bytes(src.read_bytes())
+    assert main([str(tmp_path), "--check-images"]) == 0
+    out = capsys.readouterr().out
+    assert "Complete trees: 2" in out
+    assert "Excluded row 4 (2 trees): All 31 winter depth images are identical" in out
+    assert "Identical-image groups: 1" in out
+    assert "2 files: R04U01_Winter_D-" in out
+
+    assert main([str(tmp_path), "--include-all-rows"]) == 0
+    assert "Complete trees: 4" in capsys.readouterr().out

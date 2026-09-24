@@ -31,7 +31,10 @@ to the camera and 0 means "no reading" (out of range or sensor dropout).
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +46,12 @@ SEASONS = ("summer", "winter")
 
 IMAGE_SHAPE = (480, 640)
 """Expected (height, width) of every image in pixels."""
+
+EXCLUDED_ROWS: dict[int, str] = {
+    4: "All 31 winter depth images are identical (the same image repeated), "
+       "so row 4 has no usable winter depth.",
+}
+"""Rows left out of the dataset by default, with the reason for each."""
 
 _FILENAME_RE = re.compile(
     r"^R(?P<row>\d+)U(?P<pos>\d+)_(?P<season>summer|winter)_(?P<modality>RGB|D)-"
@@ -168,24 +177,32 @@ class DatasetIndex:
         incomplete: Trees missing at least one image; excluded from ``trees``.
         unrecognised: Files whose names did not match the convention.
         duplicates: Files that repeat an already-seen ``(tree, season, modality)``.
+        excluded: Trees in deliberately excluded rows (see :data:`EXCLUDED_ROWS`),
+            whether complete or not; not in ``trees`` or ``incomplete``.
     """
 
     trees: list[TreeRecord]
     incomplete: list[TreeRecord]
     unrecognised: list[Path]
     duplicates: list[Path]
+    excluded: list[TreeRecord] = field(default_factory=list)
 
 
-def index_dataset(root: str | Path) -> DatasetIndex:
+def index_dataset(
+    root: str | Path, exclude_rows: Iterable[int] | None = None
+) -> DatasetIndex:
     """Scan a directory (recursively) and group image files by tree.
 
     Invalid inputs are reported rather than raised, so a single bad file does
     not stop a run over the full 544-tree dataset: badly named files go to
     ``unrecognised``, repeated files to ``duplicates`` (the first one found in
     sorted order is kept), and trees without all four images to ``incomplete``.
+    Trees in excluded rows go to ``excluded``.
 
     Args:
         root: Directory containing the PNG files (sub-folders are searched).
+        exclude_rows: Rows to leave out. ``None`` (default) uses
+            :data:`EXCLUDED_ROWS`; pass ``()`` to keep every row.
 
     Returns:
         A :class:`DatasetIndex`.
@@ -216,13 +233,41 @@ def index_dataset(root: str | Path) -> DatasetIndex:
         else:
             rec.paths[key] = path
 
+    skip = set(EXCLUDED_ROWS if exclude_rows is None else exclude_rows)
     ordered = [records[k] for k in sorted(records)]
+    kept = [r for r in ordered if r.row not in skip]
     return DatasetIndex(
-        trees=[r for r in ordered if r.is_complete],
-        incomplete=[r for r in ordered if not r.is_complete],
+        trees=[r for r in kept if r.is_complete],
+        incomplete=[r for r in kept if not r.is_complete],
         unrecognised=unrecognised,
         duplicates=duplicates,
+        excluded=[r for r in ordered if r.row in skip],
     )
+
+
+def find_identical_images(paths: Iterable[str | Path]) -> list[list[Path]]:
+    """Find groups of files whose pixel content is exactly identical.
+
+    Different trees should never share an image, so any group returned points
+    to a copying or export error (this is how row 4's repeated winter depth
+    images were found). Pixels are compared, not file bytes, so the same image
+    saved with different PNG settings still counts as identical.
+
+    Args:
+        paths: Image files to compare.
+
+    Returns:
+        Groups of two or more identical files, each sorted, ordered by first
+        file name.
+    """
+    groups: dict[str, list[Path]] = defaultdict(list)
+    for p in paths:
+        p = Path(p)
+        arr = np.asarray(Image.open(p))
+        h = hashlib.sha1(str(arr.shape).encode() + arr.tobytes()).hexdigest()
+        groups[h].append(p)
+    return sorted((sorted(g) for g in groups.values() if len(g) > 1),
+                  key=lambda g: g[0].name)
 
 
 def _check_shape(arr: np.ndarray, path: Path) -> None:

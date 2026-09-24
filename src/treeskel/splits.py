@@ -24,7 +24,15 @@ from collections.abc import Sequence
 import numpy as np
 from sklearn.model_selection import GroupKFold
 
-from treeskel.io import TreeRecord, index_dataset, load_depth, load_rgb, parse_filename
+from treeskel.io import (
+    EXCLUDED_ROWS,
+    TreeRecord,
+    find_identical_images,
+    index_dataset,
+    load_depth,
+    load_rgb,
+    parse_filename,
+)
 
 
 def row_counts(trees: Sequence[TreeRecord]) -> dict[int, int]:
@@ -185,11 +193,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--check-images", action="store_true",
-                    help="open every image and check its size and type (slower)")
+                    help="open every image, check its size and type, and look for "
+                         "identical images (slower)")
+    ap.add_argument("--include-all-rows", action="store_true",
+                    help="do not apply the default row exclusions")
     args = ap.parse_args(argv)
 
-    idx = index_dataset(args.data_dir)
+    idx = index_dataset(args.data_dir, () if args.include_all_rows else None)
     print(f"Complete trees: {len(idx.trees)}")
+    for row in sorted({t.row for t in idx.excluded}):
+        n = sum(t.row == row for t in idx.excluded)
+        print(f"Excluded row {row} ({n} trees): {EXCLUDED_ROWS.get(row, '')}")
     print(f"Incomplete trees (excluded): {len(idx.incomplete)}")
     for r in idx.incomplete:
         print(f"  {r.tree_id}: missing {r.missing()}")
@@ -204,7 +218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Incomplete trees are included, since a naming problem often causes them.
     offsets = Counter()
     label_mismatch = 0
-    for t in idx.trees + idx.incomplete:
+    for t in idx.trees + idx.incomplete + idx.excluded:
         for path in t.paths.values():
             info = parse_filename(path)
             if info.source_id is None:
@@ -217,10 +231,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Embedded-id files whose embedded RGB/D label differs: {label_mismatch}")
 
     if args.check_images:
-        bad = check_images(idx.trees + idx.incomplete)
+        everything = idx.trees + idx.incomplete + idx.excluded
+        bad = check_images(everything)
         print(f"Image check: {len(bad)} problem file(s)")
         for name, err in bad:
             print(f"  {name}: {err}")
+        same = find_identical_images(p for t in everything for p in t.paths.values())
+        print(f"Identical-image groups: {len(same)}")
+        for g in same[:10]:
+            more = f" (+{len(g) - 3} more)" if len(g) > 3 else ""
+            print(f"  {len(g)} files: {', '.join(p.name for p in g[:3])}{more}")
 
     if len(row_counts(idx.trees)) < 2:
         return 0

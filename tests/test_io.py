@@ -5,6 +5,7 @@ import pytest
 
 from conftest import write_png
 from treeskel.io import (
+    find_identical_images,
     index_dataset,
     load_depth,
     load_rgb,
@@ -91,8 +92,8 @@ class TestIndexDataset:
         root = make_tree("R04U01", skip=[("winter", "RGB"), ("winter", "D")])
         img = np.full((480, 640, 3), 100, np.uint8)
         write_png(root / "R04U01_Winter_RGB-R04N03_RGB_12-17-14.png", img)
-        write_png(root / "R04U01_Winter_D-R04N03_D_12-17-14.png", img)
-        idx = index_dataset(root)
+        write_png(root / "R04U01_Winter_D-R04N03_RGB_12-17-14.png", img)
+        idx = index_dataset(root, exclude_rows=())  # row 4 is excluded by default
         assert [t.tree_id for t in idx.trees] == ["R04U01"]
         assert not idx.unrecognised
 
@@ -142,3 +143,36 @@ class TestLoaders:
         tree = index_dataset(sample_dir).trees[0]
         with pytest.raises(ValueError):
             load_tree(tree, "autumn")
+
+
+class TestExclusionsAndDuplicates:
+    def test_row4_excluded_by_default(self, make_tree):
+        root = make_tree("R04U01")
+        make_tree("R05U01")
+        idx = index_dataset(root)
+        assert [t.tree_id for t in idx.trees] == ["R05U01"]
+        assert [t.tree_id for t in idx.excluded] == ["R04U01"]
+
+    def test_exclusions_can_be_disabled(self, make_tree):
+        root = make_tree("R04U01")
+        idx = index_dataset(root, exclude_rows=())
+        assert [t.tree_id for t in idx.trees] == ["R04U01"]
+        assert not idx.excluded
+
+    def test_incomplete_excluded_tree_goes_to_excluded(self, make_tree):
+        root = make_tree("R04U01", skip=[("winter", "D")])
+        idx = index_dataset(root)
+        assert not idx.incomplete
+        assert [t.tree_id for t in idx.excluded] == ["R04U01"]
+
+    def test_find_identical_images(self, tmp_path):
+        a = np.zeros((480, 640), np.uint8)
+        b = a.copy()
+        b[0, 0] = 1
+        p1 = write_png(tmp_path / "a1.png", a)
+        p2 = write_png(tmp_path / "a2.png", a)
+        p3 = write_png(tmp_path / "b.png", b)
+        assert find_identical_images([p3, p2, p1]) == [[p1, p2]]
+
+    def test_sample_has_no_identical_images(self, sample_dir):
+        assert find_identical_images(sorted(sample_dir.glob("*.png"))) == []
