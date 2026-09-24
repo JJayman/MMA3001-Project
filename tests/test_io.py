@@ -32,6 +32,26 @@ class TestParseFilename:
         assert info.tree_id == "R17U09"
         assert info.season == "winter"
 
+    def test_row4_embedded_id_variant(self):
+        info = parse_filename("R04U01_Winter_RGB-R04N03_RGB_12-17-14.png")
+        assert info.tree_id == "R04U01"
+        assert info.modality == "rgb" and info.season == "winter"
+        assert info.source_id == "R04N03"
+        assert info.time == "12:17:14"
+        assert parse_filename("R04U01_Winter_D-R04N03_D_12-17-14.png").modality == "depth"
+
+    def test_standard_name_has_no_source_id(self):
+        assert parse_filename("R01U01_Summer_D-12-40-11.png").source_id is None
+
+    @pytest.mark.parametrize("bad", [
+        "R04U01_Winter_RGB-R04N03_D_12-17-14.png",   # embedded modality differs
+        "R04U01_Winter_RGB-R05N03_RGB_12-17-14.png",  # embedded row differs
+        "R04U01_Winter_RGB-R04N03_RGB-12-17-14.png",  # wrong separator
+    ])
+    def test_rejects_inconsistent_embedded_id(self, bad):
+        with pytest.raises(ValueError):
+            parse_filename(bad)
+
     @pytest.mark.parametrize("bad", [
         "R01U01_Autumn_D-12-40-11.png",   # unknown season
         "R01U01_Summer_IR-12-40-11.png",  # unknown modality
@@ -61,6 +81,15 @@ class TestIndexDataset:
         assert [t.tree_id for t in idx.incomplete] == ["R03U05"]
         assert idx.incomplete[0].missing() == [("winter", "depth")]
         assert [p.name for p in idx.unrecognised] == ["junk.png"]
+
+    def test_row4_style_files_complete_a_tree(self, make_tree, tmp_path):
+        root = make_tree("R04U01", skip=[("winter", "RGB"), ("winter", "D")])
+        img = np.full((480, 640, 3), 100, np.uint8)
+        write_png(root / "R04U01_Winter_RGB-R04N03_RGB_12-17-14.png", img)
+        write_png(root / "R04U01_Winter_D-R04N03_D_12-17-14.png", img)
+        idx = index_dataset(root)
+        assert [t.tree_id for t in idx.trees] == ["R04U01"]
+        assert not idx.unrecognised
 
     def test_reports_duplicates(self, make_tree):
         root = make_tree("R03U04")
