@@ -10,19 +10,21 @@ data, so every split here keeps whole rows together:
 2. :func:`row_kfold` splits the remaining trees into k folds by row for
    model selection (cross-validation).
 
-Run ``python -m treeskel.splits <data_dir>`` to print a summary for a dataset.
+Run ``python -m treeskel.splits <data_dir>`` to print a summary for a dataset,
+and add ``--save splits.json`` to record the split so it never changes later.
 """
 
 from __future__ import annotations
 
-import sys
+import argparse
+import json
 from collections import Counter
 from collections.abc import Sequence
 
 import numpy as np
 from sklearn.model_selection import GroupKFold
 
-from treeskel.io import TreeRecord, index_dataset
+from treeskel.io import TreeRecord, index_dataset, parse_filename
 
 
 def row_counts(trees: Sequence[TreeRecord]) -> dict[int, int]:
@@ -127,32 +129,74 @@ def row_kfold(
     return folds
 
 
+def split_to_dict(
+    test_rows: Sequence[int], folds: Sequence[tuple[list[TreeRecord], list[TreeRecord]]]
+) -> dict:
+    """Describe a split as plain data (rows only) for saving to JSON.
+
+    Args:
+        test_rows: Held-out test rows.
+        folds: Output of :func:`row_kfold`.
+
+    Returns:
+        ``{"test_rows": [...], "fold_val_rows": [[...], ...]}``.
+    """
+    return {
+        "test_rows": sorted(int(r) for r in test_rows),
+        "fold_val_rows": [sorted(row_counts(val)) for _, val in folds],
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Print a dataset and split summary. Usage: ``python -m treeskel.splits DIR``."""
-    argv = sys.argv[1:] if argv is None else list(argv)
-    if len(argv) != 1:
-        print("Usage: python -m treeskel.splits <data_dir>")
-        return 2
-    idx = index_dataset(argv[0])
+    """Print a dataset and split summary, optionally saving the split.
+
+    Usage: ``python -m treeskel.splits DATA_DIR [--save splits.json]``.
+    """
+    ap = argparse.ArgumentParser(prog="python -m treeskel.splits", description=__doc__.splitlines()[0])
+    ap.add_argument("data_dir", help="folder containing the dataset PNG files")
+    ap.add_argument("--save", metavar="JSON", help="write the test rows and folds to this file")
+    ap.add_argument("--test-fraction", type=float, default=0.15)
+    ap.add_argument("--folds", type=int, default=5)
+    ap.add_argument("--seed", type=int, default=0)
+    args = ap.parse_args(argv)
+
+    idx = index_dataset(args.data_dir)
     print(f"Complete trees: {len(idx.trees)}")
     print(f"Incomplete trees (excluded): {len(idx.incomplete)}")
     for r in idx.incomplete:
         print(f"  {r.tree_id}: missing {r.missing()}")
     print(f"Unrecognised files: {len(idx.unrecognised)}")
+    for p in idx.unrecognised[:10]:
+        print(f"  {p.name}")
     print(f"Duplicate files: {len(idx.duplicates)}")
     print(f"Trees per row: {row_counts(idx.trees)}")
 
+    # Files with an embedded original id (row 4 winter): show how the U
+    # position relates to the embedded N number, so renaming can be checked.
+    offsets = Counter()
+    for t in idx.trees:
+        for path in t.paths.values():
+            info = parse_filename(path)
+            if info.source_id is not None and info.modality == "rgb":
+                offsets[int(info.source_id.split("N")[1]) - info.position] += 1
+    if offsets:
+        print(f"Embedded-id files: N number minus U position -> count: {dict(sorted(offsets.items()))}")
+
     if len(row_counts(idx.trees)) < 2:
         return 0
-    test_rows = select_test_rows(idx.trees)
+    test_rows = select_test_rows(idx.trees, args.test_fraction, args.seed)
     dev, test = train_test_split_by_row(idx.trees, test_rows)
     print(f"Test rows {test_rows}: {len(test)} trees "
           f"({len(test) / len(idx.trees):.1%})")
-    k = min(5, len(row_counts(dev)))
-    if k >= 2:
-        for i, (tr, va) in enumerate(row_kfold(dev, k)):
-            print(f"Fold {i}: train {len(tr)}, val {len(va)}, "
-                  f"val rows {sorted(row_counts(va))}")
+    k = min(args.folds, len(row_counts(dev)))
+    folds = row_kfold(dev, k) if k >= 2 else []
+    for i, (tr, va) in enumerate(folds):
+        print(f"Fold {i}: train {len(tr)}, val {len(va)}, "
+              f"val rows {sorted(row_counts(va))}")
+    if args.save:
+        with open(args.save, "w") as f:
+            json.dump(split_to_dict(test_rows, folds), f, indent=2)
+        print(f"Saved split to {args.save}")
     return 0
 
 

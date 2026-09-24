@@ -1,5 +1,7 @@
 """Tests for treeskel.splits."""
 
+import json
+
 import pytest
 
 from treeskel.io import TreeRecord
@@ -86,4 +88,27 @@ def test_cli_on_sample(sample_dir, capsys):
 
 
 def test_cli_usage(capsys):
-    assert main([]) == 2
+    with pytest.raises(SystemExit) as e:
+        main([])
+    assert e.value.code == 2
+
+
+def test_cli_saves_split(sample_dir, tmp_path):
+    out = tmp_path / "splits.json"
+    assert main([str(sample_dir), "--save", str(out)]) == 0
+    saved = json.loads(out.read_text())
+    all_rows = set(saved["test_rows"]).union(*map(set, saved["fold_val_rows"]))
+    assert all_rows == {1, 2, 6, 17}
+    assert not set(saved["test_rows"]) & set().union(*map(set, saved["fold_val_rows"]))
+
+
+def test_cli_reports_embedded_id_offset(sample_dir, tmp_path, capsys):
+    # Copy two sample trees, renaming one tree's winter files to the row 4 style.
+    for src in sample_dir.glob("R01U0*.png"):
+        name = src.name
+        if name.startswith("R01U02_Winter"):
+            mod = "RGB" if "_RGB-" in name else "D"
+            name = f"R01U02_Winter_{mod}-R01N05_{mod}_11-23-42.png"
+        (tmp_path / name).write_bytes(src.read_bytes())
+    assert main([str(tmp_path)]) == 0
+    assert "N number minus U position -> count: {3: 1}" in capsys.readouterr().out
