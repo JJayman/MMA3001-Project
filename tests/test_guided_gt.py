@@ -19,6 +19,7 @@ from treeskel.guided_gt import (
     check_clicks,
     fit_taper,
     huber_line,
+    smooth_segment,
     save_clicks,
     trace,
 )
@@ -322,3 +323,35 @@ def test_guided_masks_have_no_thin_lines_across_depth_holes():
     row = m[157]
     assert row[380:470].sum() >= 6
     assert gt.radii["left"][0] <= gt.radii["trunk"][-1]   # leaders no wider than trunk at the fork
+
+
+def _connected(p):
+    return np.abs(np.diff(p, axis=0)).max() <= 1
+
+
+def test_smooth_segment_removes_zigzag_keeps_ends():
+    rows = np.arange(200, 0, -1)
+    zig = np.stack([rows, 300 + (rows % 2) * 2], 1)      # 2 px zig-zag on a straight line
+    zig[-1] = (1, 300)
+    sm = smooth_segment(zig, 6)
+    assert tuple(sm[0]) == tuple(zig[0]) and tuple(sm[-1]) == tuple(zig[-1])
+    assert _connected(sm)
+    assert np.ptp(sm[5:-5, 1]) <= 1                         # zig-zag gone
+    assert smooth_segment(zig, 0) is zig
+
+
+def test_smooth_segment_keeps_real_bends():
+    # A branch that bows 80 px sideways over 190 rows (half a sine wave).
+    t = np.linspace(0, np.pi, 300)
+    arc = np.stack([200 - 60 * t, 300 + 80 * np.sin(t)], 1).round().astype(int)
+    sm = smooth_segment(arc, 6)
+    # The 80 px bulge is kept to within a couple of pixels.
+    assert abs(sm[:, 1].max() - arc[:, 1].max()) <= 2
+    assert tuple(sm[0]) == tuple(arc[0]) and tuple(sm[-1]) == tuple(arc[-1]) and _connected(sm)
+
+
+def test_smoothed_trace_still_passes_through_clicks():
+    cost, _ = branch_cost(*synthetic_rgbd())
+    pts = [ROOT, (400, 320), FORK, LEFT_TIP]
+    p = trace(cost, pts, smooth_sigma=6)
+    assert all(near(p, q, 0) for q in pts) and _connected(p)

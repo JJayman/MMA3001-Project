@@ -24,11 +24,14 @@ and the branches are traced between them automatically:
    smallest total cost is found by Dijkstra's algorithm over the 8-connected
    pixel grid (diagonal steps cost √2 × the pixel cost). Cheap woody pixels
    pull the path onto the branch, and short gaps are crossed where needed.
-4. **Widths** (:func:`fit_taper`): widths measured from depth at each point
+4. **Smoothing** (:func:`smooth_segment`): the pixel path zig-zags by a
+   pixel or two (bark texture, 8-connected steps), so each stretch between
+   clicks is smoothed with the clicks held fixed.
+5. **Widths** (:func:`fit_taper`): widths measured from depth at each point
    are noisy (gaps give thin lines, merged ground gives blobs), so each part's
    radius is fitted as a straight-line taper along its length by robust
    Huber regression (:func:`huber_line`), within plausible limits.
-5. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
+6. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
    the same rendering, shape measures and overlays apply to both methods.
 
 Clicks are stored in a JSON file keyed by tree id (see :func:`save_clicks`),
@@ -53,6 +56,7 @@ from PIL import Image
 from scipy import ndimage as ndi
 from skimage.color import rgb2hsv
 from skimage.filters import frangi
+from skimage.draw import line as draw_line
 from skimage.graph import route_through_array
 from skimage.morphology import disk
 
@@ -102,6 +106,10 @@ class GuidedParams:
             foreground, or ``"wood"`` to judge it on the combined cues.
         wood_threshold: Woodiness above which a pixel counts as wood when
             ``centre_source="wood"``.
+        smooth_sigma: Width (px) of the Gaussian that smooths each traced
+            stretch between clicks (:func:`smooth_segment`); 0 = no smoothing.
+            Not used by the cost map, so :mod:`treeskel.tune_cost` results
+            are unaffected.
     """
 
     depth_weight: float = 0.2
@@ -114,6 +122,7 @@ class GuidedParams:
     centre_weight: float = 1.0
     centre_source: str = "depth"
     wood_threshold: float = 0.45
+    smooth_sigma: float = 6.0
 
 
 @dataclass
@@ -281,12 +290,53 @@ def branch_cost(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray,
     return combine_cues(cost_cues(rgb, depth, valid, params), params)
 
 
-def trace(cost: np.ndarray, points: Sequence[Point]) -> np.ndarray:
+def smooth_segment(seg: np.ndarray, sigma: float) -> np.ndarray:
+    """Smooth a traced segment while keeping both end points exactly fixed.
+
+    The segment is split into the straight line between its end points plus
+    a residual (the path's sideways wiggle). Only the residual is smoothed,
+    with a Gaussian of width ``sigma`` (in path steps, about pixels), after
+    an odd reflection at each end, which keeps the residual zero there. Real
+    bends are kept, pixel-scale zig-zags are removed, and the result is
+    re-drawn as a connected 8-connected pixel path.
+
+    Args:
+        seg: ``(M, 2)`` connected path from one click to the next.
+        sigma: Smoothing width; 0 returns ``seg`` unchanged.
+
+    Returns:
+        ``(K, 2)`` int connected path with the same first and last points.
+    """
+    if sigma <= 0 or len(seg) < 5:
+        return seg
+    p = seg.astype(float)
+    step = np.hypot(*np.diff(p, axis=0).T)
+    t = np.concatenate([[0.0], np.cumsum(step)])
+    t /= t[-1] if t[-1] > 0 else 1.0
+    line = p[0] + t[:, None] * (p[-1] - p[0])
+    res = p - line                                      # zero at both ends
+    k = min(len(res) - 1, int(4 * sigma) + 1)
+    ext = np.concatenate([-res[k:0:-1], res, -res[-2:-k - 2:-1]])  # odd reflection
+    sm = ndi.gaussian_filter1d(ext, sigma, axis=0, mode="nearest")[k:k + len(res)]
+    sm[0] = sm[-1] = 0.0
+    pts = np.round(line + sm).astype(int)
+    out = [tuple(pts[0])]
+    for a, b in zip(pts[:-1], pts[1:]):
+        if tuple(b) != out[-1]:
+            rr, cc = draw_line(out[-1][0], out[-1][1], int(b[0]), int(b[1]))
+            out.extend(zip(rr[1:].tolist(), cc[1:].tolist()))
+    return np.array(out, int)
+
+
+def trace(cost: np.ndarray, points: Sequence[Point], smooth_sigma: float = 0.0) -> np.ndarray:
     """Cheapest 8-connected path through ``points`` in order.
 
     Args:
         cost: ``(H, W)`` positive cost map.
         points: Two or more ``(row, col)`` points.
+        smooth_sigma: If > 0, each stretch between consecutive points is
+            smoothed by :func:`smooth_segment`; the points themselves stay on
+            the path.
 
     Returns:
         ``(N, 2)`` int array of path pixels from the first to the last point,
@@ -299,7 +349,10 @@ def trace(cost: np.ndarray, points: Sequence[Point]) -> np.ndarray:
         if a == b:
             continue
         seg, _ = route_through_array(cost, a, b, fully_connected=True, geometric=True)
-        out.extend(tuple(p) for p in seg[1:])
+        seg = smooth_segment(np.array(seg, int), smooth_sigma)
+        seg[:, 0] = seg[:, 0].clip(0, h - 1)
+        seg[:, 1] = seg[:, 1].clip(0, w - 1)
+        out.extend(tuple(q) for q in seg[1:].tolist())
     return np.array(out, int).reshape(-1, 2)
 
 
@@ -326,9 +379,10 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     if cost is None:
         cost, _ = branch_cost(rgb, depth, valid, params)
     fg = ndi.binary_closing(foreground_mask(depth, valid), disk(2))
-    trunk = trace(cost, clicks.trunk)
-    left = trace(cost, [clicks.fork, *clicks.left])
-    right = trace(cost, [clicks.fork, *clicks.right])
+    sm = params.smooth_sigma
+    trunk = trace(cost, clicks.trunk, sm)
+    left = trace(cost, [clicks.fork, *clicks.left], sm)
+    right = trace(cost, [clicks.fork, *clicks.right], sm)
     radius = ndi.distance_transform_edt(fg)
     skel = np.zeros(fg.shape, bool)
     for p in (trunk, left, right):
