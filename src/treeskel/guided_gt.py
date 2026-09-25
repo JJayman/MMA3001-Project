@@ -410,19 +410,55 @@ def check_clicks(c: Clicks, min_rise: int = 40, min_spread: int = 40) -> list[st
     return issues
 
 
+def _render_one(job: tuple) -> tuple[str, dict, list[str]]:
+    """Render one tree (top-level so worker processes can run it).
+
+    Args:
+        job: ``(tree_record, clicks, params, out_dir, overlays)``.
+
+    Returns:
+        ``(tree_id, summary_row, failed_writes)``.
+    """
+    from treeskel.io import load_tree
+
+    rec, c, params, out, overlays = job
+    failed: list[str] = []
+    d = load_tree(rec, "winter")
+    gt = guided_gt(d["rgb"], d["depth"], d["valid"], c, params)
+    save_image(Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255),
+               out / f"{rec.tree_id}_winter_gt.png", failed)
+    if overlays:
+        save_image(overlay(d["rgb"], gt, rec.tree_id), out / f"{rec.tree_id}_overlay.jpg",
+                   failed, quality=85)
+    return rec.tree_id, {"tree_id": rec.tree_id, **gt.summary()}, failed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Render guided ground truth for every annotated tree.
 
     Usage: ``python -m treeskel.guided_gt DATA_DIR --clicks annotations/winter_clicks.json
-    --out outputs/winter_gt_guided [--overlays]``.
+    --out outputs/winter_gt_guided [--overlays] [--rows 5 6] [--trees R05N12]
+    [--jobs N]``.
+
+    Most of the time per tree (about 1 s) is the Frangi filter in the cost
+    map, so trees are processed in parallel, one per CPU core by default,
+    and progress is printed as they finish.
     """
-    from treeskel.io import index_dataset, load_tree
+    import os
+    import time
+    from concurrent.futures import ProcessPoolExecutor
+
+    from treeskel.io import index_dataset
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.guided_gt", description=__doc__.splitlines()[0])
     ap.add_argument("data_dir")
     ap.add_argument("--clicks", default="annotations/winter_clicks.json")
     ap.add_argument("--out", default="outputs/winter_gt_guided", help="output folder (git-ignored)")
     ap.add_argument("--overlays", action="store_true", help="also save <tree>_overlay.jpg")
+    ap.add_argument("--rows", type=int, nargs="+", help="only trees in these rows")
+    ap.add_argument("--trees", nargs="+", help="only these tree ids")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
+                    help="trees processed in parallel (default: number of CPU cores)")
     args = ap.parse_args(argv)
 
     clicks = load_clicks(args.clicks)
@@ -431,31 +467,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     params = GuidedParams()
     (out / "params.json").write_text(json.dumps(asdict(params), indent=2))
-    rows, skipped, missing, failed = [], [], [], []
-    for tid, c in sorted(clicks.items()):
-        if c.skip or not c.complete:
-            skipped.append(tid)
-            continue
-        if tid not in trees:
-            missing.append(tid)
-            continue
-        d = load_tree(trees[tid], "winter")
-        gt = guided_gt(d["rgb"], d["depth"], d["valid"], c, params)
-        save_image(Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255),
-                   out / f"{tid}_winter_gt.png", failed)
-        if args.overlays:
-            save_image(overlay(d["rgb"], gt, tid), out / f"{tid}_overlay.jpg", failed, quality=85)
-        rows.append({"tree_id": tid, **gt.summary()})
+
+    wanted = sorted(clicks)
+    if args.rows:
+        wanted = [t for t in wanted if int(t[1:3]) in args.rows]
+    if args.trees:
+        wanted = [t for t in wanted if t in set(args.trees)]
+    skipped = [t for t in wanted if clicks[t].skip or not clicks[t].complete]
+    missing = [t for t in wanted if t not in skipped and t not in trees]
+    jobs = [(trees[t], clicks[t], params, out, args.overlays)
+            for t in wanted if t not in skipped and t not in missing]
+
+    rows, failed = [], []
+    t0 = time.time()
+    step = max(1, min(25, len(jobs) // 10))
+
+    def progress(done: int) -> None:
+        if done % step == 0 or done == len(jobs):
+            el = time.time() - t0
+            eta = el / done * (len(jobs) - done)
+            print(f"  {done}/{len(jobs)} trees, {el:.0f} s elapsed, about {eta:.0f} s left", flush=True)
+
+    print(f"Rendering {len(jobs)} trees using {max(1, min(args.jobs, len(jobs)))} process(es)...", flush=True)
+    if args.jobs > 1 and len(jobs) > 1:
+        with ProcessPoolExecutor(max_workers=args.jobs) as ex:
+            for i, (_, row, f) in enumerate(ex.map(_render_one, jobs, chunksize=4), 1):
+                rows.append(row)
+                failed += f
+                progress(i)
+    else:
+        for i, job in enumerate(jobs, 1):
+            _, row, f = _render_one(job)
+            rows.append(row)
+            failed += f
+            progress(i)
+
     if rows:
         with open(out / "summary.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(dict.fromkeys(k for r in rows for k in r)))
             w.writeheader()
             w.writerows(rows)
-    suspect = {tid: check_clicks(c) for tid, c in clicks.items() if check_clicks(c)}
+    suspect = {t: check_clicks(clicks[t]) for t in wanted if check_clicks(clicks[t])}
     for tid, why in sorted(suspect.items()):
         print(f"Check clicks for {tid}: {'; '.join(why)}")
-    print(f"Rendered {len(rows)} trees; {len(skipped)} skipped or incomplete; "
-          f"{len(missing)} not found in {args.data_dir}. Results in {out}")
+    print(f"Rendered {len(rows)} trees in {time.time() - t0:.0f} s; {len(skipped)} skipped or "
+          f"incomplete; {len(missing)} not found in {args.data_dir}. Results in {out}")
     report_failed(failed)
     return 1 if failed else 0
 
