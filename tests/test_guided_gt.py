@@ -17,6 +17,8 @@ from treeskel.guided_gt import (
     load_clicks,
     main,
     check_clicks,
+    fit_taper,
+    huber_line,
     save_clicks,
     trace,
 )
@@ -251,6 +253,8 @@ def test_check_clicks():
     assert any("fork only" in i for i in check_clicks(swapped_order))
     double = Clicks(trunk=[(474, 356), (471, 355)], left=[LEFT_TIP], right=[RIGHT_TIP])
     assert any("fork only 3 px" in i for i in check_clicks(double))
+    double.note = "splits at ground (checked)"
+    assert check_clicks(double) == []
     low_tip = Clicks(trunk=[ROOT, FORK], left=[(320, 200)], right=[RIGHT_TIP])
     assert any("left tip" in i for i in check_clicks(low_tip))
     close = Clicks(trunk=[ROOT, FORK], left=[(20, 300)], right=[(20, 320)])
@@ -274,3 +278,47 @@ def test_render_cli_filters_and_parallel(sample_dir, tmp_path, capsys):
                  "--trees", trees[2].tree_id, "--jobs", "1"]) == 0
     assert "Rendered 1 trees" in capsys.readouterr().out
     assert (out / f"{trees[2].tree_id}_winter_gt.png").exists()
+
+
+def test_huber_line_resists_outliers():
+    x = np.arange(100.0)
+    y = 10 - 0.05 * x
+    y_bad = y.copy()
+    y_bad[::10] += 15                              # 10% large outliers (e.g. ground blobs)
+    a, b = huber_line(x, y_bad)
+    assert abs(a - 10) < 0.3 and abs(b + 0.05) < 0.005
+    ols_b = np.polyfit(x, y_bad, 1)[0]
+    assert abs(b + 0.05) < abs(ols_b + 0.05)       # better than ordinary least squares
+    assert huber_line(np.zeros(5), np.array([1.0, 2, 3, 4, 100])) == (3.0, 0.0)
+
+
+def test_fit_taper_ignores_gaps_and_blobs():
+    path = np.stack([np.arange(300, 0, -1), np.full(300, 200)], 1)
+    true = np.linspace(6, 4, 300)
+    meas = true.copy()
+    meas[40:80] = 0.0                              # depth gap -> would draw a line
+    meas[200:215] = 20.0                           # merged background -> blob
+    r = fit_taper(path, meas, "left")
+    assert np.abs(r - true).max() < 0.5
+    assert r.min() >= 2.5
+
+
+def test_fit_taper_never_widens_upwards_and_falls_back():
+    path = np.stack([np.arange(100, 0, -1), np.full(100, 50)], 1)
+    widening = np.linspace(4, 8, 100)
+    r = fit_taper(path, widening, "left")
+    assert np.ptp(r) == 0 and abs(r[0] - np.median(widening)) < 1e-9
+    assert np.all(fit_taper(path, np.zeros(100), "trunk") == 10.0)   # fallback
+    assert np.all(fit_taper(path, np.full(100, 40.0), "left") == 15.0)  # clipped
+
+
+def test_guided_masks_have_no_thin_lines_across_depth_holes():
+    rgb, depth, valid = synthetic_rgbd()
+    depth = depth.copy()
+    depth[150:165, 350:470] = 0                    # hole in the right leader's depth
+    gt = guided_gt(rgb, depth, depth > 0, good_clicks())
+    m = render_main_branches(gt)
+    # Across the hole the leader is still drawn at full width (about 9 px).
+    row = m[157]
+    assert row[380:470].sum() >= 6
+    assert gt.radii["left"][0] <= gt.radii["trunk"][-1]   # leaders no wider than trunk at the fork
