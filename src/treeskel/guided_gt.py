@@ -69,6 +69,16 @@ Point = tuple[int, int]
 class GuidedParams:
     """Settings for the cost map.
 
+    The defaults were chosen by :mod:`treeskel.tune_cost` on 17 annotated
+    trees (64 correction clicks). The first defaults (depth 0.5, tube 0.3,
+    colour 0.2, power 2, centre weight 0.5) made wood almost free, so paths
+    wandered within thick trunks and needed many corrections: 62% of the
+    correction clicks lay more than 8 px from the trace made from the main
+    clicks alone. The tuned setting keeps wood only moderately cheaper than
+    background, so path length still matters, and fully favours the centre
+    of each branch: 6% of correction clicks were more than 8 px off (11% in
+    leave-one-out cross-validation). The colour cue got weight 0.
+
     Attributes:
         depth_weight: Weight of the depth cue in woodiness.
         tube_weight: Weight of the Frangi tube cue.
@@ -82,15 +92,24 @@ class GuidedParams:
         centre_window: Half-size (px) of the neighbourhood used to judge how
             central a pixel is within its object; should exceed the widest
             trunk's half-width.
+        centre_weight: How much the depth cue favours an object's centre line
+            (0 = not at all, 1 = only the centre line counts fully).
+        centre_source: ``"depth"`` to judge centredness on the depth
+            foreground, or ``"wood"`` to judge it on the combined cues.
+        wood_threshold: Woodiness above which a pixel counts as wood when
+            ``centre_source="wood"``.
     """
 
-    depth_weight: float = 0.5
-    tube_weight: float = 0.3
-    colour_weight: float = 0.2
+    depth_weight: float = 0.2
+    tube_weight: float = 0.1
+    colour_weight: float = 0.0
     sigmas: tuple[float, ...] = (2, 4, 6, 8, 10)
     cost_floor: float = 0.02
-    cost_power: float = 2.0
+    cost_power: float = 1.0
     centre_window: int = 15
+    centre_weight: float = 1.0
+    centre_source: str = "depth"
+    wood_threshold: float = 0.45
 
 
 @dataclass
@@ -100,7 +119,8 @@ class Clicks:
     Attributes:
         trunk: ``[root, waypoints..., fork]`` (at least two points).
         left: ``[waypoints..., tip]`` for the image-left leader; traced from
-            the fork.
+            the fork. If the tips were clicked in the other order,
+            :meth:`normalised` swaps the leaders.
         right: ``[waypoints..., tip]`` for the image-right leader.
         skip: True if the tree cannot be annotated (it is then excluded).
         note: Free-text reason or comment.
@@ -121,6 +141,17 @@ class Clicks:
     def fork(self) -> Point:
         """The fork (last trunk point)."""
         return self.trunk[-1]
+
+    def normalised(self) -> "Clicks":
+        """Copy with the leaders swapped if the "left" tip is right of the other.
+
+        "Left" always means the leader whose tip is further left in the image,
+        whatever order the tips were clicked in.
+        """
+        if self.left and self.right and self.left[-1][1] > self.right[-1][1]:
+            return Clicks(trunk=list(self.trunk), left=list(self.right), right=list(self.left),
+                          skip=self.skip, note=self.note)
+        return self
 
     def to_json(self) -> dict:
         """Plain-data form for the JSON file."""
@@ -160,6 +191,75 @@ def save_clicks(path: str | Path, clicks: dict[str, Clicks]) -> None:
     os.replace(tmp, path)
 
 
+def _centredness(mask: np.ndarray, window: int) -> np.ndarray:
+    """Distance to the mask edge divided by the largest such distance nearby.
+
+    1 on an object's centre line, falling towards 0 at its edges, whatever the
+    object's width (up to ``window`` px half-width).
+    """
+    edt = ndi.distance_transform_edt(mask)
+    local_max = ndi.maximum_filter(edt, size=2 * window + 1)
+    return np.divide(edt, local_max, out=np.zeros_like(edt), where=local_max > 0)
+
+
+def cost_cues(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray,
+              params: GuidedParams = GuidedParams()) -> dict[str, np.ndarray]:
+    """The expensive, weight-independent parts of the cost map.
+
+    Computed once per image so that many weightings can be tried cheaply
+    (see :func:`combine_cues` and :mod:`treeskel.tune_cost`).
+
+    Args:
+        rgb, depth, valid: The winter images.
+        params: Uses ``sigmas`` and ``centre_window``.
+
+    Returns:
+        Dict of ``(H, W)`` float arrays in [0, 1]: ``"fg"`` (smoothed depth
+        foreground), ``"fg_centred"`` (its centredness), ``"tube"`` (Frangi
+        response) and ``"pale"`` (bark colour).
+    """
+    mask = foreground_mask(depth, valid)
+    grey = rgb.astype(float).mean(2) / 255.0
+    tube = frangi(grey, sigmas=params.sigmas, black_ridges=False)
+    scale = np.percentile(tube, 99.5)
+    tube = np.clip(tube / scale, 0, 1) if scale > 0 else np.zeros_like(tube)
+    hsv = rgb2hsv(rgb)
+    pale = np.clip((hsv[..., 2] - 0.35) / 0.5, 0, 1) * np.clip(1 - hsv[..., 1] / 0.45, 0, 1)
+    return {
+        "fg": ndi.gaussian_filter(mask.astype(float), 1.0),
+        "fg_centred": _centredness(mask, params.centre_window),
+        "tube": tube,
+        "pale": pale,
+    }
+
+
+def combine_cues(cues: dict[str, np.ndarray],
+                 params: GuidedParams = GuidedParams()) -> tuple[np.ndarray, np.ndarray]:
+    """Weight the cues into woodiness and cost.
+
+    ``woodiness = w_depth · fg · (1 − c + c · centred) + w_tube · tube +
+    w_colour · pale`` (clipped to [0, 1]), where ``c`` is ``centre_weight``.
+    ``centred`` is the centredness of the depth foreground
+    (``centre_source="depth"``) or of the pixels whose woodiness without
+    centring exceeds ``wood_threshold`` (``centre_source="wood"``). The
+    latter uses colour and shape too, so ground pixels that merge into the
+    trunk base in depth do not pull the centre line sideways.
+
+    Returns:
+        ``(cost, woodiness)``; cost is ``cost_floor + (1 − woodiness)^cost_power``.
+    """
+    p = params
+    base = p.tube_weight * cues["tube"] + p.colour_weight * cues["pale"]
+    if p.centre_source == "wood":
+        rough = np.clip(p.depth_weight * cues["fg"] + base, 0, 1)
+        centred = _centredness(rough > p.wood_threshold, p.centre_window)
+    else:
+        centred = cues["fg_centred"]
+    depth_term = cues["fg"] * (1 - p.centre_weight + p.centre_weight * centred)
+    wood = np.clip(p.depth_weight * depth_term + base, 0, 1)
+    return p.cost_floor + (1 - wood) ** p.cost_power, wood
+
+
 def branch_cost(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray,
                 params: GuidedParams = GuidedParams()) -> tuple[np.ndarray, np.ndarray]:
     """Per-pixel woodiness and tracing cost for a winter image.
@@ -174,20 +274,7 @@ def branch_cost(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray,
         ``(cost, woodiness)``, both ``(H, W)`` float arrays; ``woodiness`` is in
         [0, 1] and ``cost`` in ``[cost_floor, cost_floor + 1]``.
     """
-    mask = foreground_mask(depth, valid)
-    edt = ndi.distance_transform_edt(mask)
-    local_max = ndi.maximum_filter(edt, size=2 * params.centre_window + 1)
-    centred = np.divide(edt, local_max, out=np.zeros_like(edt), where=local_max > 0)
-    fg = ndi.gaussian_filter(mask.astype(float), 1.0) * (0.5 + 0.5 * centred)
-    grey = rgb.astype(float).mean(2) / 255.0
-    tube = frangi(grey, sigmas=params.sigmas, black_ridges=False)
-    scale = np.percentile(tube, 99.5)
-    tube = np.clip(tube / scale, 0, 1) if scale > 0 else np.zeros_like(tube)
-    hsv = rgb2hsv(rgb)
-    pale = np.clip((hsv[..., 2] - 0.35) / 0.5, 0, 1) * np.clip(1 - hsv[..., 1] / 0.45, 0, 1)
-    wood = np.clip(params.depth_weight * fg + params.tube_weight * tube
-                   + params.colour_weight * pale, 0, 1)
-    return params.cost_floor + (1 - wood) ** params.cost_power, wood
+    return combine_cues(cost_cues(rgb, depth, valid, params), params)
 
 
 def trace(cost: np.ndarray, points: Sequence[Point]) -> np.ndarray:
@@ -231,6 +318,7 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     """
     if clicks.skip or not clicks.complete:
         raise ValueError("clicks must be complete and not skipped")
+    clicks = clicks.normalised()
     if cost is None:
         cost, _ = branch_cost(rgb, depth, valid, params)
     fg = ndi.binary_closing(foreground_mask(depth, valid), disk(2))
