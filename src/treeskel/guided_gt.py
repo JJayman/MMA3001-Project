@@ -52,7 +52,15 @@ from skimage.filters import frangi
 from skimage.graph import route_through_array
 from skimage.morphology import disk
 
-from treeskel.winter_gt import WinterGT, foreground_mask, overlay, path_shape, render_main_branches
+from treeskel.winter_gt import (
+    WinterGT,
+    foreground_mask,
+    overlay,
+    path_shape,
+    render_main_branches,
+    report_failed,
+    save_image,
+)
 
 Point = tuple[int, int]
 
@@ -307,7 +315,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     params = GuidedParams()
     (out / "params.json").write_text(json.dumps(asdict(params), indent=2))
-    rows, skipped, missing = [], [], []
+    rows, skipped, missing, failed = [], [], [], []
     for tid, c in sorted(clicks.items()):
         if c.skip or not c.complete:
             skipped.append(tid)
@@ -317,9 +325,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         d = load_tree(trees[tid], "winter")
         gt = guided_gt(d["rgb"], d["depth"], d["valid"], c, params)
-        Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255).save(out / f"{tid}_winter_gt.png")
+        save_image(Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255),
+                   out / f"{tid}_winter_gt.png", failed)
         if args.overlays:
-            overlay(d["rgb"], gt, tid).save(out / f"{tid}_overlay.jpg", quality=85)
+            save_image(overlay(d["rgb"], gt, tid), out / f"{tid}_overlay.jpg", failed, quality=85)
         rows.append({"tree_id": tid, **gt.summary()})
     if rows:
         with open(out / "summary.csv", "w", newline="") as f:
@@ -328,7 +337,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             w.writerows(rows)
     print(f"Rendered {len(rows)} trees; {len(skipped)} skipped or incomplete; "
           f"{len(missing)} not found in {args.data_dir}. Results in {out}")
-    return 0
+    report_failed(failed)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
