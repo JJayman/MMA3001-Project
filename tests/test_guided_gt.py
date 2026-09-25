@@ -16,6 +16,7 @@ from treeskel.guided_gt import (
     insert_waypoint,
     load_clicks,
     main,
+    check_clicks,
     save_clicks,
     trace,
 )
@@ -223,3 +224,33 @@ def test_annotator_normalises_swapped_tips(sample_trees, tmp_path):
     for p in [(460, 330), (330, 310), (10, 450), (10, 110)]:   # right tip clicked first
         ann.click(*p)
     assert ann.clicks.left == [(10, 110)] and ann.clicks.right == [(10, 450)]
+
+
+def test_annotator_reset_and_undo_reset(sample_trees, tmp_path):
+    path = tmp_path / "c.json"
+    save_clicks(path, {sample_trees[0].tree_id: Clicks(trunk=[(460, 330), (330, 310)],
+                                                        left=[(10, 110)], right=[(10, 450)])})
+    ann = Annotator(sample_trees[:1], str(path), redo=True)
+    old = ann.clicks
+    ann.key("r")
+    assert ann.clicks is None and ann.base == [] and "trunk base" in ann.prompt()
+    ann.key("u")                                   # undo the reset
+    assert ann.clicks == old and ann.gt is not None
+    ann.key("r")
+    for p in [(450, 320), (320, 300), (5, 100), (5, 460)]:
+        ann.click(*p)
+    ann.key("enter")
+    assert load_clicks(path)[sample_trees[0].tree_id].trunk[0] == (450, 320)
+
+
+def test_check_clicks():
+    assert check_clicks(good_clicks()) == []
+    assert check_clicks(Clicks(skip=True)) == []
+    swapped_order = Clicks(trunk=[FORK, ROOT], left=[LEFT_TIP], right=[RIGHT_TIP])
+    assert any("fork only" in i for i in check_clicks(swapped_order))
+    double = Clicks(trunk=[(474, 356), (471, 355)], left=[LEFT_TIP], right=[RIGHT_TIP])
+    assert any("fork only 3 px" in i for i in check_clicks(double))
+    low_tip = Clicks(trunk=[ROOT, FORK], left=[(320, 200)], right=[RIGHT_TIP])
+    assert any("left tip" in i for i in check_clicks(low_tip))
+    close = Clicks(trunk=[ROOT, FORK], left=[(20, 300)], right=[(20, 320)])
+    assert "leader tips are close together" in check_clicks(close)

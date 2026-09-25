@@ -22,13 +22,16 @@ Enter     accept this tree and go to the next
 u         undo the last click
 s         skip this tree (e.g. unusable image); it is excluded
 d         switch between the RGB and depth image
+r         reset this tree and start its clicks again
 n / p     next / previous tree without saving
 q         save and quit
 ========  ==========================================================
 
 Clicks are saved to the JSON file after every accepted or skipped tree, so
 you can stop and resume at any time: trees already done are skipped unless
-``--redo`` is given. Only the clicks are saved; the traced masks are
+``--redo`` is given. To fix particular trees, use
+``--trees R05N12 R06N03 --redo``, press ``r`` to clear the old clicks, and
+click again. Only the clicks are saved; the traced masks are
 regenerated with ``python -m treeskel.guided_gt``.
 """
 
@@ -96,7 +99,7 @@ class Annotator:
         head = f"{self.tree.tree_id} ({self.i + 1}/{len(self.trees)}): "
         if self.clicks is None:
             return head + f"click the {STEPS[len(self.base)]}"
-        return head + "Enter = accept, click to correct a trace, u = undo, s = skip"
+        return head + "Enter = accept, click to correct, u = undo, r = reset, s = skip"
 
     def click(self, row: float, col: float) -> None:
         """Handle a left click at image coordinates ``(row, col)``."""
@@ -134,9 +137,14 @@ class Annotator:
             kind, prev = self.history.pop()
             if kind == "base":
                 self.base, self.clicks, self.gt = prev, None, None
+            elif kind == "reset":
+                self.base, self.clicks, self.gt = prev
             else:
                 self.clicks = prev
                 self._retrace()
+        elif key == "r":
+            self.history.append(("reset", (list(self.base), self.clicks, self.gt)))
+            self.base, self.clicks, self.gt = [], None, None
         elif key == "d":
             self.show_depth = not self.show_depth
         elif key in ("n", "p"):
