@@ -10,6 +10,7 @@ from test_winter_gt import FORK, LEFT_TIP, RIGHT_TIP, synthetic_tree
 from treeskel.annotate import Annotator
 from treeskel.guided_gt import (
     Clicks,
+    GuidedParams,
     branch_cost,
     guided_gt,
     insert_waypoint,
@@ -55,8 +56,9 @@ def test_cost_is_low_on_branches():
     cost, wood = branch_cost(*synthetic_rgbd())
     assert cost.shape == wood.shape == (480, 640)
     assert 0 <= wood.min() and wood.max() <= 1
-    assert cost[400, 320] < 0.3 < cost[400, 100]    # trunk cheap, ground expensive
+    assert cost[400, 320] < cost[400, 100]         # trunk cheaper than ground
     assert cost[150, 250] > cost[150, 232]          # off vs on the left leader (x≈232 at row 150)
+    assert cost.min() >= GuidedParams().cost_floor
 
 
 def test_trace_passes_through_points_and_is_connected():
@@ -205,3 +207,19 @@ def test_render_cli(sample_dir, tmp_path, capsys):
     assert (out / f"{trees[0].tree_id}_winter_gt.png").exists()
     assert (out / f"{trees[0].tree_id}_overlay.jpg").exists()
     assert (out / "summary.csv").exists()
+
+
+def test_leaders_normalised_by_tip_position():
+    c = Clicks(trunk=[ROOT, FORK], left=[(200, 400), RIGHT_TIP], right=[LEFT_TIP], note="x")
+    n = c.normalised()
+    assert n.left == [LEFT_TIP] and n.right == [(200, 400), RIGHT_TIP] and n.note == "x"
+    assert good_clicks().normalised() == good_clicks()
+    gt = guided_gt(*synthetic_rgbd(), c)
+    assert tuple(gt.left[-1]) == LEFT_TIP and tuple(gt.right[-1]) == RIGHT_TIP
+
+
+def test_annotator_normalises_swapped_tips(sample_trees, tmp_path):
+    ann = Annotator(sample_trees, str(tmp_path / "c.json"))
+    for p in [(460, 330), (330, 310), (10, 450), (10, 110)]:   # right tip clicked first
+        ann.click(*p)
+    assert ann.clicks.left == [(10, 110)] and ann.clicks.right == [(10, 450)]

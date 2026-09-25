@@ -1,0 +1,391 @@
+{
+  "trees": [
+    "R01N04",
+    "R01N05",
+    "R01N08",
+    "R01N13",
+    "R01N18",
+    "R01N25",
+    "R01N32",
+    "R07N09",
+    "R07N17",
+    "R07N25",
+    "R07N26",
+    "R07N29",
+    "R07N32",
+    "R09N12",
+    "R09N18",
+    "R09N32",
+    "R09N34"
+  ],
+  "tolerance_px": 8.0,
+  "grid": "focused",
+  "settings_tried": 55,
+  "straight_lines": {
+    "mean_px": 16.097372352746483,
+    "median_px": 11.0,
+    "still_needed": 0.59375,
+    "n": 64
+  },
+  "default": {
+    "params": {
+      "depth_weight": 0.5,
+      "tube_weight": 0.3,
+      "colour_weight": 0.2,
+      "sigmas": [
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "cost_floor": 0.02,
+      "cost_power": 2.0,
+      "centre_window": 15,
+      "centre_weight": 0.5,
+      "centre_source": "depth",
+      "wood_threshold": 0.45
+    },
+    "mean_px": 11.559492674515031,
+    "median_px": 9.534201129544496,
+    "still_needed": 0.625,
+    "n": 64
+  },
+  "best": {
+    "params": {
+      "depth_weight": 0.2,
+      "tube_weight": 0.1,
+      "colour_weight": 0.0,
+      "sigmas": [
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "cost_floor": 0.02,
+      "cost_power": 0.5,
+      "centre_window": 15,
+      "centre_weight": 1.0,
+      "centre_source": "depth",
+      "wood_threshold": 0.45
+    },
+    "mean_px": 3.1959807343932387,
+    "median_px": 2.8284271247461903,
+    "still_needed": 0.0625,
+    "n": 64
+  },
+  "leave_one_out": {
+    "mean_px": 4.781482206251697,
+    "median_px": 3.0,
+    "still_needed": 0.109375,
+    "n": 64,
+    "distinct_settings_chosen": 5,
+    "per_tree": [
+      {
+        "tree": "R01N04",
+        "chosen": {
+          "depth_weight": 0.35,
+          "tube_weight": 0.05,
+          "colour_weight": 0.1,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 4.599397420402279
+      },
+      {
+        "tree": "R01N05",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 4.371320343559642
+      },
+      {
+        "tree": "R01N08",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 10.0
+      },
+      {
+        "tree": "R01N13",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 1.0,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 4.153943276465977
+      },
+      {
+        "tree": "R01N18",
+        "chosen": {
+          "depth_weight": 0.35,
+          "tube_weight": 0.05,
+          "colour_weight": 0.1,
+          "cost_power": 1.0,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 6.817874682357903
+      },
+      {
+        "tree": "R01N25",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 10.090169943749475
+      },
+      {
+        "tree": "R01N32",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 1.25
+      },
+      {
+        "tree": "R07N09",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 2.432455532033676
+      },
+      {
+        "tree": "R07N17",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 1.7475468957064286
+      },
+      {
+        "tree": "R07N25",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 1.4622954253571128
+      },
+      {
+        "tree": "R07N26",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.05,
+          "colour_weight": 0.0,
+          "cost_power": 1.0,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 45.07299494980466
+      },
+      {
+        "tree": "R07N29",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 2.5
+      },
+      {
+        "tree": "R07N32",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 3.1617604580795238
+      },
+      {
+        "tree": "R09N12",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 2.235702260395516
+      },
+      {
+        "tree": "R09N18",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 2.6
+      },
+      {
+        "tree": "R09N32",
+        "chosen": {
+          "depth_weight": 0.2,
+          "tube_weight": 0.1,
+          "colour_weight": 0.0,
+          "cost_power": 0.5,
+          "centre_weight": 1.0,
+          "centre_source": "depth",
+          "sigmas": [
+            2,
+            4,
+            6,
+            8,
+            10
+          ]
+        },
+        "mean_px": 3.5
+      }
+    ]
+  }
+}

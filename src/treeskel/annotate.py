@@ -108,7 +108,7 @@ class Annotator:
             self.base.append(p)
             if len(self.base) == len(STEPS):
                 root, fork, lt, rt = self.base
-                self.clicks = Clicks(trunk=[root, fork], left=[lt], right=[rt])
+                self.clicks = Clicks(trunk=[root, fork], left=[lt], right=[rt]).normalised()
                 self._retrace()
         else:
             self.history.append(("clicks", self.clicks))
