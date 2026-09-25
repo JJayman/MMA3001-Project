@@ -19,6 +19,7 @@ from treeskel.guided_gt import (
     check_clicks,
     fit_taper,
     huber_line,
+    scale_space_radius,
     smooth_segment,
     save_clicks,
     trace,
@@ -355,3 +356,25 @@ def test_smoothed_trace_still_passes_through_clicks():
     pts = [ROOT, (400, 320), FORK, LEFT_TIP]
     p = trace(cost, pts, smooth_sigma=6)
     assert all(near(p, q, 0) for q in pts) and _connected(p)
+
+
+def test_scale_space_radius_on_known_bars():
+    rng = np.random.default_rng(0)
+    x = np.arange(200) - 100
+    for a in (3, 5, 8, 11):
+        prof = np.where(np.abs(x) <= a, 0.5 + 0.35 * np.sqrt(np.clip(1 - (x / a) ** 2, 0, 1)), 0)
+        img = 0.3 + 0.02 * rng.standard_normal((200, 200)) + prof[None, :]
+        pts = np.stack([np.arange(60, 140), np.full(80, 102)], 1)   # 2 px off-centre
+        r = scale_space_radius(img, pts)
+        assert abs(np.median(r) - a) <= 1.0, (a, np.median(r))
+    dark = 0.8 - np.where(np.abs(x) <= 5, 0.4, 0)[None, :] + np.zeros((200, 1))   # dark on light (sky)
+    assert abs(np.median(scale_space_radius(dark, np.stack([np.arange(60, 140), np.full(80, 100)], 1))) - 5.5) <= 1
+
+
+def test_leader_widths_from_colour_match_synthetic_tree():
+    gt = guided_gt(*synthetic_rgbd(), good_clicks())
+    # Synthetic leaders are 9 px wide (half-width 4.5); trunk 13 px (6.5).
+    assert 3.5 <= np.median(gt.radii["left"]) <= 5.5
+    assert 3.5 <= np.median(gt.radii["right"]) <= 5.5
+    depth_only = guided_gt(*synthetic_rgbd(), good_clicks(), GuidedParams(leader_width_source="depth"))
+    assert depth_only.radii["left"] is not None
