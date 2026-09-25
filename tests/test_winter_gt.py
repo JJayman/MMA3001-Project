@@ -9,6 +9,7 @@ from treeskel.winter_gt import (
     extract_winter_gt,
     foreground_mask,
     main,
+    path_shape,
     render_main_branches,
 )
 
@@ -24,7 +25,7 @@ def thick_line(img, p0, p1, width, value):
         img[rr, cc] = value
 
 
-def synthetic_tree(gap=False, short_left=False, post=False):
+def synthetic_tree(gap=False, short_left=False, post=False, trellis_post=False):
     """Depth image of a V tree: ground below row 300, empty background above.
 
     Returns ``(depth, valid)``. The tree (value 150) is nearer than the ground
@@ -40,6 +41,10 @@ def synthetic_tree(gap=False, short_left=False, post=False):
         d[150:172, 380:460] = 0                       # depth drop-out on right leader
     if post:
         d[:, 20:34] = 150
+    if trellis_post:
+        # A thick, straight, full-height post touching the right leader, taller
+        # and straighter than it: the most attractive wrong "leader".
+        d[:470, 372:414] = 150
     return d, d > 0
 
 
@@ -114,6 +119,57 @@ def test_cli_on_sample(sample_dir, tmp_path, capsys):
     assert main([str(sample_dir), "--out", str(tmp_path), "--figure", str(fig)]) == 0
     out = capsys.readouterr().out
     assert "Processed 8 trees" in out
+    assert main([str(sample_dir), "--out", str(tmp_path / "ov"), "--overlays"]) == 0
+    assert len(list((tmp_path / "ov").glob("*_overlay.jpg"))) == 8
     assert (tmp_path / "summary.csv").exists() and (tmp_path / "params.json").exists()
     assert len(list(tmp_path.glob("*_winter_gt.png"))) == 8
     assert fig.exists()
+
+
+def test_path_shape_on_known_lines():
+    radius = np.full((480, 640), 5.0)
+    vertical = np.stack([np.arange(400, 0, -1), np.full(400, 300)], 1)
+    s = path_shape(vertical, radius)
+    assert s["straightness"] < 1e-9 and s["tilt"] < 1e-6 and s["radius"] == 5.0
+    rows = np.arange(300, 0, -1)
+    diagonal = np.stack([rows, 100 + (300 - rows)], 1)   # 45 degrees
+    assert abs(path_shape(diagonal, radius)["tilt"] - 45) < 1e-6
+    zigzag = vertical.copy()
+    zigzag[::2, 1] += 4                                   # +-2 px about the fit
+    assert 1.5 < path_shape(zigzag, radius)["straightness"] < 2.5
+    assert path_shape(vertical[:2], radius) == {}
+
+
+def test_post_is_never_passed_as_leader():
+    # The post also stands on the ground next to the trunk, so the root can
+    # land on it. Either way, a post must never be passed as a leader or trunk.
+    gt = extract_winter_gt(*synthetic_tree(trellis_post=True))
+    assert gt.posts_skipped > 0
+    if gt.ok:
+        assert gt.right_shape["radius"] <= GTParams().max_leader_radius
+    else:
+        assert any("post" in i for i in gt.issues), gt.issues
+
+
+def test_post_skipped_when_it_only_touches_the_leader():
+    d, _ = synthetic_tree()
+    d[:230, 372:414] = 150      # post top section, not reaching the ground
+    gt = extract_winter_gt(d, d > 0)
+    assert gt.ok, gt.issues
+    assert gt.posts_skipped > 0
+    assert gt.right[-1][1] > 420    # real tip beyond the post
+
+
+def test_post_chosen_when_rule_disabled():
+    d, _ = synthetic_tree()
+    d[:230, 372:414] = 150
+    gt = extract_winter_gt(d, d > 0, GTParams(max_leader_radius=1e9))
+    assert gt.posts_skipped == 0
+    assert gt.right_shape["radius"] > 12      # the post was taken as the leader
+
+
+def test_summary_includes_shape_features():
+    s = extract_winter_gt(*synthetic_tree()).summary()
+    for side in ("left", "right"):
+        assert {f"{side}_radius", f"{side}_straightness", f"{side}_tilt"} <= s.keys()
+    assert s["posts_skipped"] == 0

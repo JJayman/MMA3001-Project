@@ -19,10 +19,13 @@ module extracts them from the winter depth image in five steps:
    skeleton point at the bottom centre of the tree. The trees are trained as
    a 2D open V (Tatura trellis), so one leader is chosen on each side of the
    root: the tip that climbs highest, minus a penalty for wandering sideways.
-   The fork is where the two leader paths separate.
-5. **Quality check.** A leader that rises less than a set fraction of the
-   root's height is marked as failed (usually a depth gap), and the tree is
-   flagged so it can be left out rather than giving a wrong label.
+   Candidates whose upper part is wider than a leader can be (trellis posts)
+   are skipped. The fork is where the two leader paths separate.
+5. **Quality check.** The tree is flagged, so it can be left out rather than
+   given a wrong label, if a leader rises less than a set fraction of the
+   root's height (usually a depth gap), or if no non-post leader exists on a
+   side. (The trunk's width is recorded but not checked: near the ground,
+   ground pixels merge into the trunk and make every trunk look post-wide.)
 
 :func:`render_main_branches` turns the result into a mask, with the width at
 each point taken from the tree's thickness there.
@@ -72,6 +75,12 @@ class GTParams:
         wander_penalty: Weight on (path length − rise) when scoring leaders.
         min_leader_rise: A leader must rise at least this fraction of the
             root's height above the image top to pass the quality check.
+        max_leader_radius: A candidate leader whose upper part has a larger
+            median half-width than this is treated as a post and skipped.
+            On the sample, real leaders measured 6.0–8.2 and a post 17.7.
+        shape_top_fraction: Width, straightness and tilt are measured on the
+            top part of a leader, covering this fraction of its rise, so the
+            thick trunk and fork do not dominate.
     """
 
     ground_row_fraction: float = 0.5
@@ -83,6 +92,8 @@ class GTParams:
     link_min_up: float = 0.5
     wander_penalty: float = 0.5
     min_leader_rise: float = 0.3
+    max_leader_radius: float = 12.0
+    shape_top_fraction: float = 0.6
 
 
 @dataclass
@@ -99,6 +110,10 @@ class WinterGT:
         trunk: Path from ``root`` to ``fork``.
         left: Path from ``fork`` to the left leader's tip.
         right: Path from ``fork`` to the right leader's tip.
+        trunk_shape: :func:`path_shape` of the trunk (empty if none).
+        left_shape: :func:`path_shape` of the left leader (empty if none).
+        right_shape: :func:`path_shape` of the right leader (empty if none).
+        posts_skipped: Number of candidate leaders skipped as too wide.
         ok: True if both leaders passed the quality check.
         issues: Reasons the quality check failed (empty if ``ok``).
     """
@@ -110,6 +125,10 @@ class WinterGT:
     trunk: np.ndarray = field(default_factory=lambda: np.zeros((0, 2), int))
     left: np.ndarray = field(default_factory=lambda: np.zeros((0, 2), int))
     right: np.ndarray = field(default_factory=lambda: np.zeros((0, 2), int))
+    trunk_shape: dict = field(default_factory=dict)
+    left_shape: dict = field(default_factory=dict)
+    right_shape: dict = field(default_factory=dict)
+    posts_skipped: int = 0
     ok: bool = False
     issues: list[str] = field(default_factory=list)
 
@@ -125,6 +144,10 @@ class WinterGT:
             "trunk_rise": rise(self.trunk),
             "left_rise": rise(self.left),
             "right_rise": rise(self.right),
+            "posts_skipped": self.posts_skipped,
+            **{f"{side}_{k}": round(v, 2)
+               for side in ("trunk", "left", "right")
+               for k, v in getattr(self, f"{side}_shape").items()},
         }
 
 
@@ -256,20 +279,63 @@ def link_gaps(main: np.ndarray, others: np.ndarray, params: GTParams = GTParams(
     return skel
 
 
-def find_main_branches(tree: np.ndarray, skel: np.ndarray, params: GTParams = GTParams()) -> dict:
+def path_shape(path: np.ndarray, radius: np.ndarray, top_fraction: float = 0.6) -> dict:
+    """Width, straightness and tilt of the upper part of a path.
+
+    The upper part is the points within the top ``top_fraction`` of the
+    path's rise. A straight line is fitted to it by total least squares (the
+    principal axis from an SVD of the centred points), which, unlike ordinary
+    regression, treats rows and columns alike and so also works for
+    near-vertical lines.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` points, starting at the bottom.
+        radius: Half-width image (distance from each pixel to the edge of the
+            tree region).
+        top_fraction: Fraction of the rise, from the top, to measure.
+
+    Returns:
+        ``{"radius": median half-width (px), "straightness": RMS distance from
+        the fitted line (px), "tilt": angle from vertical (degrees)}``, or an
+        empty dict if the path has fewer than 3 points.
+    """
+    p = np.asarray(path)
+    if len(p) < 3:
+        return {}
+    rise = p[0, 0] - p[:, 0].min()
+    q = p[p[:, 0] <= p[0, 0] - (1 - top_fraction) * rise]
+    if len(q) < 3:
+        q = p
+    c = q - q.mean(0)
+    _, _, vt = np.linalg.svd(c.astype(float), full_matrices=False)
+    off = c @ vt[1]  # signed distance from the fitted line
+    return {
+        "radius": float(np.median(radius[q[:, 0], q[:, 1]])),
+        "straightness": float(np.sqrt(np.mean(off**2))),
+        "tilt": float(np.degrees(np.arctan2(abs(vt[0][1]), abs(vt[0][0])))),
+    }
+
+
+def find_main_branches(tree: np.ndarray, skel: np.ndarray, params: GTParams = GTParams(),
+                       radius: np.ndarray | None = None) -> dict:
     """Pick the root, fork and the two leaders from a tree skeleton.
 
     Args:
         tree: Tree region (used to locate the trunk base).
         skel: Skeleton of the tree (connected).
-        params: Settings (``wander_penalty``).
+        params: Settings (``wander_penalty``, ``max_leader_radius``).
+        radius: Half-width image used for the post check; defaults to the
+            distance transform of ``tree``. Pass one computed from the full
+            foreground so leaders joined across gaps are measured too.
 
     Returns:
-        Dict with ``root``, ``fork`` (``(row, col)`` or ``None``) and ``trunk``,
-        ``left``, ``right`` paths (``(N, 2)`` arrays, possibly empty).
+        Dict with ``root``, ``fork`` (``(row, col)`` or ``None``), ``trunk``,
+        ``left``, ``right`` paths (``(N, 2)`` arrays, possibly empty), their
+        ``trunk_shape``/``left_shape``/``right_shape`` and ``posts_skipped``.
     """
     empty = np.zeros((0, 2), int)
-    out = {"root": None, "fork": None, "trunk": empty, "left": empty, "right": empty}
+    out = {"root": None, "fork": None, "trunk": empty, "left": empty, "right": empty,
+           "trunk_shape": {}, "left_shape": {}, "right_shape": {}, "posts_skipped": 0}
     if skel.sum() < 2:
         return out
     ys, xs, a = _graph(skel)
@@ -293,17 +359,33 @@ def find_main_branches(tree: np.ndarray, skel: np.ndarray, params: GTParams = GT
         rise = ys[root] - ys[e]
         return rise - params.wander_penalty * (dist[e] - rise)
 
-    left = [e for e in ends if xs[e] < xs[root]]
-    right = [e for e in ends if xs[e] >= xs[root]]
-    if not left or not right:
+    coords = np.stack([ys, xs], 1)
+    if radius is None:
+        radius = ndi.distance_transform_edt(tree)
+
+    def best(candidates: list[int]) -> tuple[list[int] | None, dict]:
+        """Highest-scoring candidate that is not post-like."""
+        for e in sorted(candidates, key=score, reverse=True):
+            p = path(e)
+            shape = path_shape(coords[p], radius, params.shape_top_fraction)
+            if shape and shape["radius"] > params.max_leader_radius:
+                out["posts_skipped"] += 1
+                continue
+            return p, shape
+        return None, {}
+
+    pl, sl = best([e for e in ends if xs[e] < xs[root]])
+    pr, sr = best([e for e in ends if xs[e] >= xs[root]])
+    if pl is None or pr is None:
         return out
-    pl, pr = path(max(left, key=score)), path(max(right, key=score))
     shared = set(pr)
     k = max(i for i, v in enumerate(pl) if v in shared)  # last shared node = fork
     fork = pl[k]
     kr = pr.index(fork)
-    coords = np.stack([ys, xs], 1)
     out.update(
+        trunk_shape=path_shape(coords[pl[: k + 1]], radius, params.shape_top_fraction),
+        left_shape=sl,
+        right_shape=sr,
         fork=(int(ys[fork]), int(xs[fork])),
         trunk=coords[pl[: k + 1]],
         left=coords[pl[k:]],
@@ -343,10 +425,11 @@ def extract_winter_gt(depth: np.ndarray, valid: np.ndarray, params: GTParams = G
         sk = lab == (np.argmax(ndi.sum(sk, lab, range(1, n + 1))) + 1)
     sk = link_gaps(sk, skeletonize(others), params)
 
-    br = find_main_branches(tree, sk, params)
+    radius = ndi.distance_transform_edt(ndi.binary_closing(fg, disk(2)) | tree)
+    br = find_main_branches(tree, sk, params, radius)
     gt = WinterGT(tree, sk, **br)
     if gt.fork is None:
-        gt.issues.append("could not find one leader on each side")
+        gt.issues.append("could not find a (non-post) leader on each side")
     else:
         need = params.min_leader_rise * gt.root[0]
         for side in ("left", "right"):
@@ -418,6 +501,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, help="only process the first N trees")
     ap.add_argument("--figure", metavar="PNG",
                     help="also save an overview of up to 24 trees drawn on their winter RGB")
+    ap.add_argument("--overlays", action="store_true",
+                    help="also save <tree>_overlay.jpg for every tree (for visual checking)")
     args = ap.parse_args(argv)
 
     out = Path(args.out)
@@ -429,13 +514,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     for t in trees:
         d = load_tree(t, "winter")
         gt = extract_winter_gt(d["depth"], d["valid"], params)
-        if args.figure and len(tiles) < 24:
-            tiles.append(np.asarray(overlay(d["rgb"], gt, t.tree_id).resize((320, 240))))
+        if args.overlays or (args.figure and len(tiles) < 24):
+            ov = overlay(d["rgb"], gt, t.tree_id)
+            if args.overlays:
+                ov.save(out / f"{t.tree_id}_overlay.jpg", quality=85)
+            if args.figure and len(tiles) < 24:
+                tiles.append(np.asarray(ov.resize((320, 240))))
         Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255).save(
             out / f"{t.tree_id}_winter_gt.png")
         rows.append({"tree_id": t.tree_id, **gt.summary()})
     with open(out / "summary.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["tree_id"])
+        fields = list(dict.fromkeys(k for r in rows for k in r)) or ["tree_id"]
+        w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         w.writerows(rows)
     if args.figure and tiles:
