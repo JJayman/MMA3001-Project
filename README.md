@@ -18,6 +18,7 @@ data/sample/     8-tree sample of the dataset (full dataset not committed)
 src/treeskel/    Python package
   io.py          filename parsing, dataset indexing, image loading
   splits.py      row-grouped hold-out and k-fold cross-validation splits
+  winter_gt.py   main-branch ground truth (trunk + two V leaders) from winter depth
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
 splits.json      fixed test rows and cross-validation folds (do not change)
@@ -38,6 +39,7 @@ pytest                                     # run the tests
 python -m treeskel.splits data/sample      # dataset summary and splits
 python -m treeskel.splits data/raw --check-images --save splits.json   # make the split (once)
 python -m treeskel.splits data/raw --load splits.json                   # reuse it
+python -m treeskel.winter_gt data/raw --out outputs/winter_gt --figure outputs/winter_gt.png
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
