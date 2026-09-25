@@ -114,6 +114,10 @@ class WinterGT:
         left_shape: :func:`path_shape` of the left leader (empty if none).
         right_shape: :func:`path_shape` of the right leader (empty if none).
         posts_skipped: Number of candidate leaders skipped as too wide.
+        radii: Optional per-point drawing radius for each part
+            (``{"trunk": array, "left": ..., "right": ...}``, same lengths as
+            the paths). If absent, :func:`render_main_branches` measures
+            widths from ``tree_mask``.
         ok: True if both leaders passed the quality check.
         issues: Reasons the quality check failed (empty if ``ok``).
     """
@@ -129,6 +133,7 @@ class WinterGT:
     left_shape: dict = field(default_factory=dict)
     right_shape: dict = field(default_factory=dict)
     posts_skipped: int = 0
+    radii: dict | None = None
     ok: bool = False
     issues: list[str] = field(default_factory=list)
 
@@ -444,9 +449,11 @@ def extract_winter_gt(depth: np.ndarray, valid: np.ndarray, params: GTParams = G
 def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: float = 25.0) -> np.ndarray:
     """Draw the trunk and leaders as a mask with realistic widths.
 
-    The radius at each path point is the distance from that point to the edge
-    of the tree region, clipped to ``[min_radius, max_radius]``. Linked gaps
-    (outside the tree region) get ``min_radius``.
+    If ``gt.radii`` is set (guided ground truth, fitted tapers), those radii
+    are used. Otherwise the radius at each path point is the distance from
+    that point to the edge of the tree region, clipped to
+    ``[min_radius, max_radius]``; linked gaps (outside the tree region) get
+    ``min_radius``.
 
     Args:
         gt: Result of :func:`extract_winter_gt`.
@@ -457,11 +464,14 @@ def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: floa
         Bool mask the same shape as ``gt.tree_mask``.
     """
     shape = gt.tree_mask.shape
-    radius = np.clip(ndi.distance_transform_edt(gt.tree_mask), min_radius, max_radius)
     out = np.zeros(shape, bool)
-    for p in (gt.trunk, gt.left, gt.right):
-        for y, x in p:
-            rr, cc = draw_disk((y, x), radius[y, x], shape=shape)
+    if gt.radii is None:
+        radius = np.clip(ndi.distance_transform_edt(gt.tree_mask), min_radius, max_radius)
+    for name in ("trunk", "left", "right"):
+        p = getattr(gt, name)
+        rs = gt.radii[name] if gt.radii is not None else radius[p[:, 0], p[:, 1]] if len(p) else []
+        for (y, x), r in zip(p, rs):
+            rr, cc = draw_disk((y, x), r, shape=shape)
             out[rr, cc] = True
     return out
 

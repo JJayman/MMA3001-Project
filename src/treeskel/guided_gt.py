@@ -24,7 +24,11 @@ and the branches are traced between them automatically:
    smallest total cost is found by Dijkstra's algorithm over the 8-connected
    pixel grid (diagonal steps cost √2 × the pixel cost). Cheap woody pixels
    pull the path onto the branch, and short gaps are crossed where needed.
-4. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
+4. **Widths** (:func:`fit_taper`): widths measured from depth at each point
+   are noisy (gaps give thin lines, merged ground gives blobs), so each part's
+   radius is fitted as a straight-line taper along its length by robust
+   Huber regression (:func:`huber_line`), within plausible limits.
+5. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
    the same rendering, shape measures and overlays apply to both methods.
 
 Clicks are stored in a JSON file keyed by tree id (see :func:`save_clicks`),
@@ -329,13 +333,94 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     skel = np.zeros(fg.shape, bool)
     for p in (trunk, left, right):
         skel[p[:, 0], p[:, 1]] = True
+    measured = {k: radius[p[:, 0], p[:, 1]] for k, p in (("trunk", trunk), ("left", left), ("right", right))}
+    radii = {k: fit_taper(p, measured[k], k) for k, p in (("trunk", trunk), ("left", left), ("right", right))}
+    # A leader cannot start wider than the trunk it grows from.
+    fork_r = radii["trunk"][-1] if len(radii["trunk"]) else FALLBACK_RADIUS["trunk"]
+    for k in ("left", "right"):
+        radii[k] = np.minimum(radii[k], fork_r)
     return WinterGT(
-        tree_mask=fg, skeleton=skel,
+        tree_mask=fg, skeleton=skel, radii=radii,
         root=tuple(map(int, trunk[0])), fork=tuple(map(int, trunk[-1])),
         trunk=trunk, left=left, right=right,
         trunk_shape=path_shape(trunk, radius), left_shape=path_shape(left, radius),
         right_shape=path_shape(right, radius), ok=True,
     )
+
+
+RADIUS_LIMITS = {"trunk": (4.0, 25.0), "left": (2.5, 15.0), "right": (2.5, 15.0)}
+"""Plausible drawing radius range (px) for each part."""
+
+FALLBACK_RADIUS = {"trunk": 10.0, "left": 5.0, "right": 5.0}
+"""Radius used when too few width measurements survive (px)."""
+
+
+def huber_line(x: np.ndarray, y: np.ndarray, k: float = 1.345, iters: int = 30) -> tuple[float, float]:
+    """Robust straight-line fit ``y ≈ a + b·x`` by Huber regression.
+
+    Iteratively reweighted least squares: residuals within ``k`` robust
+    standard deviations (scale = 1.4826 × median absolute residual) get full
+    weight, larger ones weight ``k·σ/|r|``, so outliers pull the line far less
+    than in ordinary least squares.
+
+    Returns:
+        ``(a, b)``; ``b = 0`` if ``x`` has no spread.
+    """
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    if np.ptp(x) == 0:
+        return float(np.median(y)), 0.0
+    X = np.stack([np.ones_like(x), x], 1)
+    w = np.ones_like(y)
+    beta = np.zeros(2)
+    for _ in range(iters):
+        sw = np.sqrt(w)
+        new, *_ = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)
+        res = y - X @ new
+        scale = 1.4826 * np.median(np.abs(res)) or 1e-9
+        u = np.abs(res) / (k * scale)
+        w = np.where(u <= 1, 1.0, 1.0 / np.maximum(u, 1e-12))
+        if np.allclose(new, beta, atol=1e-6):
+            break
+        beta = new
+    return float(new[0]), float(new[1])
+
+
+def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
+              min_valid: float = 2.5, min_points: int = 8) -> np.ndarray:
+    """Smooth, tapering radius along one part from noisy width measurements.
+
+    Width measured from depth is unreliable point by point: depth gaps give
+    near-zero widths (drawn as thin lines), and ground or background merging
+    with the branch gives large blobs. Treating the measurements as noisy
+    observations, radius is modelled as linear in arc length along the path
+    (a branch tapers gradually) and fitted by :func:`huber_line`, ignoring
+    measurements at or below ``min_valid`` (gaps). A fit that widens upwards
+    is physically implausible, so it is replaced by the median width
+    (constant). The result is clipped to
+    :data:`RADIUS_LIMITS`. With fewer than ``min_points`` usable
+    measurements, :data:`FALLBACK_RADIUS` is used.
+
+    Args:
+        path: ``(N, 2)`` path points, in order.
+        measured: ``(N,)`` measured half-widths at those points (px).
+        part: ``"trunk"``, ``"left"`` or ``"right"``.
+
+    Returns:
+        ``(N,)`` radii to draw.
+    """
+    lo, hi = RADIUS_LIMITS[part]
+    if len(path) == 0:
+        return np.zeros(0)
+    step = np.hypot(*np.diff(path, axis=0).T) if len(path) > 1 else np.zeros(0)
+    s = np.concatenate([[0.0], np.cumsum(step)])
+    ok = measured > min_valid
+    if ok.sum() < min_points:
+        return np.full(len(path), FALLBACK_RADIUS[part])
+    a, b = huber_line(s[ok], measured[ok])
+    if b > 0:
+        # Branches do not widen upwards: use a constant (robust) width instead.
+        a, b = float(np.median(measured[ok])), 0.0
+    return np.clip(a + b * s, lo, hi)
 
 
 def insert_waypoint(clicks: Clicks, gt: WinterGT, point: Point) -> Clicks:
@@ -398,7 +483,7 @@ def check_clicks(c: Clicks, min_rise: int = 40, min_spread: int = 40) -> list[st
     c = c.normalised()
     (rr, _), (fr, _) = c.trunk[0], c.fork
     issues = []
-    if rr - fr < 10:
+    if rr - fr < 10 and "splits at ground" not in c.note:
         issues.append(f"fork only {rr - fr} px above the root (double click, or a tree "
                       "that splits at the ground?)")
     for side in ("left", "right"):
