@@ -382,6 +382,34 @@ def insert_waypoint(clicks: Clicks, gt: WinterGT, point: Point) -> Clicks:
     return new
 
 
+def check_clicks(c: Clicks, min_rise: int = 40, min_spread: int = 40) -> list[str]:
+    """Geometric sanity checks on a tree's clicks (image rows grow downwards).
+
+    Flags click-order slips that cannot be right for a Tatura V tree: the fork
+    not clearly (10 px) above the root, a tip not clearly above the fork, or the two tips
+    almost on top of each other. It cannot catch an accepted trace that
+    follows the wrong branch; that needs looking at the overlay.
+
+    Returns:
+        Human-readable problems (empty if none, or if skipped/incomplete).
+    """
+    if c.skip or not c.complete:
+        return []
+    c = c.normalised()
+    (rr, _), (fr, _) = c.trunk[0], c.fork
+    issues = []
+    if rr - fr < 10:
+        issues.append(f"fork only {rr - fr} px above the root (double click, or a tree "
+                      "that splits at the ground?)")
+    for side in ("left", "right"):
+        tip = getattr(c, side)[-1]
+        if fr - tip[0] < min_rise:
+            issues.append(f"{side} tip only {fr - tip[0]} px above the fork")
+    if c.right[-1][1] - c.left[-1][1] < min_spread:
+        issues.append("leader tips are close together")
+    return issues
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Render guided ground truth for every annotated tree.
 
@@ -423,6 +451,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             w = csv.DictWriter(f, fieldnames=list(dict.fromkeys(k for r in rows for k in r)))
             w.writeheader()
             w.writerows(rows)
+    suspect = {tid: check_clicks(c) for tid, c in clicks.items() if check_clicks(c)}
+    for tid, why in sorted(suspect.items()):
+        print(f"Check clicks for {tid}: {'; '.join(why)}")
     print(f"Rendered {len(rows)} trees; {len(skipped)} skipped or incomplete; "
           f"{len(missing)} not found in {args.data_dir}. Results in {out}")
     report_failed(failed)
