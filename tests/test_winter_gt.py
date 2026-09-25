@@ -173,3 +173,16 @@ def test_summary_includes_shape_features():
     for side in ("left", "right"):
         assert {f"{side}_radius", f"{side}_straightness", f"{side}_tilt"} <= s.keys()
     assert s["posts_skipped"] == 0
+
+
+def test_cli_continues_past_unwritable_file(sample_dir, tmp_path, capsys):
+    # A directory where an output file should go makes that save fail, like
+    # a file locked by another program on Windows.
+    first = sorted(p.name.split("_")[0] for p in sample_dir.glob("*_Winter_RGB-*"))[0]
+    (tmp_path / f"{first}_winter_gt.png").mkdir()
+    assert main([str(sample_dir), "--out", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "Processed 8 trees" in out
+    assert "Could not write 1 file(s)" in out and f"{first}_winter_gt.png" in out
+    assert len(list(tmp_path.glob("*_winter_gt.png"))) == 8   # 7 files + the blocking folder
+    assert (tmp_path / "summary.csv").exists()

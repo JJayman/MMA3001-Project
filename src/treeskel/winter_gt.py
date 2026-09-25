@@ -486,6 +486,29 @@ def overlay(rgb: np.ndarray, gt: WinterGT, label: str = "") -> Image.Image:
     return pil
 
 
+def save_image(image: Image.Image, path: Path, failed: list[str], **kwargs) -> None:
+    """Save an image, recording (not raising) a failure to write it.
+
+    On Windows a file that is open in another program (an image viewer, the
+    Explorer preview pane, a sync client) cannot be overwritten. One such file
+    should not stop a run over hundreds of trees, so the error is added to
+    ``failed`` and reported at the end instead.
+    """
+    try:
+        image.save(path, **kwargs)
+    except OSError as e:
+        failed.append(f"{path}: {e.strerror or e}")
+
+
+def report_failed(failed: list[str]) -> None:
+    """Print files that could not be written, with the likely cause."""
+    if failed:
+        print(f"Could not write {len(failed)} file(s) - are they open in another "
+              "program (image viewer, Explorer preview pane, OneDrive)?")
+        for f in failed[:20]:
+            print(f"  {f}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the extraction over a dataset folder.
 
@@ -510,18 +533,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     trees = index_dataset(args.data_dir).trees[: args.limit]
     params = GTParams()
     (out / "params.json").write_text(json.dumps(asdict(params), indent=2))
-    rows, tiles = [], []
+    rows, tiles, failed = [], [], []
     for t in trees:
         d = load_tree(t, "winter")
         gt = extract_winter_gt(d["depth"], d["valid"], params)
         if args.overlays or (args.figure and len(tiles) < 24):
             ov = overlay(d["rgb"], gt, t.tree_id)
             if args.overlays:
-                ov.save(out / f"{t.tree_id}_overlay.jpg", quality=85)
+                save_image(ov, out / f"{t.tree_id}_overlay.jpg", failed, quality=85)
             if args.figure and len(tiles) < 24:
                 tiles.append(np.asarray(ov.resize((320, 240))))
-        Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255).save(
-            out / f"{t.tree_id}_winter_gt.png")
+        save_image(Image.fromarray(render_main_branches(gt).astype(np.uint8) * 255),
+                   out / f"{t.tree_id}_winter_gt.png", failed)
         rows.append({"tree_id": t.tree_id, **gt.summary()})
     with open(out / "summary.csv", "w", newline="") as f:
         fields = list(dict.fromkeys(k for r in rows for k in r)) or ["tree_id"]
@@ -531,14 +554,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.figure and tiles:
         tiles += [np.zeros_like(tiles[0])] * (-len(tiles) % 4)
         grid = np.concatenate([np.concatenate(tiles[i:i + 4], 1) for i in range(0, len(tiles), 4)], 0)
-        Image.fromarray(grid).save(args.figure)
+        save_image(Image.fromarray(grid), Path(args.figure), failed)
     n_ok = sum(r["ok"] for r in rows)
     print(f"Processed {len(rows)} trees: {n_ok} passed the quality check, "
           f"{len(rows) - n_ok} flagged. Results in {out}")
     for r in rows:
         if not r["ok"]:
             print(f"  {r['tree_id']}: {r['issues']}")
-    return 0
+    report_failed(failed)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
