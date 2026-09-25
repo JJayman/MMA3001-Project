@@ -204,7 +204,8 @@ def test_render_cli(sample_dir, tmp_path, capsys):
     save_clicks(tmp_path / "c.json", clicks)
     out = tmp_path / "out"
     assert main([str(sample_dir), "--clicks", str(tmp_path / "c.json"), "--out", str(out), "--overlays"]) == 0
-    assert "Rendered 1 trees; 1 skipped or incomplete; 1 not found" in capsys.readouterr().out
+    text = capsys.readouterr().out
+    assert "Rendered 1 trees in" in text and "1 skipped or incomplete; 1 not found" in text
     assert (out / f"{trees[0].tree_id}_winter_gt.png").exists()
     assert (out / f"{trees[0].tree_id}_overlay.jpg").exists()
     assert (out / "summary.csv").exists()
@@ -254,3 +255,22 @@ def test_check_clicks():
     assert any("left tip" in i for i in check_clicks(low_tip))
     close = Clicks(trunk=[ROOT, FORK], left=[(20, 300)], right=[(20, 320)])
     assert "leader tips are close together" in check_clicks(close)
+
+
+def test_render_cli_filters_and_parallel(sample_dir, tmp_path, capsys):
+    trees = index_dataset(sample_dir).trees
+    c = Clicks(trunk=[(460, 330), (330, 310)], left=[(10, 110)], right=[(10, 450)])
+    save_clicks(tmp_path / "c.json", {t.tree_id: c for t in trees[:3]})
+    out = tmp_path / "out"
+    first_row = int(trees[0].tree_id[1:3])
+    # Row filter, run in parallel with 2 worker processes.
+    assert main([str(sample_dir), "--clicks", str(tmp_path / "c.json"), "--out", str(out),
+                 "--rows", str(first_row), "--jobs", "2"]) == 0
+    text = capsys.readouterr().out
+    n_row = sum(int(t.tree_id[1:3]) == first_row for t in trees[:3])
+    assert f"Rendered {n_row} trees" in text and f"{n_row}/{n_row} trees" in text
+    # Tree filter, single process.
+    assert main([str(sample_dir), "--clicks", str(tmp_path / "c.json"), "--out", str(out),
+                 "--trees", trees[2].tree_id, "--jobs", "1"]) == 0
+    assert "Rendered 1 trees" in capsys.readouterr().out
+    assert (out / f"{trees[2].tree_id}_winter_gt.png").exists()
