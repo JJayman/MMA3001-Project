@@ -16,6 +16,7 @@ from treeskel.measure_width import (
     LENGTHS,
     WIDENINGS,
     centre_runs,
+    choose_shape,
     crotch_zone,
     edge_overshoot,
     free_taper,
@@ -108,6 +109,21 @@ def test_crotch_zone_lies_between_the_leaders_above_the_fork():
     assert np.hypot(rows - FORK[0], cols - FORK[1]).max() <= 2.5 * gt.radii["trunk"][-1]
 
 
+def test_choose_shape_holds_out_each_group():
+    costs = np.ones((4, len(WIDENINGS), len(LENGTHS)))                  # constant width costs 1 everywhere
+    costs[:2, 3, 4] = 0.5                                              # group "a" is fitted best by (w3, L4)
+    costs[2:, 6, 8] = 0.2                                              # group "b" by (w6, L8),
+    costs[:2, 6, 8] = 0.8                                              # which suits "a" a little too
+    chosen = choose_shape(costs, np.array(["a", "a", "b", "b"]))
+    assert chosen["groups"] == ["a", "b"]
+    # "a" held out: "b" chooses (w6, L8), which costs "a" 0.8, less than a constant width.
+    assert chosen["picks"][0] == (WIDENINGS[6], LENGTHS[8]) and chosen["held_out"][0] == pytest.approx(0.8)
+    # "b" held out: "a" chooses (w3, L4), which does nothing for "b".
+    assert chosen["picks"][1] == (WIDENINGS[3], LENGTHS[4]) and chosen["held_out"][1] == pytest.approx(1.0)
+    assert chosen["held_out_constant"] == [1.0, 1.0]
+    assert choose_shape(costs[:2], np.array(["a", "a"]))["groups"] == []     # nothing left to choose with
+
+
 def test_free_taper():
     s = np.linspace(0, 300, 301)
     assert free_taper(s, np.linspace(8, 6, 301), 10.0) == pytest.approx(-0.25, abs=0.01)
@@ -130,8 +146,15 @@ def test_cli_measures_development_rows_only(sample_dir, tmp_path, capsys):
     far = report["far_from_fork"]["median_half_width"]
     assert far["new"] > 1.5 * far["old"]                               # the leaders are drawn wider now
     assert report["overshoot"]["n_edges"] > 0 and report["profile"]["n_hand_leaders"] == 2 * len(dev)
+    wd = report["widening"]
+    assert np.array(wd["grid"]["cost"]).shape == (len(WIDENINGS), len(LENGTHS))
+    assert wd["default"]["cost"] is not None and wd["cost_best"] <= wd["default"]["cost"]
+    # Rows 1 and 15 are in the first fold of splits.json, row 20 in the second.
+    assert wd["row_folds"]["n_groups"] == 2 and wd["leave_one_out"]["n_groups"] == len(dev)
+    assert "Row-grouped folds" in text
     crotch = report["crotch_off_depth"]
-    assert crotch["before"][1] <= crotch["after_no_widening"][1] <= crotch["after"][1]   # wider leaders reach further in
+    # Wider leaders reach further into the crotch.
+    assert crotch["before"][1] <= crotch["after_no_widening"][1] <= crotch["after"][1]
     assert report["off_centre"]["n_cross_sections"] > 0 and "Traced path" in text
     assert (out / "leaders.csv").read_text().count("\n") == 1 + 2 * len(dev)
     assert figure.exists()

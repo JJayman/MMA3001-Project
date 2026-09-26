@@ -45,7 +45,9 @@ camera, different (autumn) capture.
   half of a side-lit branch counts; cross-sections within reach of the other
   leader are not used). Each leader is drawn at its own robust width, widened
   near the fork by a shared +35% that fades over 4 trunk radii
-  (`fit_leader_radius`). Centre lines are smoothed between clicks (σ = 6).
+  (`fit_leader_radius`); these two values came from 21 trees and are
+  provisional, as the 449-tree check preferred a much longer fade (see
+  `docs/results/leader_width/`). Centre lines are smoothed between clicks (σ = 6).
   At the fork, the notch on each leader's outer side is filled out to the
   straight line from the trunk's edge to the leader's edge 1.4 trunk radii up
   it (`shoulder_fill`, session 6; with the session-8 widths it may no longer

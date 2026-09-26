@@ -26,8 +26,11 @@ too, see :func:`treeskel.guided_gt.clear_of`):
 4. **The fork widening.** Each leader's widths beyond 1.5 trunk radii are
    fitted as ``c · (1 + w · exp(−s / (L · R)))`` with ``c`` per leader and
    ``(w, L)`` shared, over a grid (:func:`widening_costs`). The shared
-   values are checked by leave-one-tree-out, against a constant width
-   (``w = 0``), and the free straight tapers used before are summarised.
+   values are chosen with each tree, and each fold of the row-grouped
+   cross-validation in ``splits.json``, held out in turn
+   (:func:`choose_shape`), and compared with a constant width (``w = 0``).
+   The whole cost surface is saved, and the free straight tapers used
+   before are summarised.
 5. **The crotch.** Mask pixels between the leaders near the fork that are
    off the depth silhouette (:func:`crotch_zone`), before and after, and
    after without the widening: wider leaders fill the bottom of the V.
@@ -79,11 +82,12 @@ OLD = GuidedParams(leader_width_source="scale_space", leader_fit="taper")
 BINS = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 25.0)
 """Distance from the fork, in trunk radii, for the pooled width profiles."""
 
-WIDENINGS = tuple(np.round(np.arange(0.0, 0.81, 0.05), 2))
+WIDENINGS = tuple(np.round(np.arange(0.0, 1.01, 0.05), 2))
 """Widening at the fork (fraction) tried by :func:`widening_costs`."""
 
-LENGTHS = (1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0)
-"""Widening lengths (trunk radii) tried by :func:`widening_costs`."""
+LENGTHS = (1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0)
+"""Widening lengths (trunk radii) tried by :func:`widening_costs`. The first grid stopped at
+12; on all 449 development trees every leave-one-tree-out fit chose 12, so it was extended."""
 
 FIT_START = 1.5
 """Nearest distance from the fork (trunk radii) of the widths used in the fits."""
@@ -238,6 +242,47 @@ def free_taper(s: np.ndarray, widths: np.ndarray, fork_radius: float, start: flo
     return float(b * (s[-1] - s[use].min()) / base) if base > 0 else float("nan")
 
 
+def choose_shape(costs: np.ndarray, groups: np.ndarray) -> dict:
+    """Choose the shared widening with each group held out in turn.
+
+    For each group, the ``(w, L)`` with the lowest mean cost over the other
+    groups' leaders is picked, and its mean cost on the held-out group's
+    leaders is compared with a constant width (``w = 0``).
+
+    Args:
+        costs: ``(n_leaders, len(WIDENINGS), len(LENGTHS))`` costs from
+            :func:`widening_costs` (no nan).
+        groups: ``(n_leaders,)`` group of each leader: its tree (to hold out
+            one tree at a time) or its fold of row-grouped cross-validation.
+
+    Returns:
+        ``{"groups", "picks", "held_out", "held_out_constant"}``, one entry per
+        group that has leaders both in and out of it; ``picks`` are
+        ``(w, L)`` pairs.
+    """
+    out: dict = {"groups": [], "picks": [], "held_out": [], "held_out_constant": []}
+    for g in sorted(set(groups.tolist())):
+        train, test = costs[groups != g], costs[groups == g]
+        if not len(train) or not len(test):
+            continue
+        a, b = np.unravel_index(np.argmin(train.mean(0)), train.shape[1:])
+        out["groups"].append(g)
+        out["picks"].append((float(WIDENINGS[a]), float(LENGTHS[b])))
+        out["held_out"].append(float(test[:, a, b].mean()))
+        out["held_out_constant"].append(float(test[:, 0, 0].mean()))
+    return out
+
+
+def _held_out_summary(chosen: dict) -> dict:
+    """Ranges of the picks and the mean held-out costs of :func:`choose_shape`."""
+    held, const = np.array(chosen["held_out"]), np.array(chosen["held_out_constant"])
+    return {"widening": [min(p[0] for p in chosen["picks"]), max(p[0] for p in chosen["picks"])],
+            "length": [min(p[1] for p in chosen["picks"]), max(p[1] for p in chosen["picks"])],
+            "picks": [list(p) for p in chosen["picks"]],
+            "held_out_cost": float(held.mean()), "held_out_cost_constant": float(const.mean()),
+            "better_than_constant": int((held < const).sum()), "n_groups": len(held)}
+
+
 def _crop(image: np.ndarray, centre: Sequence[int], half: int) -> np.ndarray:
     r0 = int(np.clip(centre[0] - half, 0, image.shape[0] - 2 * half))
     c0 = int(np.clip(centre[1] - half, 0, image.shape[1] - 2 * half))
@@ -320,7 +365,7 @@ def measure_tree(job: tuple) -> dict:
                 c = path[int(frac * (len(path) - 1))]
                 tiles["crops"].append([_crop(im, c, 32) for im in (d["rgb"], _outline(d["rgb"], before),
                                                                   _outline(d["rgb"], after))])
-    return {"tree": rec.tree_id, "fork_radius": radius, "leaders": leaders, "hand": hand,
+    return {"tree": rec.tree_id, "row": rec.row, "fork_radius": radius, "leaders": leaders, "hand": hand,
             "overshoot": np.concatenate(overshoot), "crotch": crotch_px, "tiles": tiles}
 
 
@@ -338,8 +383,15 @@ def _nanmedian_rows(rows: list[list[float]]) -> list[float | None]:
     return [None if np.all(np.isnan(col)) else float(np.nanmedian(col)) for col in a.T]
 
 
-def summarise(results: list[dict]) -> dict:
-    """Pool :func:`measure_tree` results into the report."""
+def summarise(results: list[dict], folds: Sequence[Sequence[int]] | None = None) -> dict:
+    """Pool :func:`measure_tree` results into the report.
+
+    Args:
+        results: One :func:`measure_tree` result per tree.
+        folds: Rows in each fold of row-grouped cross-validation (the
+            ``fold_val_rows`` of ``splits.json``), to choose the widening with
+            whole folds held out as well as single trees.
+    """
     leaders = [(r["tree"], r["fork_radius"], ld) for r in results for ld in r["leaders"]]
     over = np.concatenate([r["overshoot"] for r in results])
     bleed = float(np.median(over)) if len(over) else float("nan")
@@ -374,21 +426,23 @@ def summarise(results: list[dict]) -> dict:
     prof["hand"] = _nanmedian_rows([_binned(s, w) for s, w in hands]) if hands else None
     prof["n_hand_leaders"] = len(hands)
     out["profile"] = prof
-    # The shared widening: best grid point, leave-one-tree-out, against a constant width.
+    # The shared widening: the whole cost surface, its best point, and the point chosen with
+    # each tree, and each row-grouped fold, held out in turn, against a constant width.
     costs = np.array([ld["costs"] for _, _, ld in leaders])
     trees = np.array([t for t, _, _ in leaders])
+    rows_of = np.array([r["row"] for r in results for _ in r["leaders"]])
     fine = ~np.isnan(costs).any((1, 2))
-    costs, trees = costs[fine], trees[fine]
+    costs, trees, rows_of = costs[fine], trees[fine], rows_of[fine]
     total = costs.mean(0)
     i, j = np.unravel_index(np.argmin(total), total.shape)
-    picks, held, held_const = [], [], []
-    for t in sorted(set(trees)):
-        train = costs[trees != t].mean(0)
-        a, b = np.unravel_index(np.argmin(train), train.shape)
-        picks.append((WIDENINGS[a], LENGTHS[b]))
-        held.append(costs[trees == t, a, b].mean())
-        held_const.append(costs[trees == t, 0, 0].mean())
-    held, held_const = np.array(held), np.array(held_const)
+    default = GuidedParams()
+    on_grid = default.fork_widening in WIDENINGS and default.widening_length in LENGTHS
+    by_tree = _held_out_summary(choose_shape(costs, trees))
+    by_fold = None
+    if folds:
+        fold_of = np.array([next((k for k, f in enumerate(folds) if row in f), -1) for row in rows_of])
+        chosen = choose_shape(costs[fold_of >= 0], fold_of[fold_of >= 0])
+        by_fold = _held_out_summary(chosen) if chosen["groups"] else None
     out["crotch_off_depth"] = {name: [sum(r["crotch"][name][k] for r in results) for k in (0, 1)]
                                for name in ("before", "after", "after_no_widening")}
     off = np.concatenate([ld["off_centre"] for _, _, ld in leaders])
@@ -400,12 +454,15 @@ def summarise(results: list[dict]) -> dict:
     tapers = tapers[~np.isnan(tapers)]
     out["widening"] = {
         "best": {"widening": float(WIDENINGS[i]), "length": float(LENGTHS[j]),
-                 "at_fit_start": float(WIDENINGS[i] * np.exp(-FIT_START / LENGTHS[j]))},
+                 "at_fit_start": float(WIDENINGS[i] * np.exp(-FIT_START / LENGTHS[j])),
+                 "at_grid_edge": bool(i == len(WIDENINGS) - 1 or j == len(LENGTHS) - 1)},
         "cost_best": float(total[i, j]), "cost_constant": float(total[0, 0]),
-        "leave_one_out": {"widening": [float(min(p[0] for p in picks)), float(max(p[0] for p in picks))],
-                          "length": [float(min(p[1] for p in picks)), float(max(p[1] for p in picks))],
-                          "held_out_cost": float(held.mean()), "held_out_cost_constant": float(held_const.mean()),
-                          "trees_better_than_constant": int((held < held_const).sum()), "n_trees": len(held)},
+        "default": {"widening": default.fork_widening, "length": default.widening_length,
+                    "cost": float(total[WIDENINGS.index(default.fork_widening),
+                                        LENGTHS.index(default.widening_length)]) if on_grid else None},
+        "grid": {"widenings": list(WIDENINGS), "lengths": list(LENGTHS), "cost": total.round(5).tolist()},
+        "leave_one_out": by_tree,
+        "row_folds": by_fold,
         "free_taper": {"n_leaders": int(len(tapers)), "median": float(np.median(tapers)) if len(tapers) else None,
                        "iqr": [float(v) for v in np.percentile(tapers, [25, 75])] if len(tapers) else None,
                        "widening_upwards": float(np.mean(tapers > 0)) if len(tapers) else None}}
@@ -528,7 +585,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--plot", help="also save a chart of the width along the leaders as this image")
     args = ap.parse_args(argv)
 
-    test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
+    split = json.loads(Path(args.split).read_text())
+    test_rows = set(split["test_rows"])
     clicks = load_clicks(args.clicks)
     records = {t.tree_id: t for d in args.data_dirs for t in index_dataset(d).trees}
     ids = sorted(t for t, c in clicks.items()
@@ -552,7 +610,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  {i}/{len(jobs)} trees, {el:.0f} s elapsed, about {el / i * (len(jobs) - i):.0f} s left",
                       flush=True)
 
-    report = summarise(results)
+    report = summarise(results, split.get("fold_val_rows"))
     report["test_rows_excluded"] = sorted(test_rows)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -589,12 +647,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                       ("widths", "measured"), ("new", "after"), ("old", "before")):
         if prof.get(key):
             print(f"  {name:16s}" + " ".join("  -  " if v is None else f"{v:5.2f}" for v in prof[key]))
-    b, loo = wd["best"], wd["leave_one_out"]
-    print(f"Shared widening: {b['widening']:.2f} at the fork ({b['at_fit_start']:.2f} at {FIT_START:g} trunk radii), "
-          f"fading over {b['length']:g} trunk radii; leave-one-tree-out picks {loo['widening'][0]:.2f}-"
-          f"{loo['widening'][1]:.2f} and {loo['length'][0]:g}-{loo['length'][1]:g}.")
-    print(f"  Held-out cost {loo['held_out_cost']:.4f} vs {loo['held_out_cost_constant']:.4f} for a constant width "
-          f"(better on {loo['trees_better_than_constant']} of {loo['n_trees']} trees).")
+    b, dflt = wd["best"], wd["default"]
+    print(f"Shared widening, best on all trees: {b['widening']:.2f} at the fork ({b['at_fit_start']:.2f} at "
+          f"{FIT_START:g} trunk radii), fading over {b['length']:g} trunk radii; cost {wd['cost_best']:.4f} "
+          f"(constant width {wd['cost_constant']:.4f}"
+          + (f"; current default {dflt['widening']:g} and {dflt['length']:g}: {dflt['cost']:.4f}"
+             if dflt["cost"] is not None else "") + ").")
+    if b["at_grid_edge"]:
+        print("  The best point is at the edge of the grid searched: the true best may lie beyond it.")
+    for key, name, unit in (("leave_one_out", "Leave-one-tree-out", "trees"),
+                            ("row_folds", "Row-grouped folds (splits.json)", "folds")):
+        h = wd[key]
+        if h:
+            print(f"  {name}: picks {h['widening'][0]:.2f}-{h['widening'][1]:.2f} and {h['length'][0]:g}-"
+                  f"{h['length'][1]:g}; held-out cost {h['held_out_cost']:.4f} vs {h['held_out_cost_constant']:.4f}"
+                  f" for a constant width (better on {h['better_than_constant']} of {h['n_groups']} {unit}).")
     ft = wd["free_taper"]
     if ft["n_leaders"]:
         median = ft["median"] if abs(ft["median"]) >= 0.005 else 0.0      # print 0%, not -0%

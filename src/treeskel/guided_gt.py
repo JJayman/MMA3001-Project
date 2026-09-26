@@ -158,13 +158,13 @@ class GuidedParams:
             width further up (a fraction); 0 turns the widening off.
         widening_length: Distance (in trunk radii at the fork) over which
             the widening falls by a factor e. ``fork_widening`` and
-            ``widening_length`` are shared by all leaders. They were fitted
-            to the widths measured across 42 leaders of 21 development-row
-            trees (:mod:`treeskel.measure_width`): +35% at the fork (+24% 1.5
-            trunk radii up it), fading over 4 trunk radii; leave-one-tree-out
-            picked 0.30–0.45 and 3–5. The evidence is weak: the fitted shape
-            beats a constant width on 12 of the 21 held-out trees. A straight
-            taper along the whole leader is not supported (median change 0%).
+            ``widening_length`` are shared by all leaders. The values here
+            were fitted on 21 development-row trees (+35% at the fork,
+            fading over 4 trunk radii) and are provisional: on all 449
+            development trees (:mod:`treeskel.measure_width`) the best length
+            was 12, the longest then tried, and the leaders narrow along
+            their whole length (median free taper −16%). They are to be
+            re-chosen on all 449 with the extended grid.
         leader_fit_start: A leader's own width is estimated from points at
             least this many trunk radii from the fork; nearer, the
             cross-section cuts through the top of the trunk. Cross-sections

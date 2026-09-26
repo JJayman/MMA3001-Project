@@ -148,6 +148,12 @@ for has gone. `measure_fork` re-run on the same 21 trees with the new widths
 - Matching settings: 0.58 (depth, 1.5 R; leave-one-out 0.36–1.03) and 1.12
   (depth, 2 R; 1.00–1.36); against the shrunk depth, below 0.
 - The pixels the 1.4 fill adds are 81% on depth (94% before on these trees).
+- **All 449 development trees** (student's PC, `new_leader_widths/all_dev_rows_output.txt`):
+  the same picture. No fill: 0.914 (1.5 R) and 0.879 (2 R), between depth
+  (0.938, 0.914) and shrunk depth (0.875, 0.840); fill 1.4: 0.996 and 0.948,
+  above depth at both reaches. Matching settings 0.66 and 1.08 against depth
+  (leave-one-out 0.64–0.72 and 1.07–1.10), below 0 against the shrunk depth.
+  The added pixels are 79% on depth (91% in the session-6 check).
 - Not changed yet: `shoulder_length` stays 1.4 until the student decides
   between keeping it, lowering it to about 1.0, or turning it off.
 
