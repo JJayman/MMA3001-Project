@@ -92,11 +92,26 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 6 (masks final,
-including the fork fill):
-1. Align each winter image with its summer image, and warp the winter masks
-   into the summer view; measure the error on hand-clicked point pairs.
-2. The same alignment is needed for the hand masks (15–45 px shift).
-3. Summer model: baselines, then a U-Net on RGB-D with the 5 folds.
-4. Score the automatic baseline against the guided ground truth.
-5. Optional: fix the constant-width trunks (session 6, section 6).
+See the latest file in `docs/progress/`. As of session 7:
+
+- **Winter-to-summer pixel alignment was tried and abandoned** (session 7,
+  `docs/results/align/`). Automatic matching (SIFT; DISK+LightGlue gave a
+  plausible fit on about 1% of trees), clicked point pairs (about 12 px off,
+  2 min a tree) and lining the photos up by hand all failed: too little rigid
+  structure is visible in both seasons, and the scale is not pinned down. The
+  tools (`align.py`, `annotate_pairs.py`, `annotate_overlay.py`,
+  `summer_gt.py`) and their results stay as documented evidence.
+- **The student's direction:**
+  1. **Improve the winter masks** (next chat). The student saw masks off the
+     branch and of the wrong width; get example tree ids first, then
+     measure, fix, and measure again. The constant-width trunks (session 6,
+     section 6) may be part of it.
+  2. **Learn the tree's shape from winter, alignment-free:** shape measures
+     from the winter traces that need no alignment (leader angles relative to
+     the trunk, V opening, curvature), predicted from summer RGB-D with the 5
+     folds. Baselines: the mean shape, and the hand masks' shape.
+  3. Optional later: train on the hand masks (roughly in the summer view)
+     with the winter traces as shape truth. This would change "hand masks are
+     for validation only", so ask first.
+- Still open: score the automatic winter baseline against the guided ground
+  truth; which season was photographed first.
