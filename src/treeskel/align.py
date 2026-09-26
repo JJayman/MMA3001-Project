@@ -256,7 +256,8 @@ class Fit:
 
 
 def ransac_fit(src: np.ndarray, dst: np.ndarray, model: str = "similarity", threshold: float = 5.0,
-               max_trials: int = 5000, confidence: float = 0.999, seed: int = 0) -> Fit:
+               max_trials: int = 5000, confidence: float = 0.999, seed: int = 0,
+               is_valid: Callable[[np.ndarray], bool] | None = None) -> Fit:
     """Fit a transform to matches that include wrong ones (RANSAC with MSAC scoring).
 
     Repeatedly: draw the smallest sample that fixes the model
@@ -274,9 +275,13 @@ def ransac_fit(src: np.ndarray, dst: np.ndarray, model: str = "similarity", thre
         max_trials: Upper limit on samples drawn.
         confidence: Wanted probability of drawing one all-inlier sample.
         seed: Random seed, so results repeat exactly.
+        is_valid: Optional test of a transform (e.g. :func:`plausible`);
+            hypotheses and refits that fail it are rejected. With few correct
+            matches, this stops RANSAC from settling on a transform that no
+            camera move could produce.
 
     Returns:
-        A :class:`Fit`; its ``matrix`` is ``None`` if no sample could be fitted.
+        A :class:`Fit`; its ``matrix`` is ``None`` if no valid sample could be fitted.
     """
     src = np.asarray(src, float).reshape(-1, 2)
     dst = np.asarray(dst, float).reshape(-1, 2)
@@ -291,6 +296,8 @@ def ransac_fit(src: np.ndarray, dst: np.ndarray, model: str = "similarity", thre
         idx = rng.choice(n, k, replace=False)
         m = fit_transform(src[idx], dst[idx], model)
         if m is None or not np.all(np.isfinite(m)) or not keeps_orientation(m, src):
+            continue
+        if is_valid is not None and not is_valid(m):
             continue
         res = residuals(m, src, dst)
         cost = msac_cost(res, threshold)
@@ -307,6 +314,8 @@ def ransac_fit(src: np.ndarray, dst: np.ndarray, model: str = "similarity", thre
     for _ in range(10):                                 # least-squares refit on the inliers
         m = fit_transform(src[inl], dst[inl], model)
         if m is None or not np.all(np.isfinite(m)) or not keeps_orientation(m, src):
+            break
+        if is_valid is not None and not is_valid(m):
             break
         new = residuals(m, src, dst) < threshold
         if new.sum() < k:                               # the refit lost its support: keep the last fit
@@ -361,7 +370,12 @@ def describe(matrix: np.ndarray, at: Sequence[float]) -> dict[str, float]:
 
 @dataclass(frozen=True)
 class FitLimits:
-    """Limits used by :func:`check_fit`. Provisional: to be set from the data.
+    """Limits used by :func:`check_fit` and :func:`plausible`.
+
+    The scale and rotation limits are the same as for the clicked pairs
+    (:class:`treeskel.summer_gt.PairLimits`): judged by eye, the camera's
+    distance and roll change little between the seasons (posts look about
+    as wide and as upright in both).
 
     Attributes:
         min_inliers: Fewest inlier matches for a usable fit.
@@ -375,8 +389,38 @@ class FitLimits:
 
     min_inliers: int = 15
     min_hull: float = 0.02
-    scale_range: tuple[float, float] = (0.75, 1.33)
-    max_rotation: float = 10.0
+    scale_range: tuple[float, float] = (0.8, 1.25)
+    max_rotation: float = 8.0
+
+
+def plausible(matrix: np.ndarray, limits: FitLimits = FitLimits(), at: Sequence[float] = (320, 240)) -> bool:
+    """True if a transform's scale and rotation (at ``at``) are within ``limits``."""
+    d = describe(matrix, at)
+    lo, hi = limits.scale_range
+    return bool(lo <= d["scale"] <= hi and abs(d["rotation"]) <= limits.max_rotation)
+
+
+def consistency_table(matches: dict[str, Matches], limits: FitLimits = FitLimits(), threshold: float = 5.0,
+                      counts: Sequence[int] = (3, 5, 8, 12, 20)) -> dict:
+    """How many trees have enough mutually consistent matches for a trustworthy fit.
+
+    For each tree, RANSAC fits a similarity using only :func:`plausible`
+    hypotheses; its inliers are then the largest set of matches that one
+    physically possible camera move explains. Any two matches define some
+    similarity, so without that restriction 2 "inliers" mean nothing. This
+    needs only the matches, not the images.
+
+    Returns:
+        ``{"trees", "median_matches", "median_inliers", "at_least": {k: trees
+        with >= k consistent inliers}, "inliers": {tree: count}}``.
+    """
+    inl = {t: ransac_fit(m.winter, m.summer, "similarity", threshold,
+                         is_valid=lambda mat: plausible(mat, limits)).n_inliers for t, m in matches.items()}
+    v = np.array(list(inl.values()))
+    return {"trees": len(v),
+            "median_matches": float(np.median([len(m) for m in matches.values()])) if v.size else float("nan"),
+            "median_inliers": float(np.median(v)) if v.size else float("nan"),
+            "at_least": {k: int((v >= k).sum()) for k in counts}, "inliers": inl}
 
 
 def hull_fraction(pts: np.ndarray, shape: tuple[int, int]) -> float:
@@ -661,7 +705,8 @@ def make_matcher(name: str, device: str | None = None,
 # Pictures
 # --------------------------------------------------------------------------
 
-def _outline(mask: np.ndarray, width: int = 2) -> np.ndarray:
+def outline(mask: np.ndarray, width: int = 2) -> np.ndarray:
+    """The pixels of a bool mask within ``width`` px of its edge (for drawing outlines)."""
     return mask & ~ndi.binary_erosion(mask, iterations=width)
 
 
@@ -675,11 +720,11 @@ def draw_alignment(rgb_winter: np.ndarray, rgb_summer: np.ndarray, mask_winter: 
     """
     h, w = rgb_winter.shape[:2]
     left = rgb_winter.copy()
-    left[_outline(mask_winter)] = (255, 0, 255)
+    left[outline(mask_winter)] = (255, 0, 255)
     right = rgb_summer.copy()
     if fit.matrix is not None:
         warped, _ = warp_mask(mask_winter, fit.matrix, rgb_summer.shape[:2])
-        right[_outline(warped)] = (255, 0, 255)
+        right[outline(warped)] = (255, 0, 255)
     im = Image.fromarray(np.concatenate([left, right], 1))
     dr = ImageDraw.Draw(im)
     out = np.nonzero(~fit.inliers)[0]
@@ -706,7 +751,7 @@ def draw_summer(rgb_summer: np.ndarray, mask_winter: np.ndarray, matches: Matche
     im = rgb_summer.copy()
     if fit.matrix is not None:
         warped, _ = warp_mask(mask_winter, fit.matrix, rgb_summer.shape[:2])
-        im[_outline(warped, width)] = (255, 0, 255)
+        im[outline(warped, width)] = (255, 0, 255)
     pil = Image.fromarray(im)
     dr = ImageDraw.Draw(pil)
     for (x, y) in matches.summer[fit.inliers]:
@@ -734,8 +779,19 @@ MAX_FAILURES_IN_A_ROW = 5
 fault (e.g. the GPU is out of memory), not the trees."""
 
 
-def _winter_mask(tree_id: str, winter: dict, clicks: dict, gt_dir: Path | None) -> np.ndarray | None:
-    """The tree's rendered winter mask: from ``gt_dir`` if saved there, else traced from its clicks."""
+def load_winter_mask(tree_id: str, winter: dict, clicks: dict, gt_dir: Path | None) -> np.ndarray | None:
+    """The tree's rendered winter mask: from ``gt_dir`` if saved there, else traced from its clicks.
+
+    Args:
+        tree_id: The tree.
+        winter: Its winter images (:func:`treeskel.io.load_tree`), used to trace.
+        clicks: All winter clicks (:func:`treeskel.guided_gt.load_clicks`).
+        gt_dir: Folder of ``<tree>_winter_gt.png`` files written by
+            :mod:`treeskel.guided_gt`, or ``None`` to always trace.
+
+    Returns:
+        ``(H, W)`` bool mask, or ``None`` if the tree has no usable clicks.
+    """
     from treeskel.guided_gt import guided_gt
     from treeskel.winter_gt import render_main_branches
 
@@ -786,7 +842,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="folder of <tree>_winter_gt.png masks; traced from the clicks if missing")
     ap.add_argument("--out", default="outputs/align")
     ap.add_argument("--overlays", action="store_true", help="also save a picture per tree")
+    ap.add_argument("--consistency", action="store_true",
+                    help="only report how many trees have enough consistent matches (reads only the "
+                         "matches file; DATA_DIR is not used)")
     args = ap.parse_args(argv)
+
+    if args.consistency:
+        import re
+
+        mpath = Path(args.matches or MATCHES_DIR / f"{args.matcher}.npz")
+        saved, _ = load_matches(mpath)
+        sel = {t: m for t, m in saved.items() if (not args.trees or t in args.trees)
+               and (not args.rows or int(re.match(r"R(\d+)", t)[1]) in args.rows)}
+        if not sel:
+            print(f"No saved matches in {mpath} for the selected trees.")
+            return 1
+        lim = FitLimits()
+        tab = consistency_table(sel, lim, args.threshold)
+        print(f"Consistent matches in {mpath} ({tab['trees']} trees): RANSAC similarity limited to scale "
+              f"{lim.scale_range[0]}-{lim.scale_range[1]} and rotation within {lim.max_rotation} deg, "
+              f"inlier threshold {args.threshold} px.")
+        print(f"  matches per tree: median {tab['median_matches']:.0f}; "
+              f"consistent inliers per tree: median {tab['median_inliers']:.0f}")
+        for k, n in tab["at_least"].items():
+            print(f"  trees with at least {k:2d} consistent inliers: {n:4d} ({100 * n / tab['trees']:.0f}%)")
+        best = sorted(tab["inliers"].items(), key=lambda kv: -kv[1])[:10]
+        print("  most: " + ", ".join(f"{t} {n}" for t, n in best))
+        return 0
 
     trees = index_dataset(args.data_dir).trees
     if args.rows:
@@ -850,7 +932,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for i, rec in enumerate(trees, 1):
         m = saved[rec.tree_id]
         winter, summer = load_tree(rec, "winter"), load_tree(rec, "summer")
-        mask = _winter_mask(rec.tree_id, winter, clicks, gt_dir)
+        mask = load_winter_mask(rec.tree_id, winter, clicks, gt_dir)
         near = ndi.distance_transform_edt(~mask) <= NEAR_TREE_PX if mask is not None else None
         c = clicks.get(rec.tree_id)
         anchor = c.fork[::-1] if c is not None and c.complete and not c.skip else None

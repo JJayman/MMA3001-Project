@@ -1,0 +1,34 @@
+Command (the 21 development-row trees available in the repository; matches: data/matches/lightglue.npz):
+python -m treeskel.align DATA --matcher lightglue --no-match --trees R01N01 R01N02 R01N04 R01N05 R01N08 R01N13 R01N18 R01N25 R01N32 R07N09 R07N17 R07N25 R07N26 R07N29 R07N32 R09N12 R09N18 R09N32 R09N34 R15N05 R20N06
+
+Fitted 21 trees (8 s). Inlier threshold 5.0 px.
+Medians over trees. 'on tree': share of inliers within 20 px of the winter mask; 'no depth': share without a winter depth reading (background); scale, rotation and shift at the fork click.
+model          usable  inliers  on tree  no depth   scale  |rot|   shift x, y
+translation     0/21         2     0.00      0.00   1.000    0.0    -13,  -90
+similarity      1/21         3     0.25      0.06   0.945   14.1    -24, -166
+affine          1/21         4     0.17      0.09   1.022   18.3    -32, -126
+homography      1/21         5     0.25      0.11   0.816   25.6     55, -104
+
+Flagged for similarity (20 trees; limits are provisional):
+  R01N01: only 2 inliers; inliers cover 0.0% of the image
+  R01N02: only 3 inliers; scale 0.30; rotation 28.4 deg
+  R01N04: no transform could be fitted
+  R01N05: only 4 inliers; inliers cover 0.1% of the image; scale 0.74
+  R01N08: no transform could be fitted
+  R01N13: only 2 inliers; inliers cover 0.0% of the image; scale 1.60; rotation -47.8 deg
+  R01N25: no transform could be fitted
+  R01N32: inliers cover 1.0% of the image
+  R07N09: only 3 inliers; inliers cover 1.7% of the image; scale 0.68; rotation 21.0 deg
+  R07N17: only 4 inliers; inliers cover 0.2% of the image; scale 1.56; rotation 11.0 deg
+  R07N25: only 2 inliers; inliers cover 0.0% of the image; rotation -15.9 deg
+  R07N26: only 4 inliers; inliers cover 0.3% of the image; scale 0.77
+  R07N29: only 2 inliers; inliers cover 0.0% of the image; scale 2.75; rotation -73.4 deg
+  R07N32: only 3 inliers; inliers cover 0.1% of the image; scale 1.27; rotation -14.1 deg
+  R09N12: only 5 inliers; inliers cover 0.9% of the image; scale 0.67
+  R09N18: only 3 inliers; inliers cover 0.0% of the image; rotation 15.9 deg
+  R09N32: only 6 inliers; inliers cover 0.1% of the image; rotation -9.7 deg
+  R09N34: only 2 inliers; inliers cover 0.0% of the image; scale 10.94; rotation -114.9 deg
+  R15N05: no transform could be fitted
+  R20N06: only 4 inliers; inliers cover 0.1% of the image; scale 0.46; rotation 19.0 deg
+
+Results in outputs/align/lightglue
