@@ -13,11 +13,16 @@ crosses them).
 
 From the pairs:
 
-1. **Transform** (:func:`pair_transform`): a least-squares fit, by default of
-   a similarity (scale, rotation and shift), because the tree lies close to
-   one plane that roughly faces the camera in both seasons (see
-   :mod:`treeskel.align`). The translation, similarity and affine models are
-   compared by leave-one-out error on the development rows (:func:`main`).
+1. **Transform** (:func:`pair_transform`): a least-squares fit. The tree
+   lies close to one plane, and the camera stood at a different height,
+   distance and angle in each season. For a plane, every such change maps
+   one image to the other by a homography (8 parameters). A change of height
+   or a sideways move shifts the tree, a change of distance scales it and
+   roll rotates it: a similarity (4 parameters) covers these. Pitch and yaw
+   add perspective, which only the homography models exactly. More
+   parameters need more pairs and follow click errors more, so the models
+   (translation, similarity, affine, homography) are compared by
+   leave-one-out error on the development rows (:func:`main`).
 2. **Error** (:func:`loo_errors`): leave-one-out. Each pair in turn is left
    out, the transform is fitted to the others, and the error is the distance
    between where that transform sends the left-out winter point and where the
@@ -55,15 +60,21 @@ from treeskel.align import (
     contact_sheet,
     describe,
     fit_transform,
+    keeps_orientation,
     load_winter_mask,
     outline,
     warp_mask,
 )
 from treeskel.winter_gt import report_failed, save_image
 
-PAIR_MODELS = ("translation", "similarity", "affine")
-"""Models compared on the clicked pairs. A homography (8 parameters) would
-need at least 5 pairs per tree for a leave-one-out check, so it is not used."""
+PAIR_MODELS = ("translation", "similarity", "affine", "homography")
+"""Models compared on the clicked pairs, from the fewest parameters to the
+most. A leave-one-out check needs one pair more than the model's minimum
+(:data:`treeskel.align.MIN_SAMPLES`): 3 pairs for a similarity, 4 for an
+affine transform and 5 for a homography."""
+
+IMAGE_CORNERS = np.array([[0, 0], [639, 0], [0, 479], [639, 479]], float)
+"""Corners of a 640x480 image, ``(x, y)``."""
 
 Point = tuple[float, float]
 
@@ -133,8 +144,9 @@ def save_pairs(path: str | Path, pairs: dict[str, SeasonPairs]) -> None:
 def pair_transform(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray | None:
     """Least-squares winter-to-summer transform (3x3, ``(x, y)``) from the pairs.
 
-    Returns ``None`` if there are too few pairs for the model or they are
-    degenerate (see :func:`treeskel.align.fit_transform`).
+    Returns ``None`` if there are too few pairs for the model, they are
+    degenerate (see :func:`treeskel.align.fit_transform`), or the fitted
+    homography would turn part of the image inside out (:func:`_fit`).
 
     Example:
         >>> p = SeasonPairs(winter=[(100, 200), (300, 250)], summer=[(90, 215), (290, 265)])
@@ -143,7 +155,20 @@ def pair_transform(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray 
         [15, -10]
     """
     w, s = pairs.xy()
-    return fit_transform(w, s, model)
+    return _fit(w, s, model)
+
+
+def _fit(w: np.ndarray, s: np.ndarray, model: str) -> np.ndarray | None:
+    """:func:`treeskel.align.fit_transform`, rejecting homographies that fold the image.
+
+    A homography fitted to a few noisy clicks can put the line where its
+    perspective denominator is zero inside the image, sending part of it to
+    infinity. No camera move does that, so such a fit counts as failed.
+    """
+    m = fit_transform(w, s, model)
+    if m is not None and not keeps_orientation(m, IMAGE_CORNERS):
+        return None
+    return m
 
 
 def loo_errors(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray:
@@ -165,7 +190,7 @@ def loo_errors(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray:
         return out
     for i in range(n):
         keep = np.arange(n) != i
-        m = fit_transform(w[keep], s[keep], model)
+        m = _fit(w[keep], s[keep], model)
         if m is not None:
             out[i] = float(np.hypot(*(apply_transform(m, w[i:i + 1])[0] - s[i])))
     return out
@@ -177,7 +202,8 @@ class PairLimits:
 
     Attributes:
         min_pairs: Fewest pairs for a checked fit (2 fix a similarity exactly,
-            so a third is needed to check it).
+            so a third is needed to check it). Models with more parameters
+            need more: one more than :data:`treeskel.align.MIN_SAMPLES`.
         max_loo: Largest acceptable leave-one-out error of any pair (px).
         scale_range: Plausible scale between the seasons.
         max_rotation: Largest plausible rotation (degrees).
@@ -199,7 +225,7 @@ def check_pairs(pairs: SeasonPairs, model: str = "similarity", limits: PairLimit
     if pairs.skip:
         return []
     issues = []
-    if len(pairs) < limits.min_pairs:
+    if len(pairs) < max(limits.min_pairs, MIN_SAMPLES[model] + 1):
         issues.append(f"only {len(pairs)} pair(s)")
     m = pair_transform(pairs, model)
     if m is None:
@@ -314,15 +340,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     chosen = {t.tree_id: pairs[t.tree_id] for t in trees}
 
-    table = loo_table(chosen)
     print(f"{len(trees)} trees with pairs ({sum(len(p) for p in chosen.values())} pairs; "
           f"{len(skipped)} skipped as unalignable).")
-    print(f"Leave-one-out error (px), on the {table[0]['trees']} trees with at least "
-          f"{max(MIN_SAMPLES[m] for m in PAIR_MODELS) + 1} pairs:")
-    print(f"{'model':<12}{'median':>8}{'mean':>8}{'p90':>8}{'> 5 px':>9}{'> 10 px':>9}")
-    for r in table:
-        print(f"{r['model']:<12}{r['median']:>8.2f}{r['mean']:>8.2f}{r['p90']:>8.2f}"
-              f"{100 * r['over_5']:>8.0f}%{100 * r['over_10']:>8.0f}%")
+    # Each comparison uses only trees with enough pairs to check every model in it, so the
+    # models are judged on the same points: first without the homography, then with it.
+    for models in (PAIR_MODELS[:3], PAIR_MODELS):
+        table = loo_table(chosen, models)
+        need = max(MIN_SAMPLES[m] for m in models) + 1
+        if not table[0]["trees"]:
+            print(f"No tree has the {need} pairs needed to compare {', '.join(models)}.")
+            continue
+        print(f"Leave-one-out error (px) on the {table[0]['trees']} trees with at least {need} pairs:")
+        print(f"{'model':<12}{'median':>8}{'mean':>8}{'p90':>8}{'> 5 px':>9}{'> 10 px':>9}")
+        for r in table:
+            print(f"{r['model']:<12}{r['median']:>8.2f}{r['mean']:>8.2f}{r['p90']:>8.2f}"
+                  f"{100 * r['over_5']:>8.0f}%{100 * r['over_10']:>8.0f}%")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
