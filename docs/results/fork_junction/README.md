@@ -275,8 +275,9 @@ synthetic tree does not have, and the trunk's radius, 16 px against 15.5).
   `docs/results/leader_width/`) still show a trunk that is too wide or too
   narrow.
 
-## To do
+## The student's check
 
-- The student to look at the re-rendered masks of R01N17 and R01N18 (and the
-  fork crops in `outputs/fork_junction.jpg`) against the hand masks: the
-  change was made for how the fork looks, which depth cannot judge.
+The change was made for how the fork looks, which depth cannot judge. After
+re-rendering all masks on their PC (`python -m treeskel.guided_gt data/raw
+--overlays`), the student compared R01N17 and R01N18, the two trees whose
+masks showed the circle, with the hand masks: "they look a lot better now".
