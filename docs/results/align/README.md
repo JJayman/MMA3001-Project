@@ -6,10 +6,13 @@ how that alignment was chosen and checked.
 
 **Status (session 7).** Automatic matching failed. SIFT was at chance on
 all 21 trees tried. The learned matcher DISK+LightGlue gave a plausible fit
-on about 1% of the 449 development trees. The student therefore chose to
-align the seasons with **clicked point pairs**: `treeskel.annotate_pairs`
-(the click tool) and `treeskel.summer_gt` (fit, error and summer masks). No
-pairs have been clicked yet.
+on about 1% of the 449 development trees. Clicking matching point pairs by
+hand (`treeskel.annotate_pairs`) was then tried on 11 trees. It was slow
+(about 2 minutes a tree) and the pairs disagreed by 12–18 px. So the
+student chose to **line up the whole photos by hand** instead
+(`treeskel.annotate_overlay`). `treeskel.summer_gt` turns those transforms
+into the summer masks and checks them. No trees have been aligned that way
+yet.
 
 ## The problem, as seen on the 21 development trees in the repository
 
@@ -137,6 +140,66 @@ clicks a point in one, then the same physical point in the other.
   the summer view, the U-Net's label) and `<tree>_summer_covered.png` (where
   the winter image covers the summer view; outside it the label is unknown).
 
+## Clicked point pairs: what the 11 trees showed
+
+The student clicked 60 pairs on 11 development trees (R01N01–R01N32,
+R07N09, R07N17; `annotations/season_pairs.json`). It took about 20 minutes
+for 10 trees, i.e. roughly 2 minutes a tree, or 18 hours for all 541.
+
+| | Pairs | Similarity leave-one-out error (median) | 90th percentile | Above 10 px |
+|---|---|---|---|---|
+| All pairs | 60 | 17.8 px | 37.7 px | 80% |
+| Pairs away from the photos' top and bottom edges | 33 | 11.8 px | 34.1 px | 59% |
+
+The homography was worse than the similarity (28.3 px median on the 10
+trees with 5 or more pairs): with noisy points, its extra parameters follow
+the noise. All 11 trees had a pair more than 15 px from the fit of the
+others. Output: `pairs_11_trees_output.txt`. Figure:
+`docs/figures/align_pairs_R01N18.jpg` (circles: clicks; squares: where the
+fit of all pairs puts each winter point).
+
+**Why the pairs disagree** (found by looking at them, and by the student):
+
+- **Leader tops are not the same point.** Where a leader leaves the top of
+  the photo depends on the framing, which differs between the seasons
+  (27 of the 60 pairs were at the top or bottom edge).
+- **Points under the leaves** (e.g. R07N09's fork) had to be guessed in
+  summer.
+- **Featureless stretches of a post** fix the sideways position but not the
+  height.
+
+Finding enough points that are certainly the same in both seasons is the
+bottleneck, not the tool. About 12 px at 2 minutes a tree is neither
+accurate nor fast enough: the leaders are about 7 px wide.
+
+## Chosen method: lining up the photos (the student's decision)
+
+`python -m treeskel.annotate_overlay data/raw --trees ...` shows the summer
+photo with the winter photo on top, half see-through, moved by a transform
+the student adjusts until the trunk, posts, drip line and ground line sit on
+top of each other.
+
+- **Controls:** drag to shift, scroll to scale around the cursor, keys for
+  1 px shifts, roll, scale and two perspective tilts. Space flips between
+  the photos, so misalignment shows as a jump.
+- **The transform** (`summer_gt.Overlay`) is built from the camera changes
+  it stands for: shift (height, sideways move), scale (distance), roll, and
+  pitch and yaw as the perspective of a rotated pinhole camera (`K R K⁻¹`,
+  focal length 615 px assumed), with the image centre kept in place.
+  Keyboard changes keep the tree's fork fixed, so fine-tuning does not undo
+  a lined-up trunk.
+- **Starting point:** each tree starts from the median transform of the
+  trees already aligned in its row, else of all aligned trees.
+- **Records:** the time spent per tree, and a flag (`f`) for winter masks
+  that look wrong (the student saw masks off the branch and of the wrong
+  width), so they can be fixed later.
+- **Checks** (`python -m treeskel.summer_gt data/raw`):
+  - the distance between the clicked pairs away from the edges and where
+    the overlay transform puts their winter points (an independent method);
+  - repeatability: with `--repeat`, how far the winter masks move between two
+    alignments of the same trees;
+  - the time per tree and the range of each camera change.
+
 ## Running the matchers (how the LightGlue result was produced)
 
 ```bat
@@ -217,14 +280,13 @@ environment, because the PyTorch download site is blocked there.
 
 ## Next steps
 
-1. Click **5–6 pairs** on the 21 development trees in the repository first
-   (`--trees R01N01 R01N02 ...`), one near each corner of the part both
-   images show plus one or two in between, so the homography can be checked
-   and the protocol can be checked here against the images.
-2. Choose the model by leave-one-out error on those trees, and look at the
-   trees flagged by `summer_gt`. That also decides how many pairs the other
-   trees need: 3–4 for a similarity, 5–6 for a homography.
-3. Click the remaining trees (development rows, then test rows), and
-   re-click about 20 trees to measure repeatability.
+1. Align the 21 development trees in the repository with the overlay tool
+   first, so the method can be checked here against the images, and note
+   the time per tree.
+2. Re-align about 10 of them later (`--out annotations/season_overlay_repeat.json
+   --redo`) to measure repeatability, and compare with the clicked pairs.
+3. If it is fast and repeatable enough: align the remaining trees
+   (development rows, then test rows). Then fix the winter masks flagged on
+   the way.
 4. Write the summer masks for all trees; they become the training labels
    for the summer model.

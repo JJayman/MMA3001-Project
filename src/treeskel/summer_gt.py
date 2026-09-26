@@ -269,6 +269,140 @@ def loo_table(pairs: dict[str, SeasonPairs], models: Sequence[str] = PAIR_MODELS
     return rows
 
 
+FOCAL_PX = 615.0
+"""Assumed focal length (px) of the D435 colour camera at 640x480. It only
+sets how a tilt in degrees turns into perspective in :meth:`Overlay.matrix`;
+a different value would give the same transforms with different angles."""
+
+
+@dataclass
+class Overlay:
+    """A winter-to-summer transform set by hand in :mod:`treeskel.annotate_overlay`.
+
+    It is built from the camera changes it stands for, so each number means
+    something. A change of height or a sideways move shifts the tree
+    (``dx``, ``dy``), a change of distance scales it (``scale``), and roll
+    rotates it (``roll``). Pitch and yaw also add perspective (``pitch``,
+    ``yaw``): the rotation of a pinhole camera, ``K R K⁻¹``, with the image
+    centre held in place so that tilting does not also move the picture.
+    With both tilts at 0 this is a similarity; with them, a homography with
+    6 of its 8 degrees of freedom.
+
+    Attributes:
+        dx, dy: Shift (px) of the image centre, winter to summer.
+        scale: Size of the tree in summer relative to winter.
+        roll: Rotation about the image centre (degrees; positive is clockwise).
+        pitch, yaw: Perspective tilts (degrees) about the image's horizontal
+            and vertical axes.
+        skip: The tree could not be aligned (it then gets no summer mask).
+        mask_flag: The winter mask looked wrong while aligning, to fix later.
+        note: Free-text comment.
+        seconds: Time spent aligning the tree.
+    """
+
+    dx: float = 0.0
+    dy: float = 0.0
+    scale: float = 1.0
+    roll: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+    skip: bool = False
+    mask_flag: bool = False
+    note: str = ""
+    seconds: float = 0.0
+
+    PARAMS = ("dx", "dy", "scale", "roll", "pitch", "yaw")
+
+    def matrix(self, focal: float = FOCAL_PX, centre: tuple[float, float] = (320.0, 240.0)) -> np.ndarray:
+        """The 3x3 winter-to-summer ``(x, y)`` transform.
+
+        Example:
+            >>> m = Overlay(dx=12, dy=-30).matrix()
+            >>> [round(float(v), 6) for v in apply_transform(m, [(100, 200)])[0]]
+            [112.0, 170.0]
+        """
+        cx, cy = centre
+        k = np.array([[focal, 0, cx], [0, focal, cy], [0, 0, 1.0]])
+        p, y, r = np.radians([self.pitch, self.yaw, self.roll])
+        rx = np.array([[1, 0, 0], [0, np.cos(p), -np.sin(p)], [0, np.sin(p), np.cos(p)]])
+        ry = np.array([[np.cos(y), 0, np.sin(y)], [0, 1, 0], [-np.sin(y), 0, np.cos(y)]])
+        rz = np.array([[np.cos(r), -np.sin(r), 0], [np.sin(r), np.cos(r), 0], [0, 0, 1.0]])
+        h = k @ rz @ rx @ ry @ np.linalg.inv(k)
+        c = apply_transform(h, [centre])[0]                  # a tilt also moves the centre: undo that
+        h = np.array([[1, 0, cx - c[0]], [0, 1, cy - c[1]], [0, 0, 1.0]]) @ h
+        a = np.array([[self.scale, 0, cx * (1 - self.scale) + self.dx],
+                      [0, self.scale, cy * (1 - self.scale) + self.dy], [0, 0, 1.0]])
+        m = a @ h
+        return m / m[2, 2]
+
+    def params(self) -> dict[str, float]:
+        """The six transform parameters."""
+        return {k: float(getattr(self, k)) for k in self.PARAMS}
+
+    def to_json(self) -> dict:
+        """Plain-data form for the JSON file."""
+        d = asdict(self)
+        for k in (*self.PARAMS, "seconds"):
+            d[k] = round(float(d[k]), 4)
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Overlay":
+        """Inverse of :meth:`to_json` (missing fields take their defaults)."""
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in d.items() if k in known})
+
+
+def load_overlays(path: str | Path) -> dict[str, Overlay]:
+    """Read an overlay file; a missing file gives an empty dict."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    return {k: Overlay.from_json(v) for k, v in json.loads(path.read_text()).items()}
+
+
+def save_overlays(path: str | Path, overlays: dict[str, Overlay]) -> None:
+    """Write an overlay file atomically."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {k: overlays[k].to_json() for k in sorted(overlays)}
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
+def interior_pairs(pairs: SeasonPairs, margin: float = 15.0) -> SeasonPairs:
+    """The pairs whose points are both at least ``margin`` px from the top and bottom edges.
+
+    Where a branch leaves the edge of the photo is not the same physical
+    point in the two seasons, because they frame the tree differently (the
+    student's finding in session 7), so such pairs cannot check an alignment.
+    """
+    keep = [i for i in range(len(pairs))
+            if all(margin <= r <= 479 - margin for r in (pairs.winter[i][0], pairs.summer[i][0]))]
+    return SeasonPairs([pairs.winter[i] for i in keep], [pairs.summer[i] for i in keep])
+
+
+def pair_distances(matrix: np.ndarray, pairs: SeasonPairs) -> np.ndarray:
+    """Distance (px) between each clicked summer point and where ``matrix`` puts its winter point."""
+    w, s = pairs.xy()
+    return np.hypot(*(apply_transform(matrix, w) - s).T) if len(w) else np.zeros(0)
+
+
+def mask_displacement(m1: np.ndarray, m2: np.ndarray, mask: np.ndarray, step: int = 3) -> float:
+    """Mean distance (px) the winter mask's pixels move between two transforms.
+
+    Measures how much two alignments of a tree differ where it matters, on
+    the branches (every ``step``-th mask pixel is used, for speed).
+    """
+    ys, xs = np.nonzero(mask)
+    pts = np.c_[xs, ys][::step].astype(float)
+    if not len(pts):
+        return float("nan")
+    return float(np.mean(np.hypot(*(apply_transform(m1, pts) - apply_transform(m2, pts)).T)))
+
+
 def draw_summer_gt(rgb_summer: np.ndarray, warped: np.ndarray, pairs: SeasonPairs, loo: np.ndarray,
                    label: str = "") -> Image.Image:
     """The summer image with the warped mask outlined (magenta) and the clicked summer points.
@@ -289,21 +423,69 @@ def draw_summer_gt(rgb_summer: np.ndarray, warped: np.ndarray, pairs: SeasonPair
     return pil
 
 
+def _print_pair_tables(chosen: dict[str, SeasonPairs]) -> None:
+    """Leave-one-out tables of the models on the clicked pairs (see :func:`loo_table`)."""
+    print(f"{len(chosen)} trees with pairs ({sum(len(p) for p in chosen.values())} pairs).")
+    # Each comparison uses only trees with enough pairs to check every model in it, so the
+    # models are judged on the same points: first without the homography, then with it.
+    for models in (PAIR_MODELS[:3], PAIR_MODELS):
+        table = loo_table(chosen, models)
+        need = max(MIN_SAMPLES[m] for m in models) + 1
+        if not table[0]["trees"]:
+            print(f"No tree has the {need} pairs needed to compare {', '.join(models)}.")
+            continue
+        print(f"Leave-one-out error (px) on the {table[0]['trees']} trees with at least {need} pairs:")
+        print(f"{'model':<12}{'median':>8}{'mean':>8}{'p90':>8}{'> 5 px':>9}{'> 10 px':>9}")
+        for r in table:
+            print(f"{r['model']:<12}{r['median']:>8.2f}{r['mean']:>8.2f}{r['p90']:>8.2f}"
+                  f"{100 * r['over_5']:>8.0f}%{100 * r['over_10']:>8.0f}%")
+
+
+def _stats(v: Sequence[float]) -> str:
+    v = np.asarray([x for x in v if np.isfinite(x)], float)
+    if not len(v):
+        return "none"
+    return f"median {np.median(v):.1f}, 90th percentile {np.percentile(v, 90):.1f}, max {v.max():.1f} (n = {len(v)})"
+
+
+def _print_overlay_summary(chosen: dict[str, Overlay]) -> None:
+    """Time spent, the camera changes and the flagged masks of the overlay transforms."""
+    secs = [o.seconds for o in chosen.values() if o.seconds > 0]
+    print(f"{len(chosen)} trees aligned by overlay." + (
+        f" Time per tree: median {np.median(secs):.0f} s, total {sum(secs) / 60:.0f} min." if secs else ""))
+    for k, unit in (("dx", "px"), ("dy", "px"), ("scale", ""), ("roll", "deg"), ("pitch", "deg"), ("yaw", "deg")):
+        v = np.array([getattr(o, k) for o in chosen.values()])
+        print(f"  {k:<6} median {np.median(v):+8.3f} {unit:<4} range {v.min():+.3f} to {v.max():+.3f}")
+    flagged = sorted(t for t, o in chosen.items() if o.mask_flag)
+    if flagged:
+        print(f"Winter masks flagged as wrong ({len(flagged)}): {' '.join(flagged)}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Check the clicked pairs, compare the models, and write the summer masks.
+    """Check the alignments and write the summer masks.
 
-    Usage: ``python -m treeskel.summer_gt DATA_DIR [--pairs annotations/season_pairs.json]
-    [--model similarity] [--dev-only] [--rows 5 6] [--trees R05N12] [--overlays]
-    [--out outputs/summer_gt]``.
+    Usage: ``python -m treeskel.summer_gt DATA_DIR [--source overlay|pairs]
+    [--overlay-file annotations/season_overlay.json] [--repeat FILE]
+    [--pairs annotations/season_pairs.json] [--model similarity] [--dev-only]
+    [--rows 5 6] [--trees R05N12] [--overlays] [--out outputs/summer_gt]``.
 
-    Prints the leave-one-out table of every model (choose the model on the
-    development rows only: ``--dev-only``) and the trees whose pairs should be
-    looked at again. ``summary.csv`` gives each tree's scale, rotation and
-    shift at its fork click. For every aligned tree it writes
-    ``<tree>_summer_gt.png`` (the winter mask in the summer view) and
-    ``<tree>_summer_covered.png`` (white where the winter image covers the
-    summer view), plus ``summary.csv`` and contact sheets of the summer images
-    with the masks; ``--overlays`` also saves a full-size picture per tree.
+    With ``--source overlay`` (the default), the transforms come from the
+    overlay tool (:mod:`treeskel.annotate_overlay`). It prints the time spent,
+    the camera changes, the flagged winter masks and two checks: the distance
+    between each clicked pair's summer point and where the overlay transform
+    puts its winter point (pairs at the photos' top and bottom edges left
+    out, :func:`interior_pairs`), and, with ``--repeat`` (a second alignment
+    of some trees), how far the winter masks move between the two alignments
+    (:func:`mask_displacement`). With ``--source pairs``, the transforms are
+    fitted to the clicked pairs (``--model``), and it prints the leave-one-out
+    tables of the models (choose the model on the development rows only:
+    ``--dev-only``) and the trees whose pairs to look at again.
+
+    For every aligned tree it writes ``<tree>_summer_gt.png`` (the winter mask
+    in the summer view) and ``<tree>_summer_covered.png`` (white where the
+    winter image covers the summer view), plus ``summary.csv`` (each tree's
+    scale, rotation and shift at its fork click) and contact sheets;
+    ``--overlays`` also saves a full-size picture per tree.
     """
     from treeskel.guided_gt import load_clicks
     from treeskel.io import index_dataset, load_tree
@@ -311,8 +493,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.summer_gt", description=__doc__.splitlines()[0])
     ap.add_argument("data_dir")
+    ap.add_argument("--source", choices=("overlay", "pairs"), default="overlay")
+    ap.add_argument("--overlay-file", default="annotations/season_overlay.json")
+    ap.add_argument("--repeat", help="a second overlay file for some of the same trees (repeatability)")
     ap.add_argument("--pairs", default="annotations/season_pairs.json")
-    ap.add_argument("--model", choices=PAIR_MODELS, default="similarity")
+    ap.add_argument("--model", choices=PAIR_MODELS, default="similarity", help="with --source pairs")
     ap.add_argument("--rows", type=int, nargs="+", help="only trees in these rows")
     ap.add_argument("--trees", nargs="+", help="only these tree ids")
     ap.add_argument("--dev-only", action="store_true", help="skip the test rows listed in --split")
@@ -333,65 +518,74 @@ def main(argv: Sequence[str] | None = None) -> int:
         test_rows, _ = load_split(args.split, index_dataset(args.data_dir).trees)
         trees = [t for t in trees if t.row not in test_rows]
     pairs = load_pairs(args.pairs)
-    skipped = [t.tree_id for t in trees if t.tree_id in pairs and pairs[t.tree_id].skip]
-    trees = [t for t in trees if t.tree_id in pairs and not pairs[t.tree_id].skip]
+    source = load_overlays(args.overlay_file) if args.source == "overlay" else pairs
+    src_file = args.overlay_file if args.source == "overlay" else args.pairs
+    skipped = [t.tree_id for t in trees if t.tree_id in source and source[t.tree_id].skip]
+    trees = [t for t in trees if t.tree_id in source and not source[t.tree_id].skip]
     if not trees:
-        print(f"No clicked pairs in {args.pairs} for the selected trees.")
+        print(f"No aligned trees in {src_file} for the selected trees.")
         return 1
-    chosen = {t.tree_id: pairs[t.tree_id] for t in trees}
-
-    print(f"{len(trees)} trees with pairs ({sum(len(p) for p in chosen.values())} pairs; "
-          f"{len(skipped)} skipped as unalignable).")
-    # Each comparison uses only trees with enough pairs to check every model in it, so the
-    # models are judged on the same points: first without the homography, then with it.
-    for models in (PAIR_MODELS[:3], PAIR_MODELS):
-        table = loo_table(chosen, models)
-        need = max(MIN_SAMPLES[m] for m in models) + 1
-        if not table[0]["trees"]:
-            print(f"No tree has the {need} pairs needed to compare {', '.join(models)}.")
-            continue
-        print(f"Leave-one-out error (px) on the {table[0]['trees']} trees with at least {need} pairs:")
-        print(f"{'model':<12}{'median':>8}{'mean':>8}{'p90':>8}{'> 5 px':>9}{'> 10 px':>9}")
-        for r in table:
-            print(f"{r['model']:<12}{r['median']:>8.2f}{r['mean']:>8.2f}{r['p90']:>8.2f}"
-                  f"{100 * r['over_5']:>8.0f}%{100 * r['over_10']:>8.0f}%")
+    chosen = {t.tree_id: source[t.tree_id] for t in trees}
+    if args.source == "pairs":
+        _print_pair_tables(chosen)
+    else:
+        _print_overlay_summary(chosen)
+    if skipped:
+        print(f"{len(skipped)} trees skipped as unalignable: {' '.join(skipped)}")
+    repeat = load_overlays(args.repeat) if args.repeat else {}
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     clicks = load_clicks(args.clicks)
     gt_dir = Path(args.winter_gt) if args.winter_gt else None
     rows, tiles, failed, flagged = [], [], [], {}
+    pair_err, moved = [], []
     t0 = time.time()
     step = max(1, min(25, len(trees) // 10))
-    print(f"Writing the summer masks ({args.model})...", flush=True)
+    print(f"Writing the summer masks...", flush=True)
     for i, rec in enumerate(trees, 1):
-        p = chosen[rec.tree_id]
-        issues = check_pairs(p, args.model)
+        tid = rec.tree_id
+        row = {"tree_id": tid}
+        if args.source == "pairs":
+            p = chosen[tid]
+            m = pair_transform(p, args.model)
+            shown, errs = p, loo_errors(p, args.model)
+            issues = check_pairs(p, args.model)
+            row.update({"pairs": len(p), "loo_median": round(float(np.nanmedian(errs)), 2) if np.isfinite(errs).any()
+                        else "", "loo_max": round(float(np.nanmax(errs)), 2) if np.isfinite(errs).any() else ""})
+        else:
+            o = chosen[tid]
+            m = o.matrix()
+            row.update({**{k: round(v, 4) for k, v in o.params().items()}, "seconds": round(o.seconds, 1),
+                        "mask_flag": o.mask_flag})
+            shown = interior_pairs(pairs[tid]) if tid in pairs and not pairs[tid].skip else SeasonPairs()
+            errs = pair_distances(m, shown)
+            pair_err += list(errs)
+            issues = ["winter mask flagged"] if o.mask_flag else []
+            if len(shown):
+                row["pair_error_median"] = round(float(np.median(errs)), 2)
+        row.update({"ok": not issues, "issues": "; ".join(issues)})
         if issues:
-            flagged[rec.tree_id] = issues
-        m = pair_transform(p, args.model)
-        loo = loo_errors(p, args.model)
-        row = {"tree_id": rec.tree_id, "pairs": len(p), "ok": not issues, "issues": "; ".join(issues),
-               "loo_median": round(float(np.nanmedian(loo)), 2) if np.isfinite(loo).any() else "",
-               "loo_max": round(float(np.nanmax(loo)), 2) if np.isfinite(loo).any() else ""}
+            flagged[tid] = issues
         if m is not None:
-            c = clicks.get(rec.tree_id)
+            c = clicks.get(tid)
             at = c.fork[::-1] if c is not None and c.complete and not c.skip else (320, 240)
-            row.update({k: round(v, 4) for k, v in describe(m, at).items()})      # shift at the fork
+            row.update({f"at_fork_{k}": round(v, 4) for k, v in describe(m, at).items()})
             row["matrix"] = json.dumps(np.round(m, 6).tolist())
             winter = load_tree(rec, "winter")
-            mask = load_winter_mask(rec.tree_id, winter, clicks, gt_dir)
+            mask = load_winter_mask(tid, winter, clicks, gt_dir)
             if mask is not None:
+                if tid in repeat and not repeat[tid].skip:
+                    row["repeat_displacement"] = round(mask_displacement(m, repeat[tid].matrix(), mask), 2)
+                    moved.append(row["repeat_displacement"])
                 summer_rgb = load_tree(rec, "summer")["rgb"]
                 warped, covered = warp_mask(mask, m, summer_rgb.shape[:2])
-                save_image(Image.fromarray(warped.astype(np.uint8) * 255), out / f"{rec.tree_id}_summer_gt.png",
-                           failed)
-                save_image(Image.fromarray(covered.astype(np.uint8) * 255),
-                           out / f"{rec.tree_id}_summer_covered.png", failed)
-                flag = "  FLAG" if issues else ""
-                pic = draw_summer_gt(summer_rgb, warped, p, loo, f"{rec.tree_id} {args.model}{flag}")
+                save_image(Image.fromarray(warped.astype(np.uint8) * 255), out / f"{tid}_summer_gt.png", failed)
+                save_image(Image.fromarray(covered.astype(np.uint8) * 255), out / f"{tid}_summer_covered.png", failed)
+                label = f"{tid} {args.source}" + ("  FLAG" if issues else "")
+                pic = draw_summer_gt(summer_rgb, warped, shown, errs, label)
                 if args.overlays:
-                    save_image(pic, out / f"{rec.tree_id}_overlay.jpg", failed, quality=85)
+                    save_image(pic, out / f"{tid}_overlay.jpg", failed, quality=85)
                 tiles.append(np.asarray(pic.resize((320, 240))))
         rows.append(row)
         if i % step == 0 or i == len(trees):
@@ -399,6 +593,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  {i}/{len(trees)} trees, {el:.0f} s elapsed, about {el / i * (len(trees) - i):.0f} s left",
                   flush=True)
 
+    if args.source == "overlay":
+        print(f"Clicked pairs (away from the photos' edges) against the overlay transforms: "
+              f"distance (px) {_stats(pair_err)}")
+        if args.repeat:
+            print(f"Repeat alignment: the winter masks move (px) {_stats(moved)}")
     try:
         with open(out / "summary.csv", "w", newline="") as f:
             wr = csv.DictWriter(f, fieldnames=list(dict.fromkeys(k for r in rows for k in r)))
@@ -408,7 +607,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         failed.append(f"{out / 'summary.csv'}: {e.strerror or e}")
     for i in range(0, len(tiles), 24):
         save_image(contact_sheet(tiles[i:i + 24]), out / f"sheet_{i // 24 + 1:02d}.jpg", failed, quality=85)
-    if flagged:
+    if flagged and args.source == "pairs":
         print(f"\nLook at these trees' pairs again ({len(flagged)}; python -m treeskel.annotate_pairs DATA "
               "--redo --trees ...):")
         for tid, why in sorted(flagged.items()):
