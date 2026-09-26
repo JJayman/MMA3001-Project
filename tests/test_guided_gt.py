@@ -1,16 +1,19 @@
 """Tests for treeskel.guided_gt and the click tool's logic (treeskel.annotate)."""
 
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
 from scipy import ndimage as ndi
+from skimage.draw import polygon
 
-from test_winter_gt import FORK, LEFT_TIP, RIGHT_TIP, synthetic_tree
+from test_winter_gt import FORK, LEFT_TIP, RIGHT_TIP, synthetic_tree, thick_line
 from treeskel.annotate import Annotator
 from treeskel.guided_gt import (
     Clicks,
     GuidedParams,
+    arc_length,
     branch_cost,
     guided_gt,
     insert_waypoint,
@@ -19,7 +22,9 @@ from treeskel.guided_gt import (
     check_clicks,
     fit_taper,
     huber_line,
+    outward_normal,
     scale_space_radius,
+    shoulder_fill,
     smooth_segment,
     save_clicks,
     trace,
@@ -30,15 +35,13 @@ from treeskel.winter_gt import render_main_branches
 ROOT = (468, 320)
 
 
-def synthetic_rgbd(**kw):
-    """Synthetic V tree as (rgb, depth, valid): pale bark on green grass.
+def bark_rgb(tree):
+    """Colour image of a bool tree mask: pale bark on green grass.
 
     The bark is shaded like a cylinder (brightest along the centre line), as
     real branches are; a flat-shaded bar would make the tube filter respond
     at its edges instead.
     """
-    depth, valid = synthetic_tree(**kw)
-    tree = depth == 150
     edt = ndi.distance_transform_edt(tree)
     local = ndi.maximum_filter(edt, size=15)
     shade = np.divide(edt, local, out=np.zeros_like(edt), where=local > 0)
@@ -46,7 +49,13 @@ def synthetic_rgbd(**kw):
     rgb[:] = (60, 120, 50)
     grey = (150 + 80 * np.sqrt(shade)).astype(np.uint8)
     rgb[tree] = np.stack([grey, grey, grey - 5], -1)[tree]
-    return rgb, depth, valid
+    return rgb
+
+
+def synthetic_rgbd(**kw):
+    """Synthetic V tree as (rgb, depth, valid), with bark from :func:`bark_rgb`."""
+    depth, valid = synthetic_tree(**kw)
+    return bark_rgb(depth == 150), depth, valid
 
 
 def good_clicks():
@@ -378,3 +387,124 @@ def test_leader_widths_from_colour_match_synthetic_tree():
     assert 3.5 <= np.median(gt.radii["right"]) <= 5.5
     depth_only = guided_gt(*synthetic_rgbd(), good_clicks(), GuidedParams(leader_width_source="depth"))
     assert depth_only.radii["left"] is not None
+
+
+# --- where the leaders leave the trunk (shoulder fill) ----------------------
+
+def diagonal_leaders(n=150, fork=(300, 300)):
+    """Two straight leaders from ``fork``, up-left and up-right at 45°."""
+    i = np.arange(n)
+    return np.stack([fork[0] - i, fork[1] - i], 1), np.stack([fork[0] - i, fork[1] + i], 1)
+
+
+def test_arc_length():
+    assert np.allclose(arc_length(np.array([[0, 0], [0, 3], [4, 3]])), [0, 3, 7])
+    assert np.allclose(arc_length(np.array([[5, 5], [6, 6]])), [0, np.sqrt(2)])
+    assert arc_length(np.array([[5, 5]])).tolist() == [0.0]
+    assert len(arc_length(np.zeros((0, 2), int))) == 0
+
+
+def test_outward_normal_points_away_from_the_other_leader():
+    left, right = diagonal_leaders()
+    h = np.sqrt(0.5)
+    assert np.allclose(outward_normal(left, right, 20), [h, -h])      # down and left
+    assert np.allclose(outward_normal(right, left, 20), [h, h])       # down and right
+    level = np.stack([np.full(100, 300), 300 - np.arange(100)], 1)    # runs straight left
+    assert np.allclose(outward_normal(level, right, 20), [1, 0])      # outer side is below
+    assert np.all(outward_normal(left[:1], right, 20) == 0)          # no direction yet
+
+
+def test_shoulder_fill_is_a_straight_edge_on_the_outer_side_only():
+    left, right = diagonal_leaders()
+    R, r, L = 15.0, 4.0, 21.0                                          # trunk, leader radius; reach
+    f = shoulder_fill((480, 640), left, right, np.full(len(left), r), R, L)
+    q = np.argwhere(f) - np.array([300, 300])
+    across = q @ outward_normal(left, right, L)                       # distance out from the leader's line
+    along = q @ np.array([-np.sqrt(0.5), -np.sqrt(0.5)])              # distance up the leader
+    assert across.min() >= -1                                         # nothing on the crotch side
+    assert R - 1 <= across.max() <= R + 1                             # as wide as the trunk at the fork
+    assert np.all(along <= L + r + 1)                                 # ends where the reach does
+    # Between the trunk's disc and the last leader disc within reach (at
+    # 14 diagonal steps, 19.8 px), the edge is their straight outer tangent:
+    # it narrows linearly, with slope k / sqrt(1 - k^2), k = (R - r) / 19.8.
+    a = np.arange(9.0, 21.0)
+    edge = np.array([across[np.abs(along - v) <= 0.5].max() for v in a])
+    slope, icpt = np.polyfit(a, edge, 1)
+    k = (R - r) / (14 * np.sqrt(2))
+    assert abs(slope + k / np.sqrt(1 - k * k)) <= 0.1, slope
+    assert np.abs(edge - (icpt + slope * a)).max() <= 1.0            # straight: no bulge, no notch
+    assert not shoulder_fill((480, 640), left, right, np.full(len(left), r), R, 0).any()
+
+
+def wide_fork_rgbd():
+    """Synthetic tree whose trunk is much wider than its leaders, as in the orchard.
+
+    The trunk is 31 px wide and the leaders 9 px. On each outer side, a
+    straight chamfer fills the shoulder from the trunk's edge at the fork to
+    the leader's outer edge 30 px up it, as the wood does in the winter depth
+    images; between the leaders, the crotch is a sharp V.
+
+    Returns:
+        ``(rgb, depth, valid, truth)``, where ``truth`` is the tree's mask.
+    """
+    d = np.zeros((480, 640), np.uint8)
+    d[300:] = 100                                                      # ground
+    thick_line(d, (470, 320), FORK, 31, 150)
+    thick_line(d, FORK, LEFT_TIP, 9, 150)
+    thick_line(d, FORK, RIGHT_TIP, 9, 150)
+    f = np.array(FORK, float)
+    for tip, side in ((LEFT_TIP, -1), (RIGHT_TIP, 1)):
+        t = (np.array(tip) - f) / np.hypot(*(np.array(tip) - f))       # up the leader
+        n = np.array([abs(t[1]), side * abs(t[0])])                    # its outer side
+        edge = (f[0], f[1] + side * 15.5)                              # trunk's edge at the fork
+        pts = [(f[0] + 5, edge[1]), edge, f + 30 * t + 4.5 * n, f + 30 * t, f]
+        rr, cc = polygon(*np.array(pts).T, shape=d.shape)
+        d[rr, cc] = 150
+    truth = d == 150
+    return bark_rgb(truth), d, d > 0, truth
+
+
+def test_shoulder_fill_on_a_known_fork():
+    rgb, depth, valid, truth = wide_fork_rgbd()
+    gt = guided_gt(rgb, depth, valid, good_clicks())
+    filled = render_main_branches(gt)
+    unfilled = render_main_branches(replace(gt, shoulders=None))
+    added = filled & ~unfilled
+    R = gt.radii["trunk"][-1]
+    assert 13 <= R <= 18                                               # trunk measured about 15.5 px
+    yy, xx = np.indices(truth.shape)
+    dist = np.hypot(yy - FORK[0], xx - FORK[1])
+    # Only adds pixels, only near the fork, and all of them are wood.
+    assert added.sum() >= 20
+    assert dist[added].max() <= (GuidedParams().shoulder_length + 1) * R
+    assert (added & ~truth).sum() == 0
+    # Nothing is added in the crotch: between the leaders' inner edges, above the fork.
+    rise = FORK[0] - yy
+    half_gap = rise * (140 / 310) - 4.5 / np.cos(np.arctan(140 / 310))  # centre-line offset minus half-width
+    assert not (added & (rise > 0) & (np.abs(xx - FORK[1]) < half_gap)).any()
+    # Closer to the true shape around the fork than without the fill.
+    zone = dist <= 2.5 * R
+
+    def iou(m):
+        return (m & truth & zone).sum() / ((m | truth) & zone).sum()
+
+    assert iou(filled) >= iou(unfilled) + 0.01, (iou(filled), iou(unfilled))
+
+
+def test_shoulder_fill_can_be_turned_off():
+    rgb, depth, valid, _ = wide_fork_rgbd()
+    off = guided_gt(rgb, depth, valid, good_clicks(), GuidedParams(shoulder_length=0))
+    assert not off.shoulders.any()
+    assert np.array_equal(render_main_branches(off), render_main_branches(replace(off, shoulders=None)))
+
+
+def test_shoulder_fill_when_the_tree_splits_at_the_ground():
+    # A fork 4 px above the root: too little trunk to measure, so its width
+    # falls back to the default; the fill still stays near the fork.
+    rgb, depth, valid = synthetic_rgbd()
+    gt = guided_gt(rgb, depth, valid, Clicks(trunk=[(470, 320), (466, 320)], left=[LEFT_TIP], right=[RIGHT_TIP]))
+    added = render_main_branches(gt) & ~render_main_branches(replace(gt, shoulders=None))
+    assert np.all(gt.radii["trunk"] == 10.0) and added.any()             # fallback width, still filled
+    reach = (GuidedParams().shoulder_length + 1) * gt.radii["trunk"][-1]
+    yy, xx = np.nonzero(added)
+    assert np.hypot(yy - 466, xx - 320).max() <= reach + 1

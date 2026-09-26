@@ -41,13 +41,17 @@ camera, different (autumn) capture.
   whose tip is further left in the image.
 - **Masks:** the trunk width comes from depth; the leader widths come from
   colour (scale-space); both use a robust taper fit; centre lines are
-  smoothed between clicks (σ = 6).
+  smoothed between clicks (σ = 6). At the fork, the notch on each leader's
+  outer side is filled out to the straight line from the trunk's edge to the
+  leader's edge 1.4 trunk radii up it (`shoulder_fill`, session 6); the
+  crotch between the leaders is not filled.
 
 ## Where things are
 
 ```
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
-               (tracing, widths), annotate.py (click tool), tune_cost.py
+               (tracing, widths, fork fill), annotate.py (click tool),
+               tune_cost.py, measure_fork.py
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/raw/      full dataset, git-ignored, only on the student's PC
