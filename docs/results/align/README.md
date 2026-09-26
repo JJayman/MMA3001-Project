@@ -4,15 +4,22 @@ The ground-truth masks are traced on the **winter** images, but the summer
 model needs them in the **summer** view of the same tree. This folder records
 how that alignment was chosen and checked.
 
-**Status (session 7).** Automatic matching failed. SIFT was at chance on
-all 21 trees tried. The learned matcher DISK+LightGlue gave a plausible fit
-on about 1% of the 449 development trees. Clicking matching point pairs by
-hand (`treeskel.annotate_pairs`) was then tried on 11 trees. It was slow
-(about 2 minutes a tree) and the pairs disagreed by 12–18 px. So the
-student chose to **line up the whole photos by hand** instead
-(`treeskel.annotate_overlay`). `treeskel.summer_gt` turns those transforms
-into the summer masks and checks them. No trees have been aligned that way
-yet.
+**Status (end of session 7): abandoned.** Pixel alignment of the winter
+masks onto the summer photos was given up. Four approaches failed:
+
+- **SIFT:** at chance on all 21 trees tried.
+- **DISK+LightGlue:** a plausible fit on about 1% of the 449 development
+  trees.
+- **Clicked point pairs** (`treeskel.annotate_pairs`): about 2 minutes a
+  tree, and the pairs disagree by 12–18 px.
+- **Lining up the photos by hand** (`treeskel.annotate_overlay`): the
+  student aligned 2 trees and skipped a third. Pairs and overlay disagree
+  on the scale by about 15%.
+
+Too little rigid structure is visible in both seasons, and nothing seen in
+both fixes the scale. The student's next steps are to improve the winter
+masks, then learn the tree's *shape* from winter, which needs no alignment
+(`docs/progress/2026-09-26-session-7.md`).
 
 ## The problem, as seen on the 21 development trees in the repository
 
@@ -278,15 +285,29 @@ environment, because the PyTorch download site is blocked there.
    development trees. The GPU build is still worth fixing before the U-Net
    is trained.
 
-## Next steps
+## Lining up by hand: what the 3 trees showed
 
-1. Align the 21 development trees in the repository with the overlay tool
-   first, so the method can be checked here against the images, and note
-   the time per tree.
-2. Re-align about 10 of them later (`--out annotations/season_overlay_repeat.json
-   --redo`) to measure repeatability, and compare with the clicked pairs.
-3. If it is fast and repeatable enough: align the remaining trees
-   (development rows, then test rows). Then fix the winter masks flagged on
-   the way.
-4. Write the summer masks for all trees; they become the training labels
-   for the summer model.
+The student aligned R01N01 (143 s) and R01N02 (24 s, starting from
+R01N01's transform) and skipped R01N04 after 165 s. The alignments agreed
+with the clicked pairs away from the edges to within 4–12 px. Their scales
+were 1.15 and 1.12, whereas the pairs had given 0.93 and 0.96. So the scale
+is not pinned down by what both photos show, and a 10% error moves the
+leader tips by 20–30 px.
+
+**Tool changes on the way.** The first version took about 400 ms per change
+(a scipy warp and a full repaint of three layers). With Pillow's compiled
+warp, one blended picture and blitting, it takes about 63 ms. The winter
+photo now starts at 30% opacity, and an outline view shows the summer photo
+with the winter depth silhouette.
+
+## Next steps (the student's decision)
+
+1. Improve the winter masks. The student saw masks off the branch and of the
+   wrong width.
+2. Learn the tree's shape from winter without alignment. Leader angles
+   relative to the trunk, the V opening and curvature can be compared
+   between seasons without aligning the photos.
+3. Optional later: the provided hand masks are roughly in the summer view
+   (on 12 local trees their trunks are within about 0–40 px of the summer
+   trunk), so they could serve as training labels, with the winter traces
+   as the truth for the shape.
