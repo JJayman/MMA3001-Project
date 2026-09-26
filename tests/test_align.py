@@ -343,3 +343,36 @@ def test_image_tensor_accepts_read_only_images_without_warning():
         t = align._image_tensor(rgb, "cpu")
     assert t.shape == (1, 3, 32, 48) and float(t.max()) <= 1.0
     assert torch.equal(t[0, 0], torch.from_numpy(rgb[..., 0].astype(np.float32) / 255))
+
+
+def test_cli_prints_progress_while_fitting(sample_dir, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(align, "make_matcher", lambda *a, **k: fake_matcher())
+    args = [str(sample_dir), "--trees", "R01N01", "R01N02", "--matches", str(tmp_path / "m.npz"),
+            "--out", str(tmp_path / "out"), "--winter-gt", str(tmp_path), "--clicks", str(CLICKS)]
+    assert align.main(args) == 0
+    text = capsys.readouterr().out
+    assert "Fitting 4 models to 2 trees" in text
+    assert "fitted 1/2 trees" in text and "fitted 2/2 trees" in text
+
+
+def test_cli_stops_when_the_matcher_keeps_failing(tmp_path, monkeypatch, capsys, make_tree):
+    """A broken setup (e.g. out of GPU memory) fails every tree: stop early, keep what was matched."""
+    for i in range(1, 9):
+        make_tree(f"R05N{i:02d}")
+    calls = []
+
+    def failing(w, s):
+        calls.append(1)
+        if len(calls) > 1:
+            raise RuntimeError("CUDA out of memory")
+        return fake_matcher()(w, s)
+
+    monkeypatch.setattr(align, "make_matcher", lambda *a, **k: failing)
+    mpath = tmp_path / "m.npz"
+    args = [str(tmp_path), "--matches", str(mpath), "--out", str(tmp_path / "out"), "--winter-gt", ""]
+    assert align.main(args) == 1
+    text = capsys.readouterr().out
+    assert len(calls) == 1 + align.MAX_FAILURES_IN_A_ROW          # stopped, not all 8 trees
+    assert text.count("could not match") == align.MAX_FAILURES_IN_A_ROW and "Stopped" in text
+    saved, _ = load_matches(mpath)
+    assert sorted(saved) == ["R05N01"]                             # the tree matched before is kept

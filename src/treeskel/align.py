@@ -729,6 +729,10 @@ def contact_sheet(tiles: list[np.ndarray], cols: int = 4) -> Image.Image:
 NEAR_TREE_PX = 20
 """An inlier within this distance (px) of the winter mask counts as on the tree."""
 
+MAX_FAILURES_IN_A_ROW = 5
+"""Matching stops after this many trees fail in a row: then the setup is at
+fault (e.g. the GPU is out of memory), not the trees."""
+
 
 def _winter_mask(tree_id: str, winter: dict, clicks: dict, gt_dir: Path | None) -> np.ndarray | None:
     """The tree's rendered winter mask: from ``gt_dir`` if saved there, else traced from its clicks."""
@@ -810,20 +814,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         meta = {"matcher": args.matcher, "max_keypoints": args.max_keypoints}
         t0 = time.time()
-        errors = []
+        n_failed = in_a_row = 0
         for i, rec in enumerate(todo, 1):
             try:
                 saved[rec.tree_id] = matcher(load_tree(rec, "winter")["rgb"], load_tree(rec, "summer")["rgb"])
-            except Exception as e:                      # one bad tree must not stop a long run
-                errors.append(f"{rec.tree_id}: {type(e).__name__}: {e}")
+                in_a_row = 0
+            except Exception as e:                      # one bad tree must not stop a long run...
+                n_failed, in_a_row = n_failed + 1, in_a_row + 1
+                print(f"  could not match {rec.tree_id}: {type(e).__name__}: {e}", flush=True)
+                if in_a_row >= MAX_FAILURES_IN_A_ROW:   # ...but a broken setup should stop it early
+                    save_matches(mpath, saved, meta)
+                    print(f"Stopped: the matcher failed on {in_a_row} trees in a row, so the problem is "
+                          "probably the setup, not the trees (out of GPU memory? try --device cpu).")
+                    return 1
             if i % 25 == 0 or i == len(todo):
                 save_matches(mpath, saved, meta)
                 el = time.time() - t0
                 print(f"  matched {i}/{len(todo)} trees, {el:.0f} s elapsed, "
                       f"about {el / i * (len(todo) - i):.0f} s left", flush=True)
-        print(f"Matches saved to {mpath} ({mpath.stat().st_size / 1e6:.1f} MB)")
-        for e in errors:
-            print(f"  could not match {e}")
+        print(f"Matches saved to {mpath} ({mpath.stat().st_size / 1e6:.1f} MB)"
+              + (f"; {n_failed} tree(s) could not be matched (see above)" if n_failed else ""))
     trees = [t for t in trees if t.tree_id in saved]
     if not trees:
         print(f"No saved matches in {mpath} for the selected trees.")
@@ -835,7 +845,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     gt_dir = Path(args.winter_gt) if args.winter_gt else None
     rows, tiles, failed, flagged = [], [], [], {}
     t0 = time.time()
-    for rec in trees:
+    step = max(1, min(25, len(trees) // 10))
+    print(f"Fitting {len(MODELS)} models to {len(trees)} trees and drawing the pictures...", flush=True)
+    for i, rec in enumerate(trees, 1):
         m = saved[rec.tree_id]
         winter, summer = load_tree(rec, "winter"), load_tree(rec, "summer")
         mask = _winter_mask(rec.tree_id, winter, clicks, gt_dir)
@@ -853,18 +865,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "matrix": json.dumps(np.round(f.matrix, 6).tolist()) if f.matrix is not None else ""})
             if k == args.model and issues:
                 flagged[rec.tree_id] = issues
-        if mask is None:
-            continue
-        fit, q = fits[args.model], quality[args.model]
-        flag = "  FLAG" if rec.tree_id in flagged else ""
-        label = (f"{rec.tree_id} {args.matcher}/{args.model}: {fit.n_inliers}/{len(m)} inliers"
-                 + (f", scale {q['scale']:.2f}, rot {q['rotation']:+.1f}" if "scale" in q else "") + flag)
-        if args.overlays:
-            save_image(draw_alignment(winter["rgb"], summer["rgb"], mask, m, fit, label),
-                       out / f"{rec.tree_id}_{args.model}.jpg", failed, quality=85)
-        tile = draw_summer(summer["rgb"], mask, m, fit).resize((320, 240))
-        ImageDraw.Draw(tile).text((4, 4), f"{rec.tree_id} {fit.n_inliers}/{len(m)}{flag}", fill="yellow")
-        tiles.append(np.asarray(tile))
+        if mask is not None:                            # pictures need the winter mask
+            fit, q = fits[args.model], quality[args.model]
+            flag = "  FLAG" if rec.tree_id in flagged else ""
+            label = (f"{rec.tree_id} {args.matcher}/{args.model}: {fit.n_inliers}/{len(m)} inliers"
+                     + (f", scale {q['scale']:.2f}, rot {q['rotation']:+.1f}" if "scale" in q else "") + flag)
+            if args.overlays:
+                save_image(draw_alignment(winter["rgb"], summer["rgb"], mask, m, fit, label),
+                           out / f"{rec.tree_id}_{args.model}.jpg", failed, quality=85)
+            tile = draw_summer(summer["rgb"], mask, m, fit).resize((320, 240))
+            ImageDraw.Draw(tile).text((4, 4), f"{rec.tree_id} {fit.n_inliers}/{len(m)}{flag}", fill="yellow")
+            tiles.append(np.asarray(tile))
+        if i % step == 0 or i == len(trees):
+            el = time.time() - t0
+            print(f"  fitted {i}/{len(trees)} trees, {el:.0f} s elapsed, "
+                  f"about {el / i * (len(trees) - i):.0f} s left", flush=True)
 
     try:
         with open(out / "summary.csv", "w", newline="") as f:
