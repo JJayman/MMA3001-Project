@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from scipy import ndimage as ndi
+from skimage.draw import disk as draw_disk
 from skimage.draw import polygon
 
 from test_winter_gt import FORK, LEFT_TIP, RIGHT_TIP, synthetic_tree, thick_line
@@ -17,6 +18,9 @@ from treeskel.guided_gt import (
     branch_cost,
     branch_edges,
     clear_of,
+    end_cut,
+    end_direction,
+    fork_junction,
     guided_gt,
     insert_waypoint,
     load_clicks,
@@ -37,7 +41,7 @@ from treeskel.guided_gt import (
     trace,
 )
 from treeskel.io import index_dataset
-from treeskel.winter_gt import render_main_branches
+from treeskel.winter_gt import WinterGT, render_main_branches
 
 ROOT = (468, 320)
 
@@ -645,8 +649,12 @@ def wide_fork_rgbd():
     return bark_rgb(truth), d, d > 0, truth
 
 
-FILL = GuidedParams(shoulder_length=1.4)
-"""The shoulder fill as chosen in session 6 (off by default since session 8)."""
+ROUND = GuidedParams(junction_reach=0, flat_root=False)
+"""The trunk with round ends, as drawn until the fork junction (session 8)."""
+
+FILL = replace(ROUND, shoulder_length=1.4)
+"""The shoulder fill as chosen in session 6, on the round-ended trunk it was made for
+(off by default since session 8)."""
 
 
 def test_shoulder_fill_on_a_known_fork():
@@ -678,13 +686,13 @@ def test_shoulder_fill_on_a_known_fork():
 
 def test_shoulder_fill_is_off_by_default_and_can_be_turned_off():
     rgb, depth, valid, _ = wide_fork_rgbd()
-    off = guided_gt(rgb, depth, valid, good_clicks(), GuidedParams(shoulder_length=0))
+    off = guided_gt(rgb, depth, valid, good_clicks(), replace(ROUND, shoulder_length=0))
     assert not off.shoulders.any()
     assert np.array_equal(render_main_branches(off), render_main_branches(replace(off, shoulders=None)))
     # Since session 8 (leaders drawn at their true width) the default draws no fill.
     default = guided_gt(rgb, depth, valid, good_clicks())
     assert GuidedParams().shoulder_length == 0 and not default.shoulders.any()
-    assert np.array_equal(render_main_branches(default), render_main_branches(off))
+    assert np.array_equal(render_main_branches(default), render_main_branches(replace(default, shoulders=None)))
 
 
 def test_shoulder_fill_when_the_tree_splits_at_the_ground():
@@ -698,3 +706,146 @@ def test_shoulder_fill_when_the_tree_splits_at_the_ground():
     reach = (FILL.shoulder_length + 1) * gt.radii["trunk"][-1]
     yy, xx = np.nonzero(added)
     assert np.hypot(yy - 466, xx - 320).max() <= reach + 1
+
+
+# --- the junction: the trunk cut flat, joined to the leaders -----------------
+
+def drawn_tree(trunk, left=None, right=None, trunk_r=15.0, leader_r=4.0):
+    """A :class:`WinterGT` with given paths and constant radii (no images needed)."""
+    empty = np.zeros((0, 2), int)
+    left = empty if left is None else left
+    right = empty if right is None else right
+    return WinterGT(tree_mask=np.zeros((480, 640), bool), skeleton=np.zeros((480, 640), bool),
+                    root=tuple(trunk[0]), fork=tuple(trunk[-1]), trunk=trunk, left=left, right=right,
+                    radii={"trunk": np.full(len(trunk), trunk_r), "left": np.full(len(left), leader_r),
+                           "right": np.full(len(right), leader_r)})
+
+
+def vertical_trunk(bottom=420, top=300, col=300):
+    """A straight trunk path from ``(bottom, col)`` up to ``(top, col)``."""
+    rows = np.arange(bottom, top - 1, -1)
+    return np.stack([rows, np.full(len(rows), col)], 1)
+
+
+def test_end_direction():
+    up = vertical_trunk()
+    assert np.allclose(end_direction(up, 10), [-1, 0])                # out of the top
+    assert np.allclose(end_direction(up[::-1], 10), [1, 0])           # out of the bottom
+    bend = np.concatenate([up, np.stack([np.full(30, 300), 301 + np.arange(30)], 1)])  # then right
+    assert np.allclose(end_direction(bend, 10), [0, 1])               # only the last 10 px count
+    assert np.allclose(end_direction(up[:3], 10), [-1, 0])            # shorter than the chord: from its start
+    assert not end_direction(up[:1], 10).any()
+    assert end_cut(up[:1], 10) is None
+
+
+def test_end_cuts_square_the_trunk_off():
+    trunk = vertical_trunk()
+    gt = drawn_tree(trunk, trunk_r=10.0)
+    round_ends = render_main_branches(gt)
+    assert round_ends[292, 300] and round_ends[428, 300]              # half discs past both ends
+    cut = render_main_branches(replace(gt, trunk_cuts=[end_cut(trunk, 10.0), end_cut(trunk[::-1], 10.0)]))
+    point, direction = end_cut(trunk, 10.0)
+    assert np.allclose(point, (300, 300)) and np.allclose(direction, [-1, 0])
+    rows = np.nonzero(cut.any(1))[0]
+    assert (rows.min(), rows.max()) == (300, 420)                     # nothing past either end
+    assert cut[300].sum() == cut[420].sum() == cut[360].sum()        # full width right up to each end
+    assert np.array_equal(cut, round_ends & (np.arange(480) >= 300)[:, None] & (np.arange(480) <= 420)[:, None])
+
+
+def test_fork_junction_joins_the_trunk_edge_to_each_leader_on_its_outer_side():
+    left, right = diagonal_leaders()                                  # 45° up-left and up-right from (300, 300)
+    R, r = 15.0, 4.0
+    gt = drawn_tree(vertical_trunk(), left, right, R, r)
+    j = fork_junction(gt, 1.5)
+    q = np.argwhere(j) - np.array([300, 300])
+    for side, sign in (("left", -1), ("right", 1)):
+        on = q[sign * q[:, 1] > 0]                                    # this side of the trunk's axis
+        n = outward_normal(getattr(gt, side), gt.left if side == "right" else gt.right, 22.5)
+        assert (on @ n).min() >= -1                                   # nothing on the crotch side of the leader
+        along = on @ np.array([-np.sqrt(0.5), sign * np.sqrt(0.5)])   # distance up the leader
+        assert along.max() <= 1.5 * R + r + 1                         # ends where the reach does
+        # At the fork it reaches the trunk's edge, and no further.
+        at_fork = on[on[:, 0] == 0, 1] * sign
+        assert R - 1 <= at_fork.max() <= R
+        # The outer edge is straight, from the trunk's edge to the leader's outer edge.
+        rows = np.arange(-12, 1)
+        edge = np.array([(on[on[:, 0] == v, 1] * sign).max() for v in rows])
+        slope, icpt = np.polyfit(rows, edge, 1)
+        assert np.abs(edge - (icpt + slope * rows)).max() <= 1.0
+    assert q[:, 0].max() <= r + 1                                     # below the fork only the leaders' first discs
+    # Longer reach, larger join; none without reach.
+    assert not (fork_junction(gt, 1.0) & ~j).any() and (fork_junction(gt, 2.0) & ~j).any()
+    assert not fork_junction(gt, 0).any()
+
+
+def test_round_trunk_ends_without_the_junction():
+    rgb, depth, valid, _ = wide_fork_rgbd()
+    gt = guided_gt(rgb, depth, valid, good_clicks(), ROUND)
+    assert gt.trunk_cuts is None and gt.junction is None
+    # The masks up to session 8: the union of the discs, nothing else.
+    discs = np.zeros(gt.tree_mask.shape, bool)
+    for name in ("trunk", "left", "right"):
+        for (y, x), rad in zip(getattr(gt, name), gt.radii[name]):
+            rr, cc = draw_disk((y, x), rad, shape=discs.shape)
+            discs[rr, cc] = True
+    assert np.array_equal(render_main_branches(gt), discs)
+
+
+def test_junction_on_a_known_fork():
+    rgb, depth, valid, truth = wide_fork_rgbd()
+    gt = guided_gt(rgb, depth, valid, good_clicks())
+    old = guided_gt(rgb, depth, valid, good_clicks(), ROUND)
+    new_mask, old_mask = render_main_branches(gt), render_main_branches(old)
+    R = gt.radii["trunk"][-1]
+    assert GuidedParams().junction_reach == 1.0 and gt.junction.any()
+    # Cut flat at the fork only: the root click is within R of the bottom edge, so its round end stays.
+    assert len(gt.trunk_cuts) == 1
+    assert np.allclose(gt.trunk_cuts[0][0], FORK) and np.allclose(gt.trunk_cuts[0][1], [-1, 0])
+    yy, xx = np.indices(truth.shape)
+    dist = np.hypot(yy - FORK[0], xx - FORK[1])
+    # Only the fork changes: pixels are removed only above the fork, and added only near it.
+    removed, added = old_mask & ~new_mask, new_mask & ~old_mask
+    assert removed.any() and yy[removed].max() < FORK[0] and dist[removed].max() <= R + 1
+    assert dist[added].max() <= (GuidedParams().junction_reach + 1) * R
+
+    def crotch_bottom(m):
+        """Height above the fork of the first gap on the trunk's axis (px)."""
+        return next(k for k in range(1, 40) if not m[FORK[0] - k, FORK[1]])
+
+    # The truth's crotch bottom: the leaders' inner edges (4.5 px across each centre line,
+    # which lean 140/310 outwards) meet 4.5 / (140/310) = 10 px above the fork.
+    assert abs(crotch_bottom(truth) - 10) <= 1
+    assert abs(crotch_bottom(new_mask) - crotch_bottom(truth)) <= 2  # the leaders' V, as in the truth
+    assert crotch_bottom(old_mask) >= R                               # the round top filled it
+    zone = dist <= 2.5 * R
+
+    def iou(m):
+        return (m & truth & zone).sum() / ((m | truth) & zone).sum()
+
+    assert iou(new_mask) >= iou(old_mask), (iou(new_mask), iou(old_mask))
+
+
+def test_flat_root_only_where_the_round_end_lies_in_the_image():
+    rgb, depth, valid = synthetic_rgbd()
+    high = Clicks(trunk=[(440, 320), FORK], left=[LEFT_TIP], right=[RIGHT_TIP])
+    gt = guided_gt(rgb, depth, valid, high)
+    m = render_main_branches(gt)
+    assert len(gt.trunk_cuts) == 2                                    # fork and root
+    assert not m[441:, 300:341].any() and m[440, 320]                 # nothing drawn below the root click
+    kept = render_main_branches(guided_gt(rgb, depth, valid, high, replace(GuidedParams(), flat_root=False)))
+    assert kept[441:, 300:341].any()                                  # the round end, on the ground
+    # A root click near the bottom edge: the trunk leaves the frame there, so the round end
+    # (which reaches the edge) is kept.
+    low = guided_gt(rgb, depth, valid, Clicks(trunk=[(476, 320), FORK], left=[LEFT_TIP], right=[RIGHT_TIP]))
+    assert len(low.trunk_cuts) == 1 and render_main_branches(low)[479, 320]
+
+
+def test_junction_when_the_tree_splits_at_the_ground():
+    # A fork 4 px above the root: too little trunk to measure, so its width falls back to
+    # the default; the trunk's direction comes from those 4 px, and the join stays near the fork.
+    rgb, depth, valid = synthetic_rgbd()
+    gt = guided_gt(rgb, depth, valid, Clicks(trunk=[(470, 320), (466, 320)], left=[LEFT_TIP], right=[RIGHT_TIP]))
+    assert np.all(gt.radii["trunk"] == 10.0) and gt.junction.any()
+    assert np.allclose(gt.trunk_cuts[0][1], [-1, 0])
+    yy, xx = np.nonzero(gt.junction)
+    assert np.hypot(yy - 466, xx - 320).max() <= (GuidedParams().junction_reach + 1) * 10.0 + 1

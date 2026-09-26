@@ -123,6 +123,16 @@ class WinterGT:
             (guided ground truth only, see
             :func:`treeskel.guided_gt.fill_shoulders`);
             :func:`render_main_branches` adds it to the drawn branches.
+        trunk_cuts: Optional flat ends for the trunk, as a list of
+            ``(point, direction)`` pairs of ``(2,)`` arrays: trunk pixels
+            ``p`` beyond a cut, ``(p − point)·direction > 0``, are not drawn.
+            Without cuts, the trunk's first and last discs make its ends
+            round (guided ground truth only, see
+            :func:`treeskel.guided_gt.end_cut`).
+        junction: Optional bool mask of the pixels joining the trunk's flat
+            top to each leader (guided ground truth only, see
+            :func:`treeskel.guided_gt.fork_junction`);
+            :func:`render_main_branches` adds it to the drawn branches.
         ok: True if both leaders passed the quality check.
         issues: Reasons the quality check failed (empty if ``ok``).
     """
@@ -140,6 +150,8 @@ class WinterGT:
     posts_skipped: int = 0
     radii: dict | None = None
     shoulders: np.ndarray | None = None
+    trunk_cuts: list[tuple[np.ndarray, np.ndarray]] | None = None
+    junction: np.ndarray | None = None
     ok: bool = False
     issues: list[str] = field(default_factory=list)
 
@@ -459,7 +471,9 @@ def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: floa
     are used. Otherwise the radius at each path point is the distance from
     that point to the edge of the tree region, clipped to
     ``[min_radius, max_radius]``; linked gaps (outside the tree region) get
-    ``min_radius``. If ``gt.shoulders`` is set, those pixels are added.
+    ``min_radius``. If ``gt.trunk_cuts`` is set, the trunk is cut flat
+    there; if ``gt.shoulders`` or ``gt.junction`` is set, those pixels are
+    added.
 
     Args:
         gt: Result of :func:`extract_winter_gt`.
@@ -476,11 +490,18 @@ def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: floa
     for name in ("trunk", "left", "right"):
         p = getattr(gt, name)
         rs = gt.radii[name] if gt.radii is not None else radius[p[:, 0], p[:, 1]] if len(p) else []
+        part = np.zeros(shape, bool)
         for (y, x), r in zip(p, rs):
             rr, cc = draw_disk((y, x), r, shape=shape)
-            out[rr, cc] = True
-    if gt.shoulders is not None:
-        out |= gt.shoulders
+            part[rr, cc] = True
+        if name == "trunk" and gt.trunk_cuts:
+            yy, xx = np.indices(shape)
+            for point, direction in gt.trunk_cuts:
+                part &= (yy - point[0]) * direction[0] + (xx - point[1]) * direction[1] <= 0
+        out |= part
+    for extra in (gt.shoulders, gt.junction):
+        if extra is not None:
+            out |= extra
     return out
 
 

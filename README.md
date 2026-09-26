@@ -22,7 +22,7 @@ src/treeskel/    Python package
   guided_gt.py   click-guided main-branch ground truth: cost map + minimal-path tracing
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
-  measure_fork.py  measures the masks at the fork against winter depth (sets the shoulder fill)
+  measure_fork.py  measures the masks at the fork against winter depth (shoulder fill, fork junction)
   measure_width.py measures the leaders' widths against winter depth and the hand masks (sets the width model)
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
@@ -59,7 +59,7 @@ python -m treeskel.winter_gt data/raw --out outputs/winter_gt --figure outputs/w
 python -m treeskel.annotate data/raw --dev-only            # click tool (development rows first)
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
-python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
+python -m treeskel.measure_fork data/raw                   # check the fork junction and fill (development rows only)
 python -m treeskel.measure_width data/raw                  # check the leader widths (development rows only)
 python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
 python -m treeskel.annotate_overlay data/raw --dev-only    # line up each tree's winter photo on its summer photo

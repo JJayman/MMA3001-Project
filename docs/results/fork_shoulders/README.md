@@ -1,5 +1,9 @@
 # Fork shoulder-fill results
 
+> **Superseded in session 8.** The fill is off, and the trunk's round top it
+> kept has been replaced by the fork junction (`docs/results/fork_junction/`).
+> This folder documents sessions 6 and 8 as they were.
+
 Produced by
 
 ```

@@ -16,7 +16,9 @@ numbers: `leaders.csv`; everything else: `report.json`. These files and the
 figures are from the **final settings** (the widening fading over 12 trunk
 radii, no shoulder fill); where the first design (4 trunk radii, fill 1.4)
 matters, the text says so. The checks on all 449 development trees are
-further down.
+further down. They were made before the fork junction replaced the trunk's
+round top (`docs/results/fork_junction/`): re-run now, the widths come out
+the same, but the crotch counts ("after") no longer include the round top.
 
 ## The problem (seen by the student)
 
@@ -230,8 +232,47 @@ Run on the student's PC with the extended grid,
 - The 21 local trees alone still prefer 4 (cost 2.4100 against 2.4297 at 12),
   as expected of a sample chosen for being unusual. On them the final masks
   are 0.5 px narrower than depth minus its overshoot far from the fork
-  (tables above), against +0.1 px on all 449 with the first settings; the
-  final masks' numbers on all 449 are still to record (see [To do](#to-do)).
+  (tables above); on all 449 they agree with it (next section).
+
+## The final masks on all 449 trees
+
+Run on the student's PC with the final settings (0.35, 12; no fill),
+`python -m treeskel.measure_width data/raw --out outputs/measure_width3`
+(console output in `all_dev_rows_output_final.txt`). These masks still had
+the trunk's round top at the fork, which the fork junction replaced
+afterwards (`docs/results/fork_junction/`). The junction changes no drawn
+radius, only pixels within about 1.5 trunk radii of the fork, so the widths
+below are unaffected; the crotch counts are not.
+
+| Leader half-width, at least 8 trunk radii from the fork (897 leaders) | Median | Minus depth (median, IQR) |
+|---|---|---|
+| Depth minus its 2 px overshoot | 6.5 px | – |
+| **Final masks** | **6.9 px** | **+0.0 px (−0.9 to +1.3)** |
+| First session-8 settings (0.35 fading over 4) | 6.9 px | +0.1 px (−0.8 to +1.4) |
+| Before session 8 | 3.2 px | −3.2 px (−4.3 to −2.4) |
+
+| Half-width / trunk radius, by distance from the fork (trunk radii) | 1 | 1.5 | 2 | 3 | 5 | 10 | 15 |
+|---|---|---|---|---|---|---|---|
+| Measured across the bark (pooled cross-sections) | 0.42 | 0.44 | 0.50 | 0.47 | 0.45 | 0.43 | 0.39 |
+| Depth minus its overshoot | 0.40 | 0.40 | 0.42 | 0.41 | 0.41 | 0.43 | 0.41 |
+| **Final masks** | **0.52** | **0.51** | **0.51** | **0.50** | **0.48** | **0.45** | **0.42** |
+| First session-8 settings | 0.54 | 0.53 | 0.51 | 0.49 | 0.46 | 0.44 | 0.43 |
+| Hand masks (summer) | 0.56 | 0.55 | 0.55 | 0.53 | 0.50 | 0.42 | 0.35 |
+| Before session 8 | 0.26 | 0.26 | 0.26 | 0.26 | 0.25 | 0.22 | 0.20 |
+
+- Far from the fork the masks now match the corrected depth width (median
+  difference 0.0 px), and the leaders narrow from 0.52 to 0.42 of the trunk's
+  radius between 1 and 15 trunk radii from the fork, as the cross-sections do
+  (0.50 at 2 to 0.39 at 15).
+- Within 1.5 trunk radii of the fork the drawn leaders (0.51–0.52) are wider
+  than the few cross-sections that can be measured there (0.42–0.44; the
+  first usable one is a median 2.2 trunk radii out). The widening was fitted
+  from 1.5 trunk radii outwards, so this is an extrapolation; the fork
+  junction now shapes that stretch on the outer side.
+- Mask pixels in the crotch off the depth silhouette: 10,567 of 171,998
+  before session 8 (6.1%), 32,666 of 258,992 with the final widths (12.6%),
+  23,262 of 233,851 without the widening (9.9%). Wider leaders fill more of the
+  bottom of the V; the fork junction then took the trunk's round top out of it.
 
 ## Effect on the shoulder fill (decided: off for now)
 
@@ -311,12 +352,8 @@ unchanged (checked on the 21 trees).
 
 ## To do
 
-On the student's PC, with the final settings:
-
-```
-python -m treeskel.guided_gt data/raw --overlays
-python -m treeskel.measure_width data/raw --out outputs/measure_width3 --plot outputs/leader_width_profiles.png
-```
-
-The first re-renders the ground truth for all 541 trees; the second records
-the final masks' numbers on all development trees (and a chart of them).
+Done: the final masks' numbers on all development trees are recorded above
+([The final masks on all 449 trees](#the-final-masks-on-all-449-trees)).
+The chart `leader_width_profiles.png` made on the student's PC with them is
+not in the repository; `docs/figures/leader_width_profiles.png` is the
+21-tree version.
