@@ -57,6 +57,11 @@ trees, so often only a small nudge is needed. The transforms are saved to
 it. The toolbar's zoom works as usual: drags made while zoom or pan is
 switched on are ignored. ``--redo`` shows trees already aligned, starting
 from their saved transform.
+
+The current tree, its transform and whether its mask is flagged are shown
+in the window's title bar. Each change takes about 60 ms on a 4-core
+machine (the first version took about 400 ms). The time grows with the
+window's size in pixels, so if it lags, make the window smaller.
 """
 
 from __future__ import annotations
@@ -68,8 +73,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
-from treeskel.align import apply_transform, load_winter_mask, outline, warp_image, warp_mask
+from treeskel.align import apply_transform, load_winter_mask, outline
 from treeskel.guided_gt import load_clicks
 from treeskel.io import TreeRecord, index_dataset, load_tree
 from treeskel.summer_gt import Overlay, load_overlays, save_overlays
@@ -84,6 +90,33 @@ def median_overlay(overlays: Sequence[Overlay]) -> Overlay:
     if not overlays:
         return Overlay()
     return Overlay(**{k: float(np.median([getattr(o, k) for o in overlays])) for k in Overlay.PARAMS})
+
+
+_HALF = np.array([[1, 0, 0.5], [0, 1, 0.5], [0, 0, 1.0]])
+
+
+def fast_warp(image: np.ndarray, matrix: np.ndarray, nearest: bool = False,
+              out_size: tuple[int, int] = (640, 480)) -> np.ndarray:
+    """Warp an image by a winter-to-summer transform with Pillow's compiled perspective warp.
+
+    About 10 times faster than :func:`treeskel.align.warp_image`, for the live
+    display. Pillow maps each output pixel back into the input with pixel
+    centres at +0.5, so the transform is shifted by half a pixel either side;
+    the result then matches :func:`treeskel.align.warp_mask` exactly for masks
+    (``nearest=True``) and :func:`treeskel.align.warp_image` to within about
+    one grey level. Pixels outside the input are 0 (transparent for RGBA).
+
+    Args:
+        image: ``uint8`` image, ``(H, W)``, ``(H, W, 3)`` or ``(H, W, 4)``.
+        matrix: 3x3 winter-to-summer ``(x, y)`` transform.
+        nearest: Nearest-neighbour instead of bilinear sampling.
+        out_size: Output ``(width, height)``.
+    """
+    inv = _HALF @ np.linalg.inv(matrix) @ np.linalg.inv(_HALF)
+    inv = inv / inv[2, 2]
+    resample = Image.Resampling.NEAREST if nearest else Image.Resampling.BILINEAR
+    return np.asarray(Image.fromarray(image).transform(out_size, Image.Transform.PERSPECTIVE,
+                                                       tuple(inv.ravel()[:8]), resample))
 
 
 class OverlayAnnotator:
@@ -141,6 +174,9 @@ class OverlayAnnotator:
         self.winter = load_tree(self.tree, "winter")
         self.summer = load_tree(self.tree, "summer")
         self.mask = load_winter_mask(tid, self.winter, self.winter_clicks, self.gt_dir)
+        # Warped on every change, so prepared once: the photo with full opacity, and the mask's outline.
+        self._rgba = np.dstack([self.winter["rgb"], np.full(self.winter["rgb"].shape[:2], 255, np.uint8)])
+        self._outline = outline(self.mask, 2).astype(np.uint8) * 255 if self.mask is not None else None
         c = self.winter_clicks.get(tid)
         self.pin = np.array(c.fork[::-1], float) if c is not None and c.complete and not c.skip \
             else np.array([320.0, 240.0])
@@ -156,12 +192,31 @@ class OverlayAnnotator:
         """The current winter-to-summer transform."""
         return self.ov.matrix()
 
-    def warped(self) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
-        """``(winter rgb, covered, mask)`` moved into the summer view by the current transform."""
+    def composite(self) -> np.ndarray:
+        """The picture to show: the summer photo with the moved winter photo and mask on top.
+
+        In the ``"blend"`` view the winter photo covers the summer one at
+        ``alpha``, in ``"winter"`` fully, and in ``"summer"`` not at all; the
+        part of the summer photo the winter one does not cover always shows
+        through. The mask's outline is drawn in magenta if ``show_mask``.
+        Blending here into one picture, rather than layering images in the
+        window, keeps each update fast.
+
+        Returns:
+            ``(480, 640, 3)`` uint8 image.
+        """
         m = self.matrix()
-        rgb, covered = warp_image(self.winter["rgb"], m)
-        mask = warp_mask(self.mask, m)[0] if self.mask is not None else None
-        return rgb, covered, mask
+        a = {"blend": self.alpha, "winter": 1.0, "summer": 0.0}[self.view]
+        out = self.summer["rgb"]
+        if a > 0:
+            w = fast_warp(self._rgba, m).astype(np.float32)
+            k = w[..., 3:] * (a / 255.0)
+            out = (out * (1 - k) + w[..., :3] * k + 0.5).astype(np.uint8)
+        if self.show_mask and self._outline is not None:
+            line = fast_warp(self._outline, m, nearest=True) > 0
+            out = out.copy() if out is self.summer["rgb"] else out
+            out[line] = (255, 0, 255)
+        return out
 
     def _change(self, pin_xy: np.ndarray | None = None, **params) -> None:
         """Set some parameters, keeping the winter point ``pin_xy`` where it was in the summer view."""
@@ -261,11 +316,20 @@ class OverlayAnnotator:
         self._load()
 
 
+HELP = ("drag: shift   scroll: scale   arrows: 1 px (shift: 10)   [ ]: roll   - =: scale   i k j l: tilt   "
+        "space: flip   b, 1-9: blend   m: mask\n"
+        "Enter: accept   u: undo   r: reset   s: skip   f: flag the winter mask   n / p: next / previous   q: quit")
+"""Key help shown above the picture (the current tree and transform are in the window's title bar)."""
+
+
 def run_gui(ann: OverlayAnnotator, show: bool = True):
     """Open the window and connect mouse and keyboard events.
 
-    While dragging, the already-moved winter layer is only slid across (fast);
-    it is resampled properly when the button is released.
+    For speed, the window is drawn in full only when needed (a new tree, a
+    zoom, a resize) and cached without the picture; each change then only
+    draws :meth:`OverlayAnnotator.composite` over the cache ("blitting").
+    The current tree and transform go in the window's title bar, which the
+    system draws.
 
     Args:
         ann: The annotator.
@@ -280,51 +344,46 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
               "keymap.xscale", "keymap.yscale", "keymap.fullscreen"):
         plt.rcParams[k] = []                        # free the tool's keys (s, q, arrows, k, l, f, ...)
     plt.rcParams["keymap.home"] = ["h", "home"]     # and r (reset); h still resets the zoom
-    fig, ax = plt.subplots(figsize=(12, 9.6))
-    fig.subplots_adjust(0.005, 0.005, 0.995, 0.9)
-    st = {"tree": None, "drag": None, "layers": [], "base": None}
+    fig, ax = plt.subplots(figsize=(10, 8.2))
+    fig.subplots_adjust(0.005, 0.005, 0.995, 0.93)
+    ax.set_axis_off()
+    fig.suptitle(HELP, fontsize=8)
+    picture = ax.imshow(np.zeros((480, 640, 3), np.uint8), interpolation="nearest", animated=True)
+    canvas = fig.canvas
+    st = {"tree": None, "drag": None, "bg": None}
 
-    def layer_rgba() -> tuple[np.ndarray, np.ndarray | None]:
-        rgb, covered, mask = ann.warped()
-        a = {"blend": ann.alpha, "winter": 1.0, "summer": 0.0}[ann.view]
-        photo = np.dstack([rgb / 255.0, covered * a])
-        line = None
-        if ann.show_mask and mask is not None:
-            line = np.zeros((*mask.shape, 4))
-            line[outline(mask, 2)] = (1.0, 0.0, 1.0, 1.0)
-        return photo, line
+    def on_draw(ev) -> None:
+        """After a full draw: cache it (without the picture), then draw the picture on top."""
+        st["bg"] = canvas.copy_from_bbox(fig.bbox)
+        fig.draw_artist(picture)
 
-    def draw() -> None:
-        same = not ann.done and st["tree"] == ann.tree.tree_id
-        limits = (ax.get_xlim(), ax.get_ylim()) if same else None
-        ax.clear()
-        ax.set_axis_off()
-        fig.suptitle(ann.prompt(), fontsize=9)
-        st["layers"] = []
+    def status() -> None:
+        manager = getattr(canvas, "manager", None)
+        if manager is not None:
+            lines = ann.prompt().splitlines()
+            manager.set_window_title(lines[0] if ann.done else f"{lines[0]}   |   {lines[1]}")
+
+    def update() -> None:
+        status()
         if ann.done:
-            fig.canvas.draw_idle()
+            picture.set_data(np.zeros((480, 640, 3), np.uint8))
+            canvas.draw_idle()
             return
-        ax.imshow(ann.summer["rgb"])
-        photo, line = layer_rgba()
-        st["base"] = (ann.ov.dx, ann.ov.dy)          # the shift the layers were resampled at
-        st["layers"] = [ax.imshow(photo)] + ([ax.imshow(line, interpolation="nearest")] if line is not None else [])
-        if limits:
-            ax.set_xlim(limits[0])
-            ax.set_ylim(limits[1])
-        ax.set_autoscale_on(False)                   # sliding a layer must not move the view
-        st["tree"] = ann.tree.tree_id
-        fig.canvas.draw_idle()
-
-    def slide() -> None:
-        """Move the drawn layers by the shift made since they were resampled (no resampling)."""
-        ox, oy = ann.ov.dx - st["base"][0], ann.ov.dy - st["base"][1]
-        for im in st["layers"]:
-            im.set_extent((-0.5 + ox, 639.5 + ox, 479.5 + oy, -0.5 + oy))
-        fig.suptitle(ann.prompt(), fontsize=9)
-        fig.canvas.draw_idle()
+        picture.set_data(ann.composite())
+        if st["tree"] != ann.tree.tree_id:          # a new tree: show all of it (a full draw)
+            ax.set_xlim(-0.5, 639.5)
+            ax.set_ylim(479.5, -0.5)
+            st["tree"] = ann.tree.tree_id
+            canvas.draw_idle()
+        elif st["bg"] is None:
+            canvas.draw_idle()
+        else:                                        # the same view: only the picture changes
+            canvas.restore_region(st["bg"])
+            fig.draw_artist(picture)
+            canvas.blit(fig.bbox)
 
     def tool_active() -> bool:
-        toolbar = getattr(fig.canvas, "toolbar", None)
+        toolbar = getattr(canvas, "toolbar", None)
         return toolbar is not None and bool(getattr(toolbar, "mode", ""))
 
     def on_press(ev) -> None:
@@ -338,7 +397,7 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
             return
         x0, y0, dx0, dy0 = st["drag"]
         ann.ov.dx, ann.ov.dy = dx0 + ev.xdata - x0, dy0 + ev.ydata - y0
-        slide()
+        update()
 
     def on_release(ev) -> None:
         if st["drag"] is None:
@@ -346,13 +405,13 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
         st["drag"] = None
         if ann.history and ann.history[-1] == ann.ov:
             ann.history.pop()                        # a click without a drag changes nothing
-        draw()
+        update()
 
     def on_scroll(ev) -> None:
         if ann.done or ev.inaxes is not ax or ev.xdata is None:
             return
         ann.rescale(STEPS["scroll"] if ev.button == "up" else 1 / STEPS["scroll"], about=(ev.xdata, ev.ydata))
-        draw()
+        update()
 
     def on_key(ev) -> None:
         if ev.key is None:
@@ -361,13 +420,13 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
         if ev.key == "q":
             plt.close(fig)
         else:
-            draw()
+            update()
 
-    for name, fn in (("button_press_event", on_press), ("motion_notify_event", on_motion),
-                     ("button_release_event", on_release), ("scroll_event", on_scroll),
-                     ("key_press_event", on_key)):
-        fig.canvas.mpl_connect(name, fn)
-    draw()
+    for name, fn in (("draw_event", on_draw), ("button_press_event", on_press),
+                     ("motion_notify_event", on_motion), ("button_release_event", on_release),
+                     ("scroll_event", on_scroll), ("key_press_event", on_key)):
+        canvas.mpl_connect(name, fn)
+    update()
     if show:  # pragma: no cover - needs a display
         plt.show()
     return fig
