@@ -22,6 +22,7 @@ src/treeskel/    Python package
   guided_gt.py   click-guided main-branch ground truth: cost map + minimal-path tracing
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
+  measure_fork.py  measures the masks at the fork against winter depth (sets the shoulder fill)
 annotations/     clicked points per tree (winter_clicks.json), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
@@ -47,6 +48,7 @@ python -m treeskel.winter_gt data/raw --out outputs/winter_gt --figure outputs/w
 python -m treeskel.annotate data/raw --dev-only            # click tool (development rows first)
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
+python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 

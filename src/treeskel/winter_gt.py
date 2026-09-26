@@ -118,6 +118,11 @@ class WinterGT:
             (``{"trunk": array, "left": ..., "right": ...}``, same lengths as
             the paths). If absent, :func:`render_main_branches` measures
             widths from ``tree_mask``.
+        shoulders: Optional bool mask of the pixels that fill the notches
+            ("shoulders") beside the fork, where each leader leaves the trunk
+            (guided ground truth only, see
+            :func:`treeskel.guided_gt.fill_shoulders`);
+            :func:`render_main_branches` adds it to the drawn branches.
         ok: True if both leaders passed the quality check.
         issues: Reasons the quality check failed (empty if ``ok``).
     """
@@ -134,6 +139,7 @@ class WinterGT:
     right_shape: dict = field(default_factory=dict)
     posts_skipped: int = 0
     radii: dict | None = None
+    shoulders: np.ndarray | None = None
     ok: bool = False
     issues: list[str] = field(default_factory=list)
 
@@ -453,7 +459,7 @@ def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: floa
     are used. Otherwise the radius at each path point is the distance from
     that point to the edge of the tree region, clipped to
     ``[min_radius, max_radius]``; linked gaps (outside the tree region) get
-    ``min_radius``.
+    ``min_radius``. If ``gt.shoulders`` is set, those pixels are added.
 
     Args:
         gt: Result of :func:`extract_winter_gt`.
@@ -473,6 +479,8 @@ def render_main_branches(gt: WinterGT, min_radius: float = 2.0, max_radius: floa
         for (y, x), r in zip(p, rs):
             rr, cc = draw_disk((y, x), r, shape=shape)
             out[rr, cc] = True
+    if gt.shoulders is not None:
+        out |= gt.shoulders
     return out
 
 

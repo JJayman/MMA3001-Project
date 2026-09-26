@@ -33,7 +33,13 @@ and the branches are traced between them automatically:
    branches' widths. Point measurements are noisy, so each part's radius is
    fitted as a straight-line taper along its length by robust Huber
    regression (:func:`huber_line`), within plausible limits.
-6. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
+6. **Fork** (:func:`shoulder_fill`): a straight taper cannot show a leader
+   widening where it joins the trunk, so a thin leader would stick out of
+   the round top of a much wider trunk, leaving a notch (a "shoulder") on
+   each side. In the winter depth images the wood fills these notches, so
+   on each leader's outer side the mask is filled out to the straight line
+   from the trunk's edge at the fork to the leader's edge a little way up.
+7. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
    the same rendering, shape measures and overlays apply to both methods.
 
 Clicks are stored in a JSON file keyed by tree id (see :func:`save_clicks`),
@@ -58,10 +64,11 @@ from PIL import Image
 from scipy import ndimage as ndi
 from skimage.color import rgb2hsv
 from skimage.filters import frangi
+from skimage.draw import disk as draw_disk
 from skimage.draw import line as draw_line
 from skimage.feature import hessian_matrix, hessian_matrix_eigvals
 from skimage.graph import route_through_array
-from skimage.morphology import disk
+from skimage.morphology import convex_hull_image, disk
 
 from treeskel.winter_gt import (
     WinterGT,
@@ -124,6 +131,16 @@ class GuidedParams:
         scale_window: Half-size (px) of the neighbourhood searched around
             each path point, so a slightly off-centre path still finds the
             branch.
+        shoulder_length: How far up each leader the shoulder fill reaches
+            (:func:`shoulder_fill`), in multiples of the trunk's radius at
+            the fork; 0 turns it off. Set with :mod:`treeskel.measure_fork`
+            on the winter depth of 21 development-row trees: the width
+            along a leader falls from the fork to the leader's own over a
+            median of 1.38 trunk radii (leave-one-tree-out 1.35–1.43), and
+            fills from 1.23 to 1.80 cover the shoulder as much as the depth
+            silhouette does, depending on how far up the leader it is
+            compared and on the correction for depth bleeding (see
+            ``docs/results/fork_shoulders/``). Not used by the cost map.
     """
 
     depth_weight: float = 0.2
@@ -140,6 +157,7 @@ class GuidedParams:
     leader_width_source: str = "colour"
     leader_scales: tuple[float, float] = (1.5, 12.0)
     scale_window: int = 4
+    shoulder_length: float = 1.4
 
 
 @dataclass
@@ -380,7 +398,7 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     Args:
         rgb, depth, valid: The tree's winter images.
         clicks: Complete :class:`Clicks` (not skipped).
-        params: Cost-map settings (ignored if ``cost`` is given).
+        params: Settings; the cost-map ones are ignored if ``cost`` is given.
         cost: Precomputed cost map, to avoid recomputing it while clicking.
 
     Returns:
@@ -412,16 +430,19 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
         measured["left"], measured["right"] = r[:len(left)], r[len(left):]
     radii = {k: fit_taper(p, measured[k], k) for k, p in (("trunk", trunk), ("left", left), ("right", right))}
     # A leader cannot start wider than the trunk it grows from.
-    fork_r = radii["trunk"][-1] if len(radii["trunk"]) else FALLBACK_RADIUS["trunk"]
+    fork_r = _fork_radius(radii)
     for k in ("left", "right"):
         radii[k] = np.minimum(radii[k], fork_r)
-    return WinterGT(
+    gt = WinterGT(
         tree_mask=fg, skeleton=skel, radii=radii,
         root=tuple(map(int, trunk[0])), fork=tuple(map(int, trunk[-1])),
         trunk=trunk, left=left, right=right,
         trunk_shape=path_shape(trunk, radius), left_shape=path_shape(left, radius),
         right_shape=path_shape(right, radius), ok=True,
     )
+    # Fill the notches between the trunk and each leader's outer side.
+    gt.shoulders = fill_shoulders(gt, params.shoulder_length)
+    return gt
 
 
 RADIUS_LIMITS = {"trunk": (4.0, 25.0), "left": (2.5, 15.0), "right": (2.5, 15.0)}
@@ -533,8 +554,7 @@ def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
     lo, hi = RADIUS_LIMITS[part]
     if len(path) == 0:
         return np.zeros(0)
-    step = np.hypot(*np.diff(path, axis=0).T) if len(path) > 1 else np.zeros(0)
-    s = np.concatenate([[0.0], np.cumsum(step)])
+    s = arc_length(path)
     ok = measured > min_valid
     if ok.sum() < min_points:
         return np.full(len(path), FALLBACK_RADIUS[part])
@@ -543,6 +563,119 @@ def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
         # Branches do not widen upwards: use a constant (robust) width instead.
         a, b = float(np.median(measured[ok])), 0.0
     return np.clip(a + b * s, lo, hi)
+
+
+def arc_length(path: np.ndarray) -> np.ndarray:
+    """Distance (px) along ``path`` from its first point to each point."""
+    if len(path) < 2:
+        return np.zeros(len(path))
+    return np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(path, axis=0).T))])
+
+
+def outward_normal(path: np.ndarray, other: np.ndarray, reach: float) -> np.ndarray:
+    """Unit normal to a leader's direction near the fork, on its outer side.
+
+    The direction is the chord from the fork to the point ``reach`` px along
+    the path, which ignores pixel-scale wiggles. Of its two normals, the one
+    pointing from the other leader (at the same distance along it) towards
+    this one is returned, i.e. away from the crotch between the leaders.
+
+    Args:
+        path: ``(N, 2)`` leader path starting at the fork.
+        other: ``(M, 2)`` the other leader's path, also starting at the fork.
+        reach: Chord length (px).
+
+    Returns:
+        ``(2,)`` unit vector ``(d_row, d_col)``, or zeros if the path does
+        not move away from the fork.
+    """
+    i = min(int(np.searchsorted(arc_length(path), reach)), len(path) - 1)
+    j = min(int(np.searchsorted(arc_length(other), reach)), len(other) - 1)
+    d = (path[i] - path[0]).astype(float)
+    n = np.array([-d[1], d[0]])
+    if n @ (path[i] - other[j]) < 0:
+        n = -n
+    size = np.hypot(*n)
+    return n / size if size > 0 else np.zeros(2)
+
+
+def shoulder_fill(shape: tuple[int, int], leader: np.ndarray, other: np.ndarray, radii: np.ndarray,
+                  fork_radius: float, length: float) -> np.ndarray:
+    """Pixels that fill the notch ("shoulder") beside a leader where it leaves the trunk.
+
+    Each leader's radius is one taper fitted along its whole length
+    (:func:`fit_taper`), so a thin leader starts abruptly out of the round
+    end of a much wider trunk, leaving a notch on its outer side. In the
+    winter depth images the wood fills that notch: the trunk's edge runs
+    into the leader's outer edge. So on the leader's outer side
+    (:func:`outward_normal`), the mask is filled out to the convex hull of
+    the trunk's end (its disc of radius ``R`` at the fork) and the leader's
+    first ``length`` px. Its edge is the straight line from the trunk's edge
+    to the leader's edge ``length`` px up the leader.
+
+    The fill never reaches outside that hull, so it cannot widen a straight
+    trunk, and the crotch (between the leaders) is left as drawn. Other
+    shapes were tried on the development trees and rejected (see
+    ``docs/results/fork_shoulders/``). For example, widening both sides of
+    each leader also filled the crotch, where many of the added pixels were
+    not wood in depth; and widening the leader's discs smoothly into the
+    trunk (a flare) bulged past the trunk's straight edges on a synthetic
+    tree of known shape.
+
+    Args:
+        shape: Image shape ``(H, W)``.
+        leader: ``(N, 2)`` leader path starting at the fork.
+        other: ``(M, 2)`` the other leader's path, to tell the outer side.
+        radii: ``(N,)`` the leader's drawing radii (px).
+        fork_radius: The trunk's drawing radius at the fork, ``R`` (px).
+        length: How far along the leader the fill reaches (px); 0 or less
+            gives an empty mask.
+
+    Returns:
+        ``(H, W)`` bool mask of the fill, to be added to the drawn branches.
+    """
+    out = np.zeros(shape, bool)
+    if length <= 0 or len(leader) == 0:
+        return out
+    base = leader[arc_length(leader) <= length]       # a prefix: arc length only grows
+    fork = leader[0]
+    # Work in a box around the fork that holds every disc (and so their hull).
+    pad = int(np.ceil(max(fork_radius, radii[:len(base)].max()))) + 2
+    lo = np.maximum(np.minimum(base.min(0), fork) - pad, 0)
+    hi = np.minimum(np.maximum(base.max(0), fork) + pad + 1, shape)
+    box = tuple(int(v) for v in hi - lo)
+    discs = np.zeros(box, bool)
+    for (y, x), rad in [(fork, fork_radius), *zip(base, radii)]:
+        rr, cc = draw_disk((y - lo[0], x - lo[1]), rad, shape=box)
+        discs[rr, cc] = True
+    n = outward_normal(leader, other, max(length, 10.0))
+    yy, xx = np.indices(box)
+    outer = (yy + lo[0] - fork[0]) * n[0] + (xx + lo[1] - fork[1]) * n[1] >= 0
+    out[lo[0]:hi[0], lo[1]:hi[1]] = convex_hull_image(discs) & outer
+    return out
+
+
+def fill_shoulders(gt: WinterGT, shoulder_length: float) -> np.ndarray:
+    """Both leaders' :func:`shoulder_fill` for a traced tree with fitted radii.
+
+    Args:
+        gt: Result of :func:`guided_gt` (its paths and ``radii`` are used).
+        shoulder_length: Reach of the fill, in multiples of the trunk's
+            radius at the fork (:attr:`GuidedParams.shoulder_length`).
+
+    Returns:
+        Bool mask the shape of ``gt.tree_mask``.
+    """
+    fork_r = _fork_radius(gt.radii)
+    out = np.zeros(gt.tree_mask.shape, bool)
+    for side, leader, other in (("left", gt.left, gt.right), ("right", gt.right, gt.left)):
+        out |= shoulder_fill(out.shape, leader, other, gt.radii[side], fork_r, shoulder_length * fork_r)
+    return out
+
+
+def _fork_radius(radii: dict) -> float:
+    """The trunk's drawing radius at the fork (its last point)."""
+    return float(radii["trunk"][-1]) if len(radii["trunk"]) else FALLBACK_RADIUS["trunk"]
 
 
 def insert_waypoint(clicks: Clicks, gt: WinterGT, point: Point) -> Clicks:
