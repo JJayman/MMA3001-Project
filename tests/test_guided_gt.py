@@ -644,9 +644,13 @@ def wide_fork_rgbd():
     return bark_rgb(truth), d, d > 0, truth
 
 
+FILL = GuidedParams(shoulder_length=1.4)
+"""The shoulder fill as chosen in session 6 (off by default since session 8)."""
+
+
 def test_shoulder_fill_on_a_known_fork():
     rgb, depth, valid, truth = wide_fork_rgbd()
-    gt = guided_gt(rgb, depth, valid, good_clicks())
+    gt = guided_gt(rgb, depth, valid, good_clicks(), FILL)
     filled = render_main_branches(gt)
     unfilled = render_main_branches(replace(gt, shoulders=None))
     added = filled & ~unfilled
@@ -656,7 +660,7 @@ def test_shoulder_fill_on_a_known_fork():
     dist = np.hypot(yy - FORK[0], xx - FORK[1])
     # Only adds pixels, only near the fork, and all of them are wood.
     assert added.sum() >= 20
-    assert dist[added].max() <= (GuidedParams().shoulder_length + 1) * R
+    assert dist[added].max() <= (FILL.shoulder_length + 1) * R
     assert (added & ~truth).sum() == 0
     # Nothing is added in the crotch: between the leaders' inner edges, above the fork.
     rise = FORK[0] - yy
@@ -671,20 +675,25 @@ def test_shoulder_fill_on_a_known_fork():
     assert iou(filled) >= iou(unfilled) + 0.01, (iou(filled), iou(unfilled))
 
 
-def test_shoulder_fill_can_be_turned_off():
+def test_shoulder_fill_is_off_by_default_and_can_be_turned_off():
     rgb, depth, valid, _ = wide_fork_rgbd()
     off = guided_gt(rgb, depth, valid, good_clicks(), GuidedParams(shoulder_length=0))
     assert not off.shoulders.any()
     assert np.array_equal(render_main_branches(off), render_main_branches(replace(off, shoulders=None)))
+    # Since session 8 (leaders drawn at their true width) the default draws no fill.
+    default = guided_gt(rgb, depth, valid, good_clicks())
+    assert GuidedParams().shoulder_length == 0 and not default.shoulders.any()
+    assert np.array_equal(render_main_branches(default), render_main_branches(off))
 
 
 def test_shoulder_fill_when_the_tree_splits_at_the_ground():
     # A fork 4 px above the root: too little trunk to measure, so its width
     # falls back to the default; the fill still stays near the fork.
     rgb, depth, valid = synthetic_rgbd()
-    gt = guided_gt(rgb, depth, valid, Clicks(trunk=[(470, 320), (466, 320)], left=[LEFT_TIP], right=[RIGHT_TIP]))
+    gt = guided_gt(rgb, depth, valid, Clicks(trunk=[(470, 320), (466, 320)], left=[LEFT_TIP], right=[RIGHT_TIP]),
+                   FILL)
     added = render_main_branches(gt) & ~render_main_branches(replace(gt, shoulders=None))
     assert np.all(gt.radii["trunk"] == 10.0) and added.any()             # fallback width, still filled
-    reach = (GuidedParams().shoulder_length + 1) * gt.radii["trunk"][-1]
+    reach = (FILL.shoulder_length + 1) * gt.radii["trunk"][-1]
     yy, xx = np.nonzero(added)
     assert np.hypot(yy - 466, xx - 320).max() <= reach + 1

@@ -200,7 +200,7 @@ trunk radii and a widening of 1.0, the shape is also chosen with the
 row-grouped folds of `splits.json` held out, and the whole cost surface is
 saved. The defaults will be set from that run (see [To do](#to-do)).
 
-## Effect on the shoulder fill (open decision)
+## Effect on the shoulder fill (decided: off for now)
 
 With the leaders at their true width the notch that `shoulder_fill` was made
 for (session 6) has mostly gone. Re-run of `measure_fork` with the new widths
@@ -211,14 +211,15 @@ for (session 6) has mostly gone. Re-run of `measure_fork` with the new widths
 | Depth silhouette | 0.954 | 0.943 |
 | Depth shrunk 2 px (≈ the measured overshoot) | 0.896 | 0.879 |
 | **New masks, no fill** | **0.936** | **0.912** |
-| New masks, fill 1.4 (current) | 0.998 | 0.964 |
+| New masks, fill 1.4 (session 6) | 0.998 | 0.964 |
 
 Without any fill the new masks already lie between the two depth references,
 the criterion used in session 6. The matching setting is 0.58 (reach 1.5 R)
 or 1.12 (reach 2 R) against raw depth, and below 0 against the 2 px-corrected
 depth. The pixels the 1.4 fill adds are now 81% on depth (91–94% before).
-`shoulder_length` is a fixed decision, so it is **left at 1.4** for the
-student to decide: keep 1.4, lower it to about 1.0, or turn it off (0).
+`shoulder_length` is a fixed decision, so it was left at 1.4 for the
+student to decide between keeping it, lowering it to about 1.0, or turning
+it off (0).
 `docs/figures/fork_shoulders_new_leader_widths.jpg` shows six forks with no
 fill, 1.4 and 2.0.
 
@@ -231,11 +232,18 @@ the same holds:
 | Depth shrunk 2 px | 0.875 | 0.840 |
 | **New masks, no fill** | **0.914** | **0.879** |
 | New masks, fill 1.0 | 0.951 | 0.906 |
-| New masks, fill 1.4 (current) | 0.996 | 0.948 |
+| New masks, fill 1.4 (session 6) | 0.996 | 0.948 |
 
 Matching settings: 0.66 (depth, 1.5 R) and 1.08 (depth, 2 R), below 0 against
 the shrunk depth. The pixels the 1.4 fill adds are 79% on depth (91% in
 session 6, with the thin leaders).
+
+**Decision (the student's): the fill is turned off "for the moment"**
+(`shoulder_length = 0`), which matches the depth silhouette corrected for its
+measured overshoot. `shoulder_length = 1.4` restores it. The figures and
+the 21-tree outputs in this folder were made before this, with the fill at
+1.4; the fill only touches each leader's outer side near the fork, so the
+widths, the crotch counts and the centring are unaffected.
 
 ## Found, not changed
 

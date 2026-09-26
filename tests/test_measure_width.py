@@ -2,18 +2,18 @@
 
 import json
 import shutil
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from test_winter_gt import thick_line
-from treeskel.guided_gt import load_clicks
 from test_guided_gt import good_clicks, synthetic_rgbd
-from test_winter_gt import FORK
-from treeskel.guided_gt import guided_gt
+from test_winter_gt import FORK, thick_line
+from treeskel.guided_gt import GuidedParams, guided_gt, load_clicks
 from treeskel.measure_width import (
     LENGTHS,
+    OLD,
     WIDENINGS,
     centre_runs,
     choose_shape,
@@ -122,6 +122,14 @@ def test_choose_shape_holds_out_each_group():
     assert chosen["picks"][1] == (WIDENINGS[3], LENGTHS[4]) and chosen["held_out"][1] == pytest.approx(1.0)
     assert chosen["held_out_constant"] == [1.0, 1.0]
     assert choose_shape(costs[:2], np.array(["a", "a"]))["groups"] == []     # nothing left to choose with
+
+
+def test_old_settings_differ_only_in_what_session_8_changed():
+    # "Before" must stay the session-7 masks when today's defaults change: only the
+    # leader widths, the leader fit and the shoulder fill differ.
+    changed = {k for k, v in asdict(OLD).items() if v != asdict(GuidedParams())[k]}
+    assert changed == {"leader_width_source", "leader_fit", "shoulder_length"}
+    assert (OLD.leader_width_source, OLD.leader_fit, OLD.shoulder_length) == ("scale_space", "taper", 1.4)
 
 
 def test_free_taper():

@@ -154,8 +154,11 @@ for has gone. `measure_fork` re-run on the same 21 trees with the new widths
   above depth at both reaches. Matching settings 0.66 and 1.08 against depth
   (leave-one-out 0.64–0.72 and 1.07–1.10), below 0 against the shrunk depth.
   The added pixels are 79% on depth (91% in the session-6 check).
-- Not changed yet: `shoulder_length` stays 1.4 until the student decides
-  between keeping it, lowering it to about 1.0, or turning it off.
+- **Decision (the student's, session 8): the fill is turned off "for the
+  moment"** (`shoulder_length = 0`). Of the three options offered (keep 1.4,
+  about 1.0, or off), off matches the depth silhouette corrected for its
+  measured overshoot, the reference now trusted; 1.4 remains available in
+  the code and restores the fill.
 
 ## Alternatives tried and rejected
 

@@ -76,8 +76,9 @@ from treeskel.guided_gt import (
 from treeskel.measure_fork import fork_zone
 from treeskel.winter_gt import WinterGT, find_main_branches, render_main_branches, report_failed, save_image
 
-OLD = GuidedParams(leader_width_source="scale_space", leader_fit="taper")
-"""The settings of the masks before session 8 (scale-space widths, free straight tapers)."""
+OLD = GuidedParams(leader_width_source="scale_space", leader_fit="taper", shoulder_length=1.4)
+"""The settings of the masks before session 8 (scale-space widths, free straight tapers, the
+session-6 shoulder fill); they reproduce those masks pixel for pixel."""
 
 BINS = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 25.0)
 """Distance from the fork, in trunk radii, for the pooled width profiles."""
