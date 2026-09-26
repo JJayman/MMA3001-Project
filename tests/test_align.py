@@ -16,6 +16,7 @@ from treeskel.align import (
     Matches,
     apply_transform,
     check_fit,
+    consistency_table,
     describe,
     fit_quality,
     fit_transform,
@@ -25,6 +26,7 @@ from treeskel.align import (
     linear_part,
     load_matches,
     make_matcher,
+    plausible,
     ransac_fit,
     residuals,
     save_matches,
@@ -376,3 +378,43 @@ def test_cli_stops_when_the_matcher_keeps_failing(tmp_path, monkeypatch, capsys,
     assert text.count("could not match") == align.MAX_FAILURES_IN_A_ROW and "Stopped" in text
     saved, _ = load_matches(mpath)
     assert sorted(saved) == ["R05N01"]                             # the tree matched before is kept
+
+
+def test_plausible_uses_the_limits():
+    assert plausible(similarity(1.1, 5.0)) and plausible(np.eye(3))
+    assert not plausible(similarity(1.3)) and not plausible(similarity(1.0, -9.0))
+    assert plausible(similarity(1.3), FitLimits(scale_range=(0.5, 2.0)))
+
+
+def test_ransac_can_be_limited_to_valid_transforms():
+    src = random_points(40, seed=21)
+    dst = apply_transform(similarity(2.0, 30.0), src)          # consistent, but no camera move does this
+    assert ransac_fit(src, dst).n_inliers == 40
+    limited = ransac_fit(src, dst, is_valid=plausible)
+    assert limited.matrix is None and limited.n_inliers == 0
+
+
+def test_consistency_table_counts_trees_with_a_plausible_fit():
+    rng = np.random.default_rng(22)
+    good_src = random_points(30, seed=23)
+    ms = {
+        "R01N01": Matches(np.r_[good_src, random_points(20, seed=24)],
+                          np.r_[apply_transform(similarity(1.05, 2.0, 10, -30), good_src), random_points(20, seed=25)]),
+        "R01N02": Matches(random_points(10, seed=26), random_points(10, seed=27)),          # chance matches
+        "R01N03": Matches(good_src, apply_transform(similarity(2.0), good_src)),            # implausible
+        "R02N01": Matches(np.zeros((0, 2)), np.zeros((0, 2))),
+    }
+    tab = consistency_table(ms)
+    assert tab["inliers"]["R01N01"] == 30 and tab["inliers"]["R01N03"] == 0
+    assert tab["inliers"]["R01N02"] <= 2 and tab["inliers"]["R02N01"] == 0
+    assert tab["trees"] == 4 and tab["at_least"][3] == 1 and tab["at_least"][20] == 1
+
+
+def test_cli_consistency_report_reads_only_the_matches(tmp_path, capsys):
+    src = random_points(30, seed=28)
+    save_matches(tmp_path / "m.npz", {"R01N01": Matches(src, src + [5, -3]),
+                                      "R02N01": Matches(src, src + [5, -3])})
+    args = ["not-a-folder", "--matches", str(tmp_path / "m.npz"), "--consistency", "--rows", "1"]
+    assert align.main(args) == 0
+    text = capsys.readouterr().out
+    assert "(1 trees)" in text and "at least 20 consistent inliers:    1 (100%)" in text

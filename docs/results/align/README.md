@@ -2,11 +2,14 @@
 
 The ground-truth masks are traced on the **winter** images, but the summer
 model needs them in the **summer** view of the same tree. This folder records
-how that alignment is being found and checked (`treeskel.align`).
+how that alignment was chosen and checked.
 
-Status (session 7): automatic matching with hand-designed features failed;
-the learned matchers are ready to run on the student's PC. No alignment has
-been measured against hand-clicked points yet.
+**Status (session 7).** Automatic matching failed. SIFT was at chance on
+all 21 trees tried. The learned matcher DISK+LightGlue gave a plausible fit
+on about 1% of the 449 development trees. The student therefore chose to
+align the seasons with **clicked point pairs**: `treeskel.annotate_pairs`
+(the click tool) and `treeskel.summer_gt` (fit, error and summer masks). No
+pairs have been clicked yet.
 
 ## The problem, as seen on the 21 development trees in the repository
 
@@ -16,8 +19,9 @@ were not used.
 - **The view changes from tree to tree.** Judged by eye from the trunk base,
   the summer view is shifted by roughly −40 to +90 px sideways and 10–40 px
   vertically relative to the winter view, differently for each tree. Posts
-  look about as wide in both seasons, so any change of scale is small. These
-  are rough readings, to be replaced by the clicked-point measurement.
+  look about as wide and as upright in both seasons, so any change of scale
+  or roll is small. These are rough readings, to be replaced by the
+  clicked-pair measurement.
 - **What both seasons show:** the lower trunk (visible below the canopy in
   almost every summer photo), the drip line, and posts where there are any.
   Leaves hide most of the leaders in summer.
@@ -25,54 +29,81 @@ were not used.
   clicks are in rows 459–477 of 480, i.e. the trunk leaves the bottom of the
   image before it reaches the ground. So the ground contact cannot serve as
   a reference point in most trees.
+- **Geometry.** The trees are trained flat along the row, so the trunk and
+  leaders lie close to one vertical plane. A change of camera position maps
+  that plane between the images by a homography. With the plane roughly
+  facing the camera and little roll, this is close to a similarity (scale,
+  rotation, shift). Points off the plane, such as the ground and the rows
+  behind, shift differently (parallax).
 
-## Approaches that did not work
+## Automatic matching: what was tried
 
-| Approach | Result on the 21 trees | Evidence |
+| Approach | Result | Evidence |
 |---|---|---|
-| SIFT keypoints + RANSAC (the classical baseline, `--matcher sift`) | **0/21** usable for every model. Median inliers: 2 (translation), 3 (similarity), 4 (affine), 5 (homography), i.e. what random matches give. The similarity fits are nonsense: 20 of 21 rotate by more than 10° (up to 149°), and 13 have a scale outside 0.75–1.33 (0.0 to 5.5) | `sift_21_dev_trees_output.txt`, `docs/figures/align_sift_R09N12.jpg` |
-| Orientation correlation (prototype, not kept): edge directions of the winter trunk region correlated with the summer image by FFT, over scales 0.8–1.25 and rotations ±6° | Wrong by eye on the trees checked; e.g. on R09N12 the winter trunk was placed on leaves about 100 px above the summer trunk. Most trees' best match lay at the edge of the search range | prototype run in the session scratchpad |
-| Hand masks (`_GT`) as a bridge between the seasons | They fit neither season exactly: on R20N06 the mask's trunk is on the *winter* trunk's position, about 85 px left of the summer trunk, while on R09N12 its fork is at the *summer* fork's height. This fits session 3's guess that they were drawn on a third capture (the paper's autumn images) | overlays in the session scratchpad |
-| A winter-depth band to keep only matches on the tree's plane | Per tree, the median depth along the traced trunk is 111–136, the leaders read 11 units nearer (median; −3 to 23), and the ground visible at the root's row only 5–60 units farther (median 15). There is no fixed band that separates the tree from the ground | numbers from the session |
+| SIFT keypoints + RANSAC, 21 trees | **0/21** usable for every model. Median inliers: 2 (translation), 3 (similarity), 4 (affine), 5 (homography), i.e. what random matches give. The similarity fits are nonsense: 20 of 21 rotate by more than 10° (up to 149°), and 13 have a scale outside 0.75–1.33 (0.0 to 5.5) | `sift_21_dev_trees_output.txt`, `docs/figures/align_sift_R09N12.jpg` |
+| Orientation correlation (prototype, not kept): edge directions of the winter trunk region correlated with the summer image by FFT, over scales 0.8–1.25 and rotations ±6° | Wrong by eye on the trees checked. On R09N12 the winter trunk was placed on leaves about 100 px above the summer trunk; most trees' best match lay at the edge of the search range | prototype run in the session |
+| Hand masks (`_GT`) as a bridge between the seasons | They fit neither season exactly. On R20N06 the mask's trunk is on the *winter* trunk's position, about 85 px left of the summer trunk; on R09N12 its fork is at the *summer* fork's height. This fits session 3's guess that they were drawn on a third capture | overlays in the session |
+| A winter-depth band to keep only matches on the tree's plane | Per tree, the median depth along the traced trunk is 111–136. The leaders read 11 units nearer (median; −3 to 23), and the ground visible at the root's row only 5–60 units farther (median 15). No fixed band separates the tree from the ground | numbers from the session |
+| **DISK + LightGlue** (learned, pretrained on MegaDepth), 449 development trees, run on the student's PC | **Median 6 matches per tree** (maximum 72) and median confidence 0.18. Only **53 trees (12%) have 3 or more mutually consistent matches** under a plausible similarity (scale 0.8–1.25, rotation within 8°), **6 (1%) have 5 or more**, and 3 have 8 or more. On the 21 local trees the similarity is usable on 1 | `lightglue_consistency_output.txt`, `lightglue_21_dev_trees_output.txt`, `docs/figures/align_lightglue_21_dev_trees.jpg` |
+| LoFTR (learned, detector-free) | Not run: its weights are only on a server whose certificate Python could not verify on the student's PC, and the browser download failed too | — |
 
-**Why SIFT fails:** its descriptors summarise the local pattern of image
-gradients, and between the seasons almost every local pattern changes
-(leaves or no leaves, lighting, grass, fruit). Matches are then decided by
-chance.
+**Why "consistent matches" and not inliers.** Any two matches define
+*some* similarity, so a plain RANSAC fit always has at least 2 "inliers",
+even for random matches. `consistency_table` (`python -m treeskel.align DATA
+--matcher lightglue --consistency`) lets RANSAC try only physically
+plausible transforms. Its inliers are then the largest set of matches that
+one possible camera move explains.
 
-## Chosen next step: learned matchers (the student's decision)
+**Where LightGlue works, and how well.** The trees with the most consistent
+matches are R01N18 (32), R13N33 (29) and R01N32 (17). On R01N18 every inlier
+joins the winter post to the summer post (`docs/figures/align_lightglue_R01N18.jpg`),
+and on R01N32 winter trunk points to summer trunk points. Both are correct
+matches, but they lie along one line, which fixes the shift well and the
+scale and rotation poorly. On R01N18 the warped trunk lands about 20–30 px
+from the summer trunk (by eye). So even the best automatic fits are only
+roughly right.
 
-Two matchers trained on photos of the same outdoor places taken at different
-times (MegaDepth), which is the closest available training to a change of
-season:
+**Why automatic matching fails here.** SIFT's descriptors summarise the
+local pattern of image gradients, and between the seasons almost every local
+pattern changes (leaves or no leaves, lighting, grass, fruit). Learned
+matchers cope with changes of lighting and viewpoint. But in summer the
+leaves cover most of the image, and the structure shared with winter (posts,
+the lower trunk, the drip line) is small and seen against different
+surroundings, so even they rarely find it.
 
-- **DISK + LightGlue** (`--matcher lightglue`): learned keypoints and
-  descriptors (DISK), matched by a transformer that looks at all keypoints
-  of both images together (LightGlue).
-- **LoFTR** (`--matcher loftr`): matches without detecting keypoints first,
-  from a coarse grid refined to sub-pixel positions, which helps where
-  texture is weak.
+## Chosen method: clicked point pairs (the student's decision)
 
-Both need PyTorch and kornia and download their pretrained weights on first
-use. Loading downloaded weights was blocked in the AI assistant's
-environment, so they run on the student's PC. The matches (point coordinates
-and scores only) are saved to `data/matches/<matcher>.npz` and committed, so
-the fitting, checks and analysis can be done without a GPU.
+`python -m treeskel.annotate_pairs data/raw --dev-only` shows each tree's
+winter image (with its traced mask) next to its summer image. The student
+clicks a point in one, then the same physical point in the other.
 
-**Fitting** (same for every matcher): RANSAC with MSAC scoring, then a
-least-squares refit on the inliers, for four models: translation (2
-parameters), similarity (4), affine (6) and homography (8). The estimators
-are written out in `treeskel.align`: the closed-form least-squares
-similarity (Umeyama), linear least squares for the affine transform, and
-the normalised DLT for the homography. The tests check that each recovers a
-known transform exactly, that the closed form agrees with a general-purpose
-optimiser, and that RANSAC finds the transform with 60% wrong matches.
+- **Which points:** points on the tree's row plane that are clearly the same
+  physical point in both seasons:
+  - trunk features: the graft union, knots, scars, where a side branch leaves;
+  - where the drip line crosses the trunk or a post;
+  - post features: the top, clips, knots;
+  - the same on neighbouring trunks.
 
-**Checks** (provisional limits, `FitLimits`): at least 15 inliers, inliers
-spread over at least 2% of the image, scale within 0.75–1.33, rotation
-within ±10°. These are to be set from the matcher results.
+  Avoid the ground, leaves and fruit, the rows behind, and thin branches.
+  Aim for 4 pairs (at least 3), spread out.
+- **Live check:** from 2 pairs, the winter mask moved by the fitted
+  similarity is drawn on the summer image. From 3 pairs, each pair shows its
+  leave-one-out error, and above 10 px it is marked red. With only 3 pairs,
+  one wrong click raises all three errors (each is checked against a fit
+  that uses the other two), so a fourth pair helps.
+- **Model choice:** `python -m treeskel.summer_gt data/raw --dev-only`
+  compares translation, similarity and affine by leave-one-out error on the
+  development rows, on the trees with at least 4 pairs. A homography would
+  need 5 or more pairs per tree to be checked this way.
+- **Error measure:** the leave-one-out error covers click noise, the model's
+  fit and points off the plane, measured on points the fit has not seen. A
+  planned second clicking of about 20 trees will measure how repeatable the
+  alignment is.
+- **Output:** `outputs/summer_gt/<tree>_summer_gt.png` (the winter mask in
+  the summer view, the U-Net's label) and `<tree>_summer_covered.png` (where
+  the winter image covers the summer view; outside it the label is unknown).
 
-## How to run (student's PC)
+## Running the matchers (how the LightGlue result was produced)
 
 ```bat
 .venv\Scripts\activate
@@ -80,18 +111,19 @@ pip install torch --index-url https://download.pytorch.org/whl/cu126
 pip install -e ".[match]"
 python -c "import torch; print(torch.cuda.is_available())"
 python -m treeskel.align data/raw --matcher lightglue --dev-only
-python -m treeskel.align data/raw --matcher loftr --dev-only
+python -m treeskel.align unused --matcher lightglue --consistency
 ```
 
-- The first `pip` line installs PyTorch with GPU support; `True` from the
-  third line means the GPU will be used. (Without the GPU line, `pip`
-  installs the CPU-only build, which works but is much slower.)
-- Matching is saved every 25 trees; running the same command again resumes.
-- Outputs: `data/matches/<matcher>.npz` (to commit), and in
-  `outputs/align/<matcher>/` a `summary.csv` (every tree × model) and contact
-  sheets `sheet_similarity_NN.jpg` of the summer images with the warped
-  winter masks outlined in magenta and the inliers as green dots.
-  `--overlays` also saves a side-by-side picture per tree.
+- The first `pip` line installs PyTorch with GPU support (see below if it
+  fails); `True` from the third line means the GPU will be used.
+- Matching is saved every 25 trees to `data/matches/<matcher>.npz` (point
+  coordinates and scores only, committed); running the same command again
+  resumes.
+- Outputs in `outputs/align/<matcher>/`:
+  - `summary.csv`: every tree × model;
+  - contact sheets `sheet_similarity_NN.jpg`: the summer images with the
+    warped winter masks outlined in magenta and the inliers as green dots;
+  - with `--overlays`, a side-by-side picture per tree.
 
 ### If PyTorch does not load
 
@@ -101,7 +133,7 @@ or one of its dependencies`. The error comes from importing PyTorch, before
 any matching. Windows found a DLL in the PyTorch install that is not a
 valid 64-bit program, i.e. the install was damaged or incomplete. Here the
 likely cause was disk space: the PC had about 3 GB free, which is not enough
-for the GPU build.
+for the GPU build. After freeing space, a clean reinstall worked.
 
 **How much space the builds need:**
 
@@ -151,14 +183,12 @@ environment, because the PyTorch download site is blocked there.
 
 ## Next steps
 
-1. Run both matchers on the development rows; commit the two `.npz` files
-   and share the console output.
-2. Compare the matchers and models: how many trees get a plausible fit,
-   where the inliers are (tree, posts, drip line, ground, background), and
-   whether the warped trunk sits on the summer trunk (contact sheets, and
-   the 21 local trees at full size).
-3. Measure the error: hand-clicked point pairs on about 20–30 development
-   trees (a click tool is still to be written), then the distance between
-   each clicked summer point and the transformed winter point.
-4. Warp every mask with the chosen matcher and model; check the test rows
-   only at the final evaluation.
+1. Click pairs on the 21 development trees in the repository first
+   (`--trees R01N01 R01N02 ...`), so the protocol and the tool can be
+   checked here against the images.
+2. Choose the model by leave-one-out error on the development rows, and
+   look at the trees flagged by `summer_gt`.
+3. Click the remaining trees (development rows, then test rows), and
+   re-click about 20 trees to measure repeatability.
+4. Write the summer masks for all trees; they become the training labels
+   for the summer model.

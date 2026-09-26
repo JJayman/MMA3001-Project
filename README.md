@@ -23,8 +23,10 @@ src/treeskel/    Python package
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
   measure_fork.py  measures the masks at the fork against winter depth (sets the shoulder fill)
-  align.py       winter-to-summer alignment: matching, robust transform fits, mask warping
-annotations/     clicked points per tree (winter_clicks.json), committed
+  align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
+  annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
+  summer_gt.py   winter masks moved into the summer view from the clicked pairs
+annotations/     clicked points per tree (winter_clicks.json, season_pairs.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
@@ -56,7 +58,9 @@ python -m treeskel.annotate data/raw --dev-only            # click tool (develop
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
-python -m treeskel.align data/raw --matcher lightglue --dev-only   # winter-to-summer alignment (needs ".[match]")
+python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
+python -m treeskel.annotate_pairs data/raw --dev-only      # click winter-summer point pairs
+python -m treeskel.summer_gt data/raw --dev-only           # alignment error per model; writes the summer masks
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 

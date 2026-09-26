@@ -1,0 +1,10 @@
+Command: python -m treeskel.align DATA --matcher lightglue --consistency
+
+Consistent matches in data/matches/lightglue.npz (449 trees): RANSAC similarity limited to scale 0.8-1.25 and rotation within 8.0 deg, inlier threshold 5.0 px.
+  matches per tree: median 6; consistent inliers per tree: median 0
+  trees with at least  3 consistent inliers:   53 (12%)
+  trees with at least  5 consistent inliers:    6 (1%)
+  trees with at least  8 consistent inliers:    3 (1%)
+  trees with at least 12 consistent inliers:    3 (1%)
+  trees with at least 20 consistent inliers:    2 (0%)
+  most: R01N18 32, R13N33 29, R01N32 17, R02N42 5, R09N32 5, R13N16 5, R01N06 4, R02N14 4, R08N16 4, R11N06 4
