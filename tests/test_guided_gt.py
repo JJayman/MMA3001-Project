@@ -15,18 +15,25 @@ from treeskel.guided_gt import (
     GuidedParams,
     arc_length,
     branch_cost,
+    branch_edges,
+    clear_of,
     guided_gt,
     insert_waypoint,
     load_clicks,
     main,
     check_clicks,
+    fit_leader_radius,
     fit_taper,
     huber_line,
+    huber_location,
     outward_normal,
+    path_normals,
+    profile_edges,
     scale_space_radius,
     shoulder_fill,
     smooth_segment,
     save_clicks,
+    straighten,
     trace,
 )
 from treeskel.io import index_dataset
@@ -380,13 +387,186 @@ def test_scale_space_radius_on_known_bars():
     assert abs(np.median(scale_space_radius(dark, np.stack([np.arange(60, 140), np.full(80, 100)], 1))) - 5.5) <= 1
 
 
-def test_leader_widths_from_colour_match_synthetic_tree():
+def test_leader_width_options_on_the_synthetic_tree():
+    # The leaders' 9 px horizontal runs are 8.2 px across their 24° lean (half-width 4.1).
     gt = guided_gt(*synthetic_rgbd(), good_clicks())
-    # Synthetic leaders are 9 px wide (half-width 4.5); trunk 13 px (6.5).
     assert 3.5 <= np.median(gt.radii["left"]) <= 5.5
     assert 3.5 <= np.median(gt.radii["right"]) <= 5.5
-    depth_only = guided_gt(*synthetic_rgbd(), good_clicks(), GuidedParams(leader_width_source="depth"))
-    assert depth_only.radii["left"] is not None
+    for params in (GuidedParams(leader_width_source="depth"),
+                   GuidedParams(leader_width_source="scale_space", leader_fit="taper")):   # the old masks
+        other = guided_gt(*synthetic_rgbd(), good_clicks(), params)
+        assert len(other.radii["left"]) == len(other.left)
+    with pytest.raises(ValueError, match="leader_width_source"):
+        guided_gt(*synthetic_rgbd(), good_clicks(), GuidedParams(leader_width_source="colour"))
+    with pytest.raises(ValueError, match="leader_fit"):
+        guided_gt(*synthetic_rgbd(), good_clicks(), GuidedParams(leader_fit="spline"))
+
+
+# --- leader widths from colour cross-sections --------------------------------
+
+def lit_cylinder(h, centre=0.0, light=0.8, half=20, background=(110, 125, 95)):
+    """Cross-section (``2·half + 1`` samples, RGB) of a matt branch lit from one side.
+
+    Brightness is ``200 · (0.2 + max(0, L·n))`` for surface normal ``n`` and a
+    light whose sideways component is ``light`` (negative: from the other
+    side), as for a Lambertian cylinder: bright on the lit side, dark on the
+    other, and darker at the edges than in the middle.
+    """
+    x = np.arange(-half, half + 1)
+    u = (x - centre) / h
+    inside = np.abs(u) <= 1
+    facing = np.sqrt(np.clip(1 - u ** 2, 0, 1))
+    shade = 0.2 + np.clip(-light * u + np.sqrt(1 - light ** 2) * facing, 0, None)
+    prof = np.tile(np.array(background, float), (len(x), 1))
+    prof[inside] = 200 * shade[inside, None] * np.array([1, 0.95, 0.97])
+    return prof
+
+
+def side_lit_rgb(tree, light=0.8, seed=0):
+    """Colour image of a bool tree mask, each branch shaded as a matt cylinder lit from the left.
+
+    Each horizontal run of the mask is shaded across its width as in
+    :func:`lit_cylinder`, on grass.
+    """
+    rng = np.random.default_rng(seed)
+    rgb = np.zeros(tree.shape + (3,))
+    rgb[:] = (70, 120, 55)
+    for y in range(tree.shape[0]):
+        lab, n = ndi.label(tree[y])
+        for i in range(1, n + 1):
+            xs = np.nonzero(lab == i)[0]
+            u = (xs - (xs[0] + xs[-1]) / 2) / ((xs[-1] - xs[0] + 1) / 2)
+            shade = 0.2 + np.clip(-light * u + np.sqrt(1 - light ** 2) * np.sqrt(np.clip(1 - u ** 2, 0, 1)), 0, None)
+            rgb[y, xs] = 200 * shade[:, None] * np.array([1, 0.95, 0.97])
+    return np.clip(rgb + rng.normal(0, 4, rgb.shape), 0, 255).astype(np.uint8)
+
+
+def test_profile_edges_keep_both_halves_of_a_side_lit_branch():
+    rng = np.random.default_rng(0)
+    errors = []
+    for h in (3, 5, 7, 9):
+        for light in (-0.9, 0.0, 0.6, 0.9):
+            for centre in (-2.0, 0.0, 1.5):
+                profiles = lit_cylinder(h, centre, light)[None] + rng.normal(0, 6, (20, 41, 3))
+                first, last = profile_edges(profiles)
+                errors.append(np.median((last - first + 1) / 2) - h)
+                assert abs(np.median((first + last) / 2) - centre) <= 0.5, (h, light, centre)
+    # Within the pixel grid (a bar centred on a sample covers 2h + 1 samples),
+    # except where the dark rim of a front-lit branch is as bright as the
+    # background (h = 9, light 0), which loses one sample on each side.
+    errors = np.abs(errors)
+    assert errors.max() <= 1.0 and np.mean(errors <= 0.5) >= 0.9
+    grey = profile_edges(lit_cylinder(5)[None].mean(-1))            # one channel works too
+    assert (grey[1] - grey[0] + 1) / 2 == pytest.approx(5.5)
+    assert [len(v) for v in profile_edges(np.zeros((0, 41, 3)))] == [0, 0]
+    with pytest.raises(ValueError, match="too short"):
+        profile_edges(np.zeros((2, 7, 3)))                          # no room for 3 background samples a side
+
+
+def test_scale_space_sees_only_the_sunlit_half():
+    # Why cross-section widths replaced the scale-space widths (session 8).
+    rng = np.random.default_rng(0)
+    for h in (5, 7, 9):
+        img = np.tile(lit_cylinder(h, 0, 0.9, half=60).mean(1), (120, 1)) + rng.normal(0, 6, (120, 121))
+        r = scale_space_radius(img / 255, np.stack([np.arange(20, 100), np.full(80, 60)], 1))
+        assert np.median(r) < 0.75 * h
+
+
+def test_straighten_samples_across_the_path():
+    img = np.zeros((50, 60))
+    img[:, 30:33] = 1.0                                             # a vertical stripe, columns 30-32
+    path = np.stack([np.arange(40, 10, -1), np.full(30, 31)], 1)    # up column 31
+    assert np.allclose(path_normals(path), [0, -1])                 # going up, the normal points left
+    s = straighten(img, path, 5)
+    assert s.shape == (30, 11)
+    assert np.allclose(s[:, 4:7], 1) and np.allclose(s[:, :4], 0) and np.allclose(s[:, 7:], 0)
+    assert straighten(np.dstack([img] * 3), path, 5).shape == (30, 11, 3)
+    assert np.all(path_normals(np.array([[5, 5]])) == 0)            # a single point has no direction
+
+
+def test_branch_edges_on_a_leaning_side_lit_branch():
+    rng = np.random.default_rng(2)
+    h, lean = 6.0, np.radians(25)
+    along = np.array([-np.cos(lean), -np.sin(lean)])                # up and to the left
+    across = np.array([-along[1], along[0]])
+    yy, xx = np.indices((300, 300)).astype(float)
+    d = (yy - 250) * across[0] + (xx - 200) * across[1]             # signed distance from the axis
+    u = d / h
+    shade = 0.2 + np.clip(-0.8 * u + 0.6 * np.sqrt(np.clip(1 - u ** 2, 0, 1)), 0, None)
+    rgb = np.where((np.abs(u) <= 1)[..., None], 200 * shade[..., None] * np.array([1, 0.95, 0.97]), (70, 120, 55))
+    rgb = np.clip(rgb + rng.normal(0, 4, rgb.shape), 0, 255)
+    t = np.arange(200)
+    path = np.round(np.array([250, 200]) + t[:, None] * along + 1.0 * across).astype(int)   # 1 px off the axis
+    first, last = branch_edges(rgb, path)
+    assert abs(np.median((last - first + 1) / 2) - h) <= 0.6
+    assert abs(np.median((first + last) / 2) + 1.0) <= 0.7          # sees the path is 1 px off
+    assert [len(v) for v in branch_edges(rgb, np.zeros((0, 2), int))] == [0, 0]
+
+
+def test_huber_location_resists_outliers():
+    rng = np.random.default_rng(0)
+    y = 6 + rng.normal(0, 0.5, 200)
+    y[:30] = 3.0                                                    # cross-sections that lost the shaded half
+    assert abs(huber_location(y) - 6) < 0.3
+    assert abs(np.mean(y) - 6) > 0.4                                # the plain mean is pulled down
+    assert huber_location(np.full(5, 2.0)) == 2.0
+
+
+def test_fit_leader_radius_recovers_width_and_widening():
+    rng = np.random.default_rng(1)
+    path = np.stack([300 - np.arange(300), np.full(300, 200)], 1)  # straight up from the fork
+    R, c = 15.0, 6.0
+    s = arc_length(path)
+    shape = 1 + 0.35 * np.exp(-s / (4 * R))
+    meas = c * shape + rng.normal(0, 0.7, len(s))
+    meas[s < 1.5 * R] = 2 * R            # the cross-section spans the top of the trunk: not used
+    meas[100:140] = 0.0                  # failed edges: ignored
+    meas[200:230] = c / 2                # lost shaded half: down-weighted
+    r = fit_leader_radius(path, meas, R)
+    assert np.abs(r - c * shape).max() < 0.4
+    assert np.allclose(r / r[-1], shape / shape[-1])                # the shared shape, scaled
+    flat = fit_leader_radius(path, meas, R, widening=0)
+    assert np.ptp(flat) == 0 and abs(flat[0] - c) < 0.5
+    assert np.allclose(fit_leader_radius(path, np.zeros(300), R), 5.0 * shape)   # fallback width
+    assert fit_leader_radius(path, np.full(300, 40.0), R).max() == 15.0         # clipped
+    assert len(fit_leader_radius(np.zeros((0, 2), int), np.zeros(0), R)) == 0
+
+
+def test_leaders_on_a_side_lit_tree_are_drawn_full_width():
+    depth, valid = synthetic_tree()
+    rgb = side_lit_rgb(depth == 150)
+    gt = guided_gt(rgb, depth, valid, good_clicks())
+    for k in ("left", "right"):
+        assert abs(np.median(gt.radii[k]) - 4.1) <= 0.5            # 8.2 px across the lean
+        assert gt.radii[k][0] == pytest.approx(1.35 * gt.radii[k][-1], rel=0.02)   # widened at the fork
+        assert gt.radii[k].max() <= gt.radii["trunk"][-1]
+
+
+def test_clear_of():
+    left, right = diagonal_leaders()
+    d = np.hypot(*(left - right[0]).T)                              # the paths only meet at the fork
+    clear = clear_of(left, right, 30.0)
+    assert not clear[0] and clear[-1]
+    assert np.all(clear == (np.hypot(*(left[:, None] - right[None]).T).min(0) > 30))   # brute force
+    assert np.all(clear_of(left, np.zeros((0, 2), int), 30.0))
+    assert d[0] == 0
+
+
+def test_cross_sections_near_the_other_leader_are_not_used():
+    # Near the fork a cross-section across one leader also takes in the other, so
+    # on the synthetic tree (leaders of constant width) the raw widths there are
+    # far too wide; the leader's own width comes only from cross-sections clear of it.
+    depth, valid = synthetic_tree()
+    rgb = side_lit_rgb(depth == 150)
+    gt = guided_gt(rgb, depth, valid, good_clicks(), GuidedParams(fork_widening=0))
+    first, last = branch_edges(rgb, gt.left)
+    widths = (last - first + 1) / 2
+    near = ~clear_of(gt.left, gt.right, GuidedParams().profile_half_width + 10)
+    s = arc_length(gt.left) / gt.radii["trunk"][-1]
+    merging = (s > 1.5) & (s < 3)
+    assert np.median(widths[merging]) > 6 and near[merging].all()   # merged with the right leader, left out
+    assert np.median(widths[~near]) == pytest.approx(4.0, abs=0.5)  # clear of it: the true width
+    assert abs(gt.radii["left"][0] - 4.1) <= 0.3                    # own width: 8.2 px across
 
 
 # --- where the leaders leave the trunk (shoulder fill) ----------------------

@@ -1,0 +1,21 @@
+Measuring 21 development-row trees (4 test-row trees left out)...
+
+42 leaders on 21 trees. Shoulder coverage (mean fraction of the triangle):
+  reach 1.5 R: depth 0.954, depth shrunk 2 px 0.896 | masks by shoulder_length 0: 0.936, 1: 0.967, 1.4: 0.998, 1.7: 1.000, 2: 1.000, 2.5: 1.000
+    leaders with less than 80% covered: depth: 7%, shrunk: 21%, k0.0: 0%, k1.0: 0%, k1.4: 0%, k1.7: 0%, k2.0: 0%, k2.5: 0%
+  reach 2 R: depth 0.943, depth shrunk 2 px 0.879 | masks by shoulder_length 0: 0.912, 1: 0.935, 1.4: 0.964, 1.7: 0.985, 2: 0.999, 2.5: 1.000
+    leaders with less than 80% covered: depth: 12%, shrunk: 19%, k0.0: 12%, k1.0: 7%, k1.4: 2%, k1.7: 0%, k2.0: 0%, k2.5: 0%
+shoulder_length matching the depth coverage (leave-one-tree-out range):
+  depth@1.5    0.58 (0.36-1.03)
+  shrunk@1.5   outside the measured range (n/a)
+  depth@2.0    1.12 (1.00-1.36)
+  shrunk@2.0   outside the measured range (n/a)
+Fill precision (pixels added that are on the depth silhouette) and fork-zone agreement:
+  shoulder_length 0: added      0 px,   -  on depth; zone precision 0.927, IoU 0.832
+  shoulder_length 1: added    313 px, 0.81 on depth; zone precision 0.927, IoU 0.835
+  shoulder_length 1.4: added    773 px, 0.81 on depth; zone precision 0.926, IoU 0.840
+  shoulder_length 1.7: added   1208 px, 0.79 on depth; zone precision 0.925, IoU 0.844
+  shoulder_length 2: added   1602 px, 0.79 on depth; zone precision 0.923, IoU 0.848
+  shoulder_length 2.5: added   2318 px, 0.75 on depth; zone precision 0.920, IoU 0.852
+Width decay from the fork (independent check): median 1.38 trunk radii over 35 leaders, bootstrap 95% CI 1.05-1.97, leave-one-tree-out 1.35-1.43
+Saved docs/results/fork_shoulders/new_leader_widths/leaders.csv and docs/results/fork_shoulders/new_leader_widths/report.json and docs/figures/fork_shoulders_new_leader_widths.jpg
