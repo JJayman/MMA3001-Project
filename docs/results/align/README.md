@@ -93,6 +93,43 @@ python -m treeskel.align data/raw --matcher loftr --dev-only
   winter masks outlined in magenta and the inliers as green dots.
   `--overlays` also saves a side-by-side picture per tree.
 
+### If PyTorch does not load
+
+The first run on the student's PC stopped with `OSError: [WinError 193] %1
+is not a valid Win32 application. Error loading "...\torch\lib\torch_cuda.dll"
+or one of its dependencies`. The error comes from importing PyTorch, before
+any matching. Windows found a DLL in the PyTorch install that is not a
+valid 64-bit program. The usual cause is a damaged or incomplete install:
+an interrupted download, too little disk space, or a DLL held open by
+another program while `pip` replaced it.
+
+1. Check for an NVIDIA GPU and driver with `nvidia-smi`. The top right shows
+   the highest CUDA version the driver supports. If the command is not
+   found, go to step 3.
+2. Close other programs using the `.venv` (VS Code terminals, Jupyter),
+   check that several GB of disk are free, and reinstall:
+
+   ```bat
+   pip uninstall -y torch
+   pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu126
+   python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+   ```
+
+3. If it still fails, use the CPU-only build, which has no CUDA DLLs. On
+   Windows, PyTorch from PyPI is the CPU-only build:
+
+   ```bat
+   pip uninstall -y torch
+   pip install torch
+   ```
+
+   Matching is then slower. Measured in the AI assistant's environment (4 CPU
+   cores) with untrained networks of the same size, both matchers took about
+   4 s per tree at 640x480. LightGlue ran without its early stopping, so that
+   is its slowest case. That makes about 30 min per matcher for the 449
+   development trees. The GPU build is still worth fixing before the U-Net
+   is trained.
+
 ## Next steps
 
 1. Run both matchers on the development rows; commit the two `.npz` files
