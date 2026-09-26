@@ -531,6 +531,35 @@ def warp_mask(mask: np.ndarray, matrix: np.ndarray,
     return out.reshape(h, w), covered.reshape(h, w)
 
 
+def warp_image(image: np.ndarray, matrix: np.ndarray,
+               out_shape: tuple[int, int] | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Resample a winter-frame image into the summer frame (bilinear), like :func:`warp_mask`.
+
+    Args:
+        image: ``(H, W)`` or ``(H, W, C)`` array.
+        matrix: 3x3 winter-to-summer ``(x, y)`` transform.
+        out_shape: Summer image shape; the image's by default.
+
+    Returns:
+        ``(warped, covered)``: the image in the summer frame (same dtype; 0
+        outside the winter image), and the pixels the winter image covers.
+    """
+    h, w = out_shape or image.shape[:2]
+    yy, xx = np.mgrid[:h, :w]
+    src = apply_transform(np.linalg.inv(matrix), np.c_[xx.ravel(), yy.ravel()])
+    rows, cols = src[:, 1], src[:, 0]
+    covered = (rows > -0.5) & (rows < image.shape[0] - 0.5) & (cols > -0.5) & (cols < image.shape[1] - 0.5)
+    chans = image[..., None] if image.ndim == 2 else image
+    out = np.stack([ndi.map_coordinates(chans[..., c].astype(float), [rows, cols], order=1, mode="nearest")
+                    for c in range(chans.shape[2])], -1)
+    out[~covered] = 0
+    out = out.reshape(h, w, chans.shape[2])
+    if np.issubdtype(image.dtype, np.integer):
+        out = np.clip(np.round(out), np.iinfo(image.dtype).min, np.iinfo(image.dtype).max)
+    out = out.astype(image.dtype)
+    return (out[..., 0] if image.ndim == 2 else out), covered.reshape(h, w)
+
+
 # --------------------------------------------------------------------------
 # Matches: storage and matchers
 # --------------------------------------------------------------------------

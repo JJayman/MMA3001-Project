@@ -1,0 +1,36 @@
+Command (the 11 trees in annotations/season_pairs.json, clicked by the student in session 7):
+python -m treeskel.summer_gt DATA --source pairs
+
+11 trees with pairs (60 pairs).
+Leave-one-out error (px) on the 11 trees with at least 4 pairs:
+model         median    mean     p90   > 5 px  > 10 px
+translation    29.62   33.20   58.25      98%      93%
+similarity     17.84   20.25   37.71      95%      80%
+affine         19.82   30.13   65.23      95%      80%
+Leave-one-out error (px) on the 10 trees with at least 5 pairs:
+model         median    mean     p90   > 5 px  > 10 px
+translation    27.77   32.23   58.32      98%      93%
+similarity     17.64   20.17   38.18      95%      79%
+affine         19.82   30.39   68.45      95%      79%
+homography     28.28   47.59  117.63      98%      79%
+Writing the summer masks...
+
+Look at these trees' pairs again (11; python -m treeskel.annotate_pairs DATA --redo --trees ...):
+  R01N01: pair 3 is 45 px from the fit of the others
+  R01N02: pair 4 is 21 px from the fit of the others
+  R01N04: pair 3 is 45 px from the fit of the others
+  R01N05: pair 3 is 15 px from the fit of the others
+  R01N08: pair 4 is 51 px from the fit of the others
+  R01N13: pair 5 is 39 px from the fit of the others
+  R01N18: pair 2 is 46 px from the fit of the others
+  R01N25: pair 1 is 22 px from the fit of the others
+  R01N32: pair 1 is 25 px from the fit of the others
+  R07N09: pair 4 is 37 px from the fit of the others
+  R07N17: pair 5 is 26 px from the fit of the others
+
+Results in outputs/summer_gt
+
+Pairs away from the photos' edges only (treeskel.summer_gt.interior_pairs):
+Pairs at least 15 px from the photos' top and bottom edges: 33 of 60 (the rest are mostly leader tops where the leaders leave the photo).
+  translation leave-one-out error on those: median 11.6 px, 90th percentile 26.3 px (n = 33); 61% above 10 px
+  similarity  leave-one-out error on those: median 11.8 px, 90th percentile 34.1 px (n = 27); 59% above 10 px

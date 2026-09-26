@@ -124,15 +124,15 @@ def test_cli_writes_summer_masks(sample_dir, tmp_path, capsys):
     pairs_path = tmp_path / "pairs.json"
     save_pairs(pairs_path, {"R01N01": make_pairs(TRUTH), "R01N02": SeasonPairs(skip=True)})
     out = tmp_path / "out"
-    args = [str(sample_dir), "--pairs", str(pairs_path), "--out", str(out), "--winter-gt", "",
+    args = [str(sample_dir), "--source", "pairs", "--pairs", str(pairs_path), "--out", str(out), "--winter-gt", "",
             "--clicks", str(CLICKS), "--overlays"]
     assert summer_gt.main(args) == 0
     text = capsys.readouterr().out
-    assert "1 trees with pairs (4 pairs; 1 skipped" in text and "similarity" in text
+    assert "1 trees with pairs (4 pairs)" in text and "1 trees skipped" in text and "similarity" in text
     with open(out / "summary.csv") as f:
         (row,) = list(csv.DictReader(f))
     assert row["tree_id"] == "R01N01" and row["ok"] == "True" and float(row["loo_max"]) < 0.3
-    assert float(row["scale"]) == pytest.approx(1.05, abs=1e-3)
+    assert float(row["at_fork_scale"]) == pytest.approx(1.05, abs=1e-3)
     # The saved summer mask is the traced winter mask moved by the fitted transform.
     from treeskel.align import load_winter_mask
     from treeskel.guided_gt import load_clicks
@@ -149,8 +149,42 @@ def test_cli_writes_summer_masks(sample_dir, tmp_path, capsys):
 
 
 def test_cli_without_pairs_says_so(sample_dir, tmp_path, capsys):
-    assert summer_gt.main([str(sample_dir), "--pairs", str(tmp_path / "none.json"), "--out", str(tmp_path)]) == 1
-    assert "No clicked pairs" in capsys.readouterr().out
+    assert summer_gt.main([str(sample_dir), "--source", "pairs", "--pairs", str(tmp_path / "none.json"),
+                           "--out", str(tmp_path)]) == 1
+    assert "No aligned trees" in capsys.readouterr().out
+
+
+def test_cli_with_overlay_transforms_checks_them_against_pairs_and_a_repeat(sample_dir, tmp_path, capsys):
+    from treeskel.summer_gt import Overlay, save_overlays
+
+    shift = Overlay(dx=15.0, dy=-20.0, seconds=30.0, mask_flag=True)
+    save_overlays(tmp_path / "overlay.json", {"R01N01": shift, "R01N02": Overlay(skip=True)})
+    save_overlays(tmp_path / "repeat.json", {"R01N01": Overlay(dx=18.0, dy=-16.0)})       # 5 px away
+    # Pairs consistent with the shift, plus one at the top edge (a leader's exit: not the same point).
+    good = make_pairs(shift.matrix())
+    good.winter.append((3.0, 200.0))
+    good.summer.append((3.0, 260.0))
+    save_pairs(tmp_path / "pairs.json", {"R01N01": good})
+    out = tmp_path / "out"
+    args = [str(sample_dir), "--overlay-file", str(tmp_path / "overlay.json"), "--repeat", str(tmp_path / "repeat.json"),
+            "--pairs", str(tmp_path / "pairs.json"), "--out", str(out), "--winter-gt", "", "--clicks", str(CLICKS)]
+    assert summer_gt.main(args) == 0
+    text = capsys.readouterr().out
+    assert "1 trees aligned by overlay. Time per tree: median 30 s" in text
+    assert "Winter masks flagged as wrong (1): R01N01" in text and "1 trees skipped" in text
+    assert "distance (px) median 0.0" in text and "(n = 4)" in text           # the top-edge pair left out
+    assert "the winter masks move (px) median 5.0" in text
+    with open(out / "summary.csv") as f:
+        (row,) = list(csv.DictReader(f))
+    assert float(row["dx"]) == 15.0 and row["mask_flag"] == "True" and float(row["repeat_displacement"]) == 5.0
+    from treeskel.align import load_winter_mask
+    from treeskel.guided_gt import load_clicks
+    from treeskel.io import index_dataset, load_tree
+
+    rec = next(t for t in index_dataset(sample_dir).trees if t.tree_id == "R01N01")
+    mask = load_winter_mask("R01N01", load_tree(rec, "winter"), load_clicks(CLICKS), None)
+    saved = np.asarray(Image.open(out / "R01N01_summer_gt.png")) > 127
+    assert np.array_equal(saved, warp_mask(mask, shift.matrix())[0])
 
 
 def pitch_homography(deg, f=615.0):

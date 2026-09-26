@@ -25,8 +25,9 @@ src/treeskel/    Python package
   measure_fork.py  measures the masks at the fork against winter depth (sets the shoulder fill)
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
-  summer_gt.py   winter masks moved into the summer view from the clicked pairs
-annotations/     clicked points per tree (winter_clicks.json, season_pairs.json), committed
+  annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
+  summer_gt.py   winter masks moved into the summer view (from the overlay transforms or pairs)
+annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
@@ -59,8 +60,9 @@ python -m treeskel.guided_gt data/raw --overlays           # render guided groun
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
 python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
-python -m treeskel.annotate_pairs data/raw --dev-only      # click winter-summer point pairs (--model homography)
-python -m treeskel.summer_gt data/raw --dev-only           # alignment error per model; writes the summer masks
+python -m treeskel.annotate_overlay data/raw --dev-only    # line up each tree's winter photo on its summer photo
+python -m treeskel.summer_gt data/raw                      # check the alignments; write the summer masks
+python -m treeskel.annotate_pairs data/raw --dev-only      # (tried first) click winter-summer point pairs
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
