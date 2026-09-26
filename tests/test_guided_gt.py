@@ -517,7 +517,7 @@ def test_fit_leader_radius_recovers_width_and_widening():
     path = np.stack([300 - np.arange(300), np.full(300, 200)], 1)  # straight up from the fork
     R, c = 15.0, 6.0
     s = arc_length(path)
-    shape = 1 + 0.35 * np.exp(-s / (4 * R))
+    shape = 1 + 0.35 * np.exp(-s / (12 * R))                         # the default shared shape
     meas = c * shape + rng.normal(0, 0.7, len(s))
     meas[s < 1.5 * R] = 2 * R            # the cross-section spans the top of the trunk: not used
     meas[100:140] = 0.0                  # failed edges: ignored
@@ -525,8 +525,9 @@ def test_fit_leader_radius_recovers_width_and_widening():
     r = fit_leader_radius(path, meas, R)
     assert np.abs(r - c * shape).max() < 0.4
     assert np.allclose(r / r[-1], shape / shape[-1])                # the shared shape, scaled
-    flat = fit_leader_radius(path, meas, R, widening=0)
-    assert np.ptp(flat) == 0 and abs(flat[0] - c) < 0.5
+    flat = fit_leader_radius(path, meas, R, widening=0)                # constant: the robust average
+    use = (meas > 2.5) & (s >= 1.5 * R)
+    assert np.ptp(flat) == 0 and flat[0] == pytest.approx(huber_location(meas[use]))
     assert np.allclose(fit_leader_radius(path, np.zeros(300), R), 5.0 * shape)   # fallback width
     assert fit_leader_radius(path, np.full(300, 40.0), R).max() == 15.0         # clipped
     assert len(fit_leader_radius(np.zeros((0, 2), int), np.zeros(0), R)) == 0

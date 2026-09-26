@@ -3,8 +3,8 @@ Measuring 21 development-row trees (4 test-row trees left out)...
 42 leaders on 21 trees.
 Cross-sections that could reach the other leader are left out: the first one used is a median 2.1 trunk radii from the fork (IQR 1.8-2.7).
 Depth reaches past clear colour edges by a median +2.0 px (IQR +0.0 to +4.0, mean +1.79; 4394 edges).
-Leader half-width at least 8 trunk radii from the fork (42 leaders): before 3.1 px, after 6.8 px, depth minus overshoot 7.2 px
-  after minus depth: median -0.4 px (IQR -1.7 to +0.9)
+Leader half-width at least 8 trunk radii from the fork (42 leaders): before 3.1 px, after 6.7 px, depth minus overshoot 7.2 px
+  after minus depth: median -0.5 px (IQR -1.7 to +0.8)
   before minus depth: median -3.8 px (IQR -4.6 to -3.1)
 Half-width / trunk radius at the fork, by distance from the fork (trunk radii):
   from                 0   0.5     1   1.5     2     3     4     5     7    10    15
@@ -12,11 +12,12 @@ Half-width / trunk radius at the fork, by distance from the fork (trunk radii):
   depth (raw)       -     -     -    0.54  0.58  0.57  0.55  0.57  0.61  0.64  0.57
   depth-overshoot   -     -     -    0.43  0.45  0.45  0.44  0.45  0.46  0.52  0.46
   measured          -     -     -    0.45  0.47  0.52  0.48  0.47  0.44  0.44  0.42
-  after            0.59  0.57  0.55  0.54  0.52  0.50  0.49  0.47  0.46  0.45  0.44
+  after            0.54  0.54  0.53  0.53  0.52  0.51  0.50  0.49  0.47  0.45  0.43
   before           0.26  0.26  0.26  0.26  0.26  0.26  0.25  0.25  0.24  0.23  0.22
-Shared widening: 0.35 at the fork (0.24 at 1.5 trunk radii), fading over 4 trunk radii; leave-one-tree-out picks 0.30-0.45 and 3-5.
-  Held-out cost 2.4264 vs 2.4381 for a constant width (better on 12 of 21 trees).
+Shared widening, best on all trees: 0.35 at the fork (0.24 at 1.5 trunk radii), fading over 4 trunk radii; cost 2.4100 (constant width 2.4381; current default 0.35 and 12: 2.4297).
+  Leave-one-tree-out: picks 0.30-0.45 and 3-5; held-out cost 2.4264 vs 2.4381 for a constant width (better on 12 of 21 trees).
+  Row-grouped folds (splits.json): picks 0.25-0.70 and 3-5; held-out cost 2.4779 vs 2.5019 for a constant width (better on 3 of 4 folds).
 Free straight tapers (the old fit): median change +0% from 1.5 trunk radii to the tip (IQR -29% to +22%); 50% widen upwards.
-Mask pixels in the crotch that are off the depth silhouette (off / all): before 856/7760, after 2219/11980, after no widening 1561/10687
+Mask pixels in the crotch that are off the depth silhouette (off / all): before 856/7760, after 2097/11793, after no widening 1561/10687
 Traced path to the bark's centre: median 2.5 px over 14640 cross-sections, 39% more than 3 px (per leader 1.0-4.0 px).
 Saved docs/results/leader_width/leaders.csv, docs/results/leader_width/report.json, docs/figures/leader_width_cross_sections_before_after.jpg, docs/figures/leader_width_profiles.png

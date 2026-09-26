@@ -12,8 +12,11 @@ on the 21 annotated **development-row** trees available locally (the 17
 tuning trees plus R01N01, R01N02, R15N05 and R20N06). The four test-row trees
 in `data/sample` were left out automatically (test rows 3, 12 and 16 are read
 from `splits.json`). Console output: `output_21_dev_trees.txt`; per-leader
-numbers: `leaders.csv`; everything else: `report.json`. The check on all 449
-development trees is still to run (see [To do](#to-do)).
+numbers: `leaders.csv`; everything else: `report.json`. These files and the
+figures are from the **final settings** (the widening fading over 12 trunk
+radii, no shoulder fill); where the first design (4 trunk radii, fill 1.4)
+matters, the text says so. The checks on all 449 development trees are
+further down.
 
 ## The problem (seen by the student)
 
@@ -80,7 +83,7 @@ first direct measurement.
 | | Median | Minus depth (minus its overshoot) |
 |---|---|---|
 | Masks before | 3.1 | −3.8 (IQR −4.6 to −3.1) |
-| **Masks after** | **6.8** | **−0.4 (IQR −1.7 to +0.9)** |
+| **Masks after** | **6.7** | **−0.5 (IQR −1.7 to +0.8)** |
 | Depth minus overshoot | 7.2 | – |
 
 **Along the leaders** (`docs/figures/leader_width_profiles.png`; half-width ÷
@@ -92,7 +95,7 @@ measure without the other leader):
 | Hand masks (summer) | 0.88 | 0.61 | 0.60 | 0.56 | 0.55 | 0.46 | 0.39 |
 | Depth minus overshoot | – | – | 0.43 | 0.45 | 0.45 | 0.52 | 0.46 |
 | Measured cross-sections | – | – | 0.45 | 0.52 | 0.47 | 0.44 | 0.42 |
-| **Masks after** | 0.59 | 0.55 | 0.54 | 0.50 | 0.47 | 0.45 | 0.44 |
+| **Masks after** | 0.54 | 0.53 | 0.53 | 0.51 | 0.49 | 0.45 | 0.43 |
 | Masks before | 0.26 | 0.26 | 0.26 | 0.26 | 0.25 | 0.23 | 0.22 |
 
 The hand masks are drawn on the summer photos and are a little wider than
@@ -135,9 +138,10 @@ development trees; see the next section.*
 - **Cost at the crotch.** Mask pixels between the two leaders near the fork
   that are off the depth silhouette (so, given the overshoot, not wood;
   `crotch_zone`): 856 before, 1,561 with the new widths and no widening,
-  2,219 with the widening (21 trees; about 30 px per tree from the
-  widening). By eye the bottom of the V sits a few pixels higher and still
-  follows the depth outline.
+  2,097 with the final widening (21 trees; about 25 px per tree from the
+  widening; 2,219 with the first fit, fading over 4 trunk radii). By eye the
+  bottom of the V sits a few pixels higher and still follows the depth
+  outline.
 
 ## Check on all development rows (449 trees)
 
@@ -159,6 +163,9 @@ test rows left out as before):
 | Held-out trees where the shape beats a constant width | 12 of 21 | 297 of 449 |
 | Crotch pixels off depth: before / after / after without widening | 856 / 2,219 / 1,561 | 10,567 / 34,234 / 23,262 |
 | Traced path to the bark's centre: median, share over 3 px | 2.5 px, 39% | 2.5 px, 41% |
+
+Both columns are from the first settings (the widening fading over 4 trunk
+radii, fill 1.4).
 
 **Held:** the width correction itself (the new leaders agree with depth
 minus its overshoot to +0.1 px), the 2 px depth overshoot, the neighbour
@@ -192,13 +199,39 @@ hand masks narrow more (0.55 to 0.35). Raw depth *widens* towards the top
 (0.50 to 0.56), where the leaders are seen against the next row's canopy and
 the silhouette merges more often, which would hide a taper.
 
-**Consequence:** the current default (0.35 fading over 4 trunk radii) puts
-the narrowing too close to the fork: near the fork the drawn leaders are
-wider than the pooled measurements (0.53 against 0.44 of the trunk radius at
-1.5–2 trunk radii, 0.43 against 0.39 at 15–25). The grid now reaches 48
-trunk radii and a widening of 1.0, the shape is also chosen with the
-row-grouped folds of `splits.json` held out, and the whole cost surface is
-saved. The defaults will be set from that run (see [To do](#to-do)).
+**Consequence:** the first default (0.35 fading over 4 trunk radii) put the
+narrowing too close to the fork: near the fork the drawn leaders were wider
+than the pooled measurements (0.53 against 0.44 of the trunk radius at
+1.5–2 trunk radii, 0.43 against 0.39 at 15–25). So the grid was extended to
+48 trunk radii and a widening of 1.0, the shape was also chosen with the
+row-grouped folds of `splits.json` held out, and the whole cost surface was
+saved.
+
+## The final shape, chosen on all 449 trees
+
+Run on the student's PC with the extended grid,
+`python -m treeskel.measure_width data/raw --out outputs/measure_width2`
+(console output in `all_dev_rows_output_extended_grid.txt`):
+
+| Shared widening | At the fork | Length (trunk radii) | Cost |
+|---|---|---|---|
+| **Best on all 449 trees** (inside the grid) | **0.35** | **12** | **2.4573** |
+| First default | 0.35 | 4 | 2.4661 |
+| Constant width | 0 | – | 2.5114 |
+
+- **Leave-one-tree-out** picked 0.30–0.35 and 12 (held-out cost 2.4576
+  against 2.5114 for a constant width; better on 297 of 449 trees).
+- **Row-grouped folds** of `splits.json` picked 0.30–0.35 and 8–12 (held-out
+  cost 2.4620 against 2.5137; better on **5 of 5** folds).
+- **Set as the default:** `fork_widening = 0.35`, `widening_length = 12`. A
+  leader is drawn 31% wider than its own width 1.5 trunk radii from the fork,
+  15% at 10 and 3% at 30, so it narrows gradually along its length, as the
+  student expected.
+- The 21 local trees alone still prefer 4 (cost 2.4100 against 2.4297 at 12),
+  as expected of a sample chosen for being unusual. On them the final masks
+  are 0.5 px narrower than depth minus its overshoot far from the fork
+  (tables above), against +0.1 px on all 449 with the first settings; the
+  final masks' numbers on all 449 are still to record (see [To do](#to-do)).
 
 ## Effect on the shoulder fill (decided: off for now)
 
@@ -241,9 +274,10 @@ session 6, with the thin leaders).
 **Decision (the student's): the fill is turned off "for the moment"**
 (`shoulder_length = 0`), which matches the depth silhouette corrected for its
 measured overshoot. `shoulder_length = 1.4` restores it. The figures and
-the 21-tree outputs in this folder were made before this, with the fill at
-1.4; the fill only touches each leader's outer side near the fork, so the
-widths, the crotch counts and the centring are unaffected.
+the 21-tree outputs in this folder have since been regenerated with the
+final settings (no fill). The fill only touches each leader's outer side near
+the fork: turning it off left the widths, the crotch counts and the centring
+unchanged (checked on the 21 trees).
 
 ## Found, not changed
 
@@ -263,8 +297,9 @@ widths, the crotch counts and the centring are unaffected.
 ## Caveats
 
 - The shared widening was first fitted on 21 trees and failed the check on
-  all 449 development trees (see above); its final values are to be set from
-  the extended grid on all 449.
+  all 449 development trees; the final values were chosen on all 449, by
+  leave-one-tree-out and by the row-grouped folds. No test-row tree was
+  used.
 - The cross-section model assumes one piece of bark between two backgrounds.
   Where a shaded half is as dark as the background next to it, it can be left
   out (7–12% of cross-sections came out below 0.6 times their leader's
@@ -276,14 +311,12 @@ widths, the crotch counts and the centring are unaffected.
 
 ## To do
 
-On the student's PC, with the extended grid:
+On the student's PC, with the final settings:
 
 ```
-python -m treeskel.measure_width data/raw --out outputs/measure_width2
+python -m treeskel.guided_gt data/raw --overlays
+python -m treeskel.measure_width data/raw --out outputs/measure_width3 --plot outputs/leader_width_profiles.png
 ```
 
-It prints the best shared widening on all development trees, the choices
-with each tree and each row-grouped fold held out, and whether the best point
-is still at the edge of the grid; `report.json` holds the whole cost
-surface. `fork_widening` and `widening_length` are then set from it, and the
-masks re-rendered with `python -m treeskel.guided_gt data/raw --overlays`.
+The first re-renders the ground truth for all 541 trees; the second records
+the final masks' numbers on all development trees (and a chart of them).

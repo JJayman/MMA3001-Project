@@ -153,19 +153,22 @@ class GuidedParams:
             width, widened near the fork (:func:`fit_leader_radius`);
             ``"taper"`` fits a free straight taper per leader
             (:func:`fit_taper`, the method until session 8). Free tapers are
-            unreliable: on the 21 development trees, half of the leaders came
-            out widening upwards.
+            unreliable: on the 21 development trees here, half of the leaders
+            came out widening upwards (28% on all 449 development trees).
         fork_widening: How much wider a leader is at the fork than its own
             width further up (a fraction); 0 turns the widening off.
         widening_length: Distance (in trunk radii at the fork) over which
             the widening falls by a factor e. ``fork_widening`` and
-            ``widening_length`` are shared by all leaders. The values here
-            were fitted on 21 development-row trees (+35% at the fork,
-            fading over 4 trunk radii) and are provisional: on all 449
-            development trees (:mod:`treeskel.measure_width`) the best length
-            was 12, the longest then tried, and the leaders narrow along
-            their whole length (median free taper −16%). They are to be
-            re-chosen on all 449 with the extended grid.
+            ``widening_length`` are shared by all leaders, and were chosen on
+            all 449 development trees (:mod:`treeskel.measure_width`, grid up
+            to 1.0 and 48 trunk radii): +35% at the fork fading over 12 trunk
+            radii, so a leader narrows gradually along its length (+31% 1.5
+            trunk radii from the fork, +15% at 10, +3% at 30). Leave-one-tree-
+            out picked 0.30–0.35 and 12; the 5 row-grouped folds of
+            ``splits.json`` picked 0.30–0.35 and 8–12, and on every fold the
+            shape beat a constant width on held-out rows. (A first fit on 21
+            trees, 17 of them the problem trees used for tuning, had chosen a
+            length of 4.)
         leader_fit_start: A leader's own width is estimated from points at
             least this many trunk radii from the fork; nearer, the
             cross-section cuts through the top of the trunk. Cross-sections
@@ -205,7 +208,7 @@ class GuidedParams:
     profile_along: int = 3
     leader_fit: str = "widening"
     fork_widening: float = 0.35
-    widening_length: float = 4.0
+    widening_length: float = 12.0
     leader_fit_start: float = 1.5
     shoulder_length: float = 0.0
 
@@ -791,7 +794,7 @@ def branch_edges(rgb: np.ndarray, path: np.ndarray, half_width: int = 20,
 
 
 def fit_leader_radius(path: np.ndarray, measured: np.ndarray, fork_radius: float, widening: float = 0.35,
-                      length: float = 4.0, start: float = 1.5, part: str = "left",
+                      length: float = 12.0, start: float = 1.5, part: str = "left",
                       min_valid: float = 2.5, min_points: int = 8) -> np.ndarray:
     """A leader's drawing radius: its own width, widened near the fork.
 
