@@ -58,11 +58,12 @@ camera, different (autumn) capture.
   student's request: the fork "just looks like a circle"): the trunk is cut
   flat at the fork, and on each leader's outer side a straight edge joins the
   trunk's edge to the leader's edge 1 trunk radius up the leader
-  (`junction_reach = 1.0`, matched to depth's shoulder coverage on 21 trees;
-  see `docs/results/fork_junction/`). The crotch between the leaders is what
-  the leaders' discs draw, a V, not filled. The root is cut flat too where
-  its round end would lie wholly in the image (`flat_root`). Reach 0 and
-  `flat_root=False` restore the round ends.
+  (`junction_reach = 1.0`, matched to depth's shoulder coverage on 21 trees
+  and confirmed on all 449; depth is neutral about the change as a whole, so
+  it rests on the shape; see `docs/results/fork_junction/`). The crotch
+  between the leaders is what the leaders' discs draw, a V, not filled. The
+  root is cut flat too where its round end would lie wholly in the image
+  (`flat_root`). Reach 0 and `flat_root=False` restore the round ends.
 
 ## Where things are
 

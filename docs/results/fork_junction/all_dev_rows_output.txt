@@ -1,0 +1,41 @@
+898 leaders on 449 trees. Shoulder coverage (mean fraction of the triangle):
+  reach 1.5 R: depth 0.940, depth shrunk 2 px 0.878 | masks by shoulder_length 0: 0.905, 1: 0.944, 1.4: 0.995, 1.7: 1.000, 2: 1.000, 2.5: 1.000 | by junction_reach 0.5: 0.860, 1: 0.935, 1.5: 0.999, 2: 1.000, 2.5: 1.000
+    leaders with less than 80% covered: depth: 10%, shrunk: 23%, k0.0: 9%, k1.0: 1%, k1.4: 0%, k1.7: 0%, k2.0: 0%, k2.5: 0%, j0.5: 33%, j1.0: 4%, j1.5: 0%, j2.0: 0%, j2.5: 0%
+  reach 2 R: depth 0.915, depth shrunk 2 px 0.841 | masks by shoulder_length 0: 0.867, 1: 0.895, 1.4: 0.942, 1.7: 0.976, 2: 0.999, 2.5: 1.000 | by junction_reach 0.5: 0.832, 1: 0.886, 1.5: 0.948, 2: 0.998, 2.5: 1.000
+    leaders with less than 80% covered: depth: 16%, shrunk: 31%, k0.0: 32%, k1.0: 22%, k1.4: 5%, k1.7: 0%, k2.0: 0%, k2.5: 0%, j0.5: 40%, j1.0: 25%, j1.5: 2%, j2.0: 0%, j2.5: 0%
+shoulder_length matching the depth coverage (leave-one-tree-out range):
+  depth@1.5    0.89 (0.88-0.94)
+  shrunk@1.5   outside the measured range (n/a)
+  depth@2.0    1.17 (1.17-1.19)
+  shrunk@2.0   outside the measured range (n/a)
+junction_reach matching the depth coverage (leave-one-tree-out range):
+  depth@1.5    1.04 (1.04-1.06)
+  shrunk@1.5   0.62 (0.61-0.63)
+  depth@2.0    1.23 (1.23-1.25)
+  shrunk@2.0   0.59 (0.58-0.61)
+Pixels added to and removed from the round-top masks (share on depth / on depth shrunk 2 px), and fork-zone agreement:
+  round top     added      0 px ( -   /  -  ), removed      0 px ( -   /  -  ); zone precision 0.941, IoU 0.833
+  fill 1        added   6977 px (0.84 / 0.69), removed      0 px ( -   /  -  ); zone precision 0.940, IoU 0.837
+  fill 1.4      added  20792 px (0.80 / 0.64), removed      0 px ( -   /  -  ); zone precision 0.939, IoU 0.842
+  fill 1.7      added  33322 px (0.76 / 0.60), removed      0 px ( -   /  -  ); zone precision 0.936, IoU 0.846
+  fill 2        added  46209 px (0.73 / 0.56), removed      0 px ( -   /  -  ); zone precision 0.934, IoU 0.849
+  fill 2.5      added  69069 px (0.68 / 0.51), removed      0 px ( -   /  -  ); zone precision 0.928, IoU 0.853
+  junction 0.5  added    412 px (0.75 / 0.56), removed  19595 px (0.84 / 0.69); zone precision 0.943, IoU 0.825
+  junction 1    added   4842 px (0.85 / 0.69), removed  12210 px (0.83 / 0.69); zone precision 0.942, IoU 0.831
+  junction 1.5  added  17902 px (0.77 / 0.61), removed  10733 px (0.84 / 0.71); zone precision 0.940, IoU 0.836
+  junction 2    added  32894 px (0.72 / 0.55), removed  10410 px (0.84 / 0.71); zone precision 0.936, IoU 0.840
+  junction 2.5  added  49151 px (0.67 / 0.50), removed  10260 px (0.84 / 0.71); zone precision 0.932, IoU 0.843
+The crotch: mask pixels between the leaders off the depth silhouette (off / all), and its height above the fork in trunk radii (median; depth 1.07, depth shrunk 2 px 0.95), with the difference from each, paired by tree:
+  round top     off  32666 / 258992; height 1.00 (-0.06, +0.06)
+  fill 1        off  32666 / 258992; height 1.00 (-0.06, +0.06)
+  fill 1.4      off  32666 / 258992; height 1.00 (-0.06, +0.06)
+  fill 1.7      off  32666 / 258992; height 1.00 (-0.06, +0.06)
+  fill 2        off  32666 / 258992; height 1.00 (-0.06, +0.06)
+  fill 2.5      off  32682 / 259070; height 1.00 (-0.06, +0.06)
+  junction 0.5  off  31112 / 248962; height 0.89 (-0.18, -0.06)
+  junction 1    off  31112 / 248960; height 0.89 (-0.18, -0.06)
+  junction 1.5  off  31112 / 248960; height 0.89 (-0.18, -0.06)
+  junction 2    off  31112 / 248965; height 0.89 (-0.18, -0.06)
+  junction 2.5  off  31128 / 249088; height 0.89 (-0.18, -0.06)
+Width decay from the fork (independent check): median 1.59 trunk radii over 811 leaders, bootstrap 95% CI 1.50-1.68, leave-one-tree-out 1.59-1.59
+Saved outputs\measure_fork_junction\leaders.csv and outputs\measure_fork_junction\report.json and outputs/fork_junction.jpg

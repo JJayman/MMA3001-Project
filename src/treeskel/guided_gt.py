@@ -210,8 +210,10 @@ class GuidedParams:
             matching reach was 0.98 and 1.30 against the raw silhouette (for
             shoulders reaching 1.5 and 2 trunk radii up the leader) and 0.5
             or less against the shrunk one; 1.5 covered more than the raw
-            silhouette at both (``docs/results/fork_junction/``). Not used by
-            the cost map.
+            silhouette at both. On all 449 development trees the matching
+            reaches were 1.04 and 1.23 (raw) and 0.62 and 0.59 (shrunk), and
+            1.0 lay between the two references at both
+            (``docs/results/fork_junction/``). Not used by the cost map.
         flat_root: Cut the trunk flat at the root click too
             (:func:`end_cut`), where its round end would otherwise be drawn
             whole on the ground below the click: on trees whose root click
