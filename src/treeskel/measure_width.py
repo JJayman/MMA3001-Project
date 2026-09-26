@@ -32,8 +32,11 @@ too, see :func:`treeskel.guided_gt.clear_of`):
    The whole cost surface is saved, and the free straight tapers used
    before are summarised.
 5. **The crotch.** Mask pixels between the leaders near the fork that are
-   off the depth silhouette (:func:`crotch_zone`), before and after, and
-   after without the widening: wider leaders fill the bottom of the V.
+   off the depth silhouette (:func:`treeskel.measure_fork.crotch_zone`),
+   before and after, and after without the widening: wider leaders fill the
+   bottom of the V. "Before" has the trunk's round top (and the shoulder
+   fill), "after" the current fork junction; :mod:`treeskel.measure_fork`
+   compares the two ways of drawing the fork on the same leaders.
 6. **Centring.** How far the traced path is from the bark's centre (the
    middle of the two edges found across it); the mask is centred on the
    path.
@@ -73,12 +76,13 @@ from treeskel.guided_gt import (
     load_clicks,
     straighten,
 )
-from treeskel.measure_fork import fork_zone
-from treeskel.winter_gt import WinterGT, find_main_branches, render_main_branches, report_failed, save_image
+from treeskel.measure_fork import crotch_zone
+from treeskel.winter_gt import find_main_branches, render_main_branches, report_failed, save_image
 
-OLD = GuidedParams(leader_width_source="scale_space", leader_fit="taper", shoulder_length=1.4)
+OLD = GuidedParams(leader_width_source="scale_space", leader_fit="taper", shoulder_length=1.4,
+                  junction_reach=0, flat_root=False)
 """The settings of the masks before session 8 (scale-space widths, free straight tapers, the
-session-6 shoulder fill); they reproduce those masks pixel for pixel."""
+session-6 shoulder fill on the trunk's round top); they reproduce those masks pixel for pixel."""
 
 BINS = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 25.0)
 """Distance from the fork, in trunk radii, for the pooled width profiles."""
@@ -213,24 +217,6 @@ def widening_costs(s_over_r: np.ndarray, widths: np.ndarray, widenings: Sequence
             res = np.abs(y - huber_location(y / g) * g)
             out[i, j] = float(np.mean(np.where(res <= k, 0.5 * res ** 2, k * (res - 0.5 * k))))
     return out
-
-
-def crotch_zone(gt: WinterGT) -> np.ndarray:
-    """The crotch: pixels between the two leaders' paths, above the fork and in its zone.
-
-    The zone is :func:`treeskel.measure_fork.fork_zone` (within 2.5 trunk
-    radii of the fork and one trunk radius of a path). Mask pixels here that
-    are off the depth silhouette are almost certainly not wood, because depth
-    reaches past the bark's edges.
-    """
-    out = np.zeros(gt.tree_mask.shape, bool)
-    radius = float(gt.radii["trunk"][-1])
-    top = max(int(gt.fork[0] - 2.5 * radius), 0)
-    for row in range(top, gt.fork[0]):
-        lc, rc = gt.left[gt.left[:, 0] == row, 1], gt.right[gt.right[:, 0] == row, 1]
-        if len(lc) and len(rc) and lc.max() + 1 < rc.min():
-            out[row, lc.max() + 1:rc.min()] = True
-    return out & fork_zone(gt)
 
 
 def free_taper(s: np.ndarray, widths: np.ndarray, fork_radius: float, start: float = FIT_START) -> float:

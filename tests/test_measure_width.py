@@ -8,16 +8,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from test_guided_gt import good_clicks, synthetic_rgbd
-from test_winter_gt import FORK, thick_line
-from treeskel.guided_gt import GuidedParams, guided_gt, load_clicks
+from test_winter_gt import thick_line
+from treeskel.guided_gt import GuidedParams, load_clicks
 from treeskel.measure_width import (
     LENGTHS,
     OLD,
     WIDENINGS,
     centre_runs,
     choose_shape,
-    crotch_zone,
     edge_overshoot,
     free_taper,
     hand_mask_profiles,
@@ -97,18 +95,6 @@ def test_widening_costs_recover_a_known_shape():
     assert np.isnan(widening_costs(s[:5], widths[:5])).all()           # too few points
 
 
-def test_crotch_zone_lies_between_the_leaders_above_the_fork():
-    gt = guided_gt(*synthetic_rgbd(), good_clicks())
-    zone = crotch_zone(gt)
-    rows, cols = np.nonzero(zone)
-    assert zone.sum() > 50
-    assert rows.max() < FORK[0]                                        # above the fork
-    for r in np.unique(rows):                                          # strictly between the two paths
-        lc, rc = gt.left[gt.left[:, 0] == r, 1].max(), gt.right[gt.right[:, 0] == r, 1].min()
-        assert cols[rows == r].min() > lc and cols[rows == r].max() < rc
-    assert np.hypot(rows - FORK[0], cols - FORK[1]).max() <= 2.5 * gt.radii["trunk"][-1]
-
-
 def test_choose_shape_holds_out_each_group():
     costs = np.ones((4, len(WIDENINGS), len(LENGTHS)))                  # constant width costs 1 everywhere
     costs[:2, 3, 4] = 0.5                                              # group "a" is fitted best by (w3, L4)
@@ -126,10 +112,11 @@ def test_choose_shape_holds_out_each_group():
 
 def test_old_settings_differ_only_in_what_session_8_changed():
     # "Before" must stay the session-7 masks when today's defaults change: only the
-    # leader widths, the leader fit and the shoulder fill differ.
+    # leader widths, the leader fit, the shoulder fill and the trunk's ends differ.
     changed = {k for k, v in asdict(OLD).items() if v != asdict(GuidedParams())[k]}
-    assert changed == {"leader_width_source", "leader_fit", "shoulder_length"}
+    assert changed == {"leader_width_source", "leader_fit", "shoulder_length", "junction_reach", "flat_root"}
     assert (OLD.leader_width_source, OLD.leader_fit, OLD.shoulder_length) == ("scale_space", "taper", 1.4)
+    assert (OLD.junction_reach, OLD.flat_root) == (0, False)
 
 
 def test_free_taper():
@@ -162,7 +149,8 @@ def test_cli_measures_development_rows_only(sample_dir, tmp_path, capsys):
     assert "Row-grouped folds" in text
     crotch = report["crotch_off_depth"]
     # Wider leaders reach further into the crotch.
-    assert crotch["before"][1] <= crotch["after_no_widening"][1] <= crotch["after"][1]
+    assert crotch["after_no_widening"][1] <= crotch["after"][1]
+    assert all(0 <= off <= total for off, total in crotch.values())
     assert report["off_centre"]["n_cross_sections"] > 0 and "Traced path" in text
     assert (out / "leaders.csv").read_text().count("\n") == 1 + 2 * len(dev)
     assert figure.exists()

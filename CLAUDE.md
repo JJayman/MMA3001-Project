@@ -53,15 +53,24 @@ camera, different (autumn) capture.
   decision in session 8, "for the moment"): the session-6 fill (1.4) closed
   the notch left by leaders drawn too thin; at their true width the masks
   without it already match depth on all 449 development trees, and 1.4
-  overfilled. `shoulder_length = 1.4` restores it. The crotch between the
-  leaders is not filled.
+  overfilled. `shoulder_length = 1.4` restores it.
+  **Fork junction instead of the trunk's round top** (session 8, the
+  student's request: the fork "just looks like a circle"): the trunk is cut
+  flat at the fork, and on each leader's outer side a straight edge joins the
+  trunk's edge to the leader's edge 1 trunk radius up the leader
+  (`junction_reach = 1.0`, matched to depth's shoulder coverage on 21 trees;
+  see `docs/results/fork_junction/`). The crotch between the leaders is what
+  the leaders' discs draw, a V, not filled. The root is cut flat too where
+  its round end would lie wholly in the image (`flat_root`). Reach 0 and
+  `flat_root=False` restore the round ends.
 
 ## Where things are
 
 ```
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
-               (tracing, widths, fork fill), annotate.py (click tool),
-               tune_cost.py, measure_fork.py, measure_width.py (leader widths),
+               (tracing, widths, fork junction), annotate.py (click tool),
+               tune_cost.py, measure_fork.py (fork fill and junction),
+               measure_width.py (leader widths),
                align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
                (line-up tool, chosen), summer_gt.py (summer masks and checks)

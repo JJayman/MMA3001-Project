@@ -37,13 +37,16 @@ and the branches are traced between them automatically:
    past each edge and merges with things behind. Each leader is drawn at its
    own robust width, widened near the fork by an amount shared by all
    leaders that fades with distance (:func:`fit_leader_radius`).
-6. **Fork** (:func:`shoulder_fill`, off by default since session 8): a
-   leader drawn much thinner than the trunk sticks out of the round top of
-   the trunk, leaving a notch (a "shoulder") on each side. The fill closes
-   it on each leader's outer side, out to the straight line from the
-   trunk's edge at the fork to the leader's edge a little way up. It was
-   needed while the leaders were drawn about half as wide as their bark;
-   at their true width the notch has mostly gone.
+6. **Fork** (:func:`end_cut`, :func:`fork_junction`): drawn as discs, the
+   trunk would end in a half disc of its own radius, which shows as a round
+   knob where the much thinner leaders leave it. So the trunk is cut flat at
+   the fork (and at a root click that is well above the image's bottom
+   edge), and each leader is joined to the trunk's edge on its outer side
+   by a straight line a little way up the leader; the crotch between the
+   leaders is left as the leaders draw it.
+   The older :func:`shoulder_fill` (off by default since session 8) closed
+   the notch beside each leader but kept the round top; it was needed
+   while the leaders were drawn about half as wide as their bark.
 7. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
    the same rendering, shape measures and overlays apply to both methods.
 
@@ -188,6 +191,35 @@ class GuidedParams:
             depth did. So the student turned it off, for the moment; 1.4
             restores the session-6 masks' fill (see
             ``docs/results/fork_shoulders/``). Not used by the cost map.
+        junction_reach: How the trunk meets the leaders, in multiples of
+            the trunk's radius at the fork; 0 keeps the round-ended trunk
+            of the masks up to session 8. Drawn as discs, the trunk ended in
+            a half disc of its own radius, and at the fork that round top
+            showed between and beside the thinner leaders as a knob (the
+            student's observation in session 8; the hand masks have none).
+            The trunk is now cut flat at the fork (:func:`end_cut`), and on
+            each leader's outer side the trunk's edge at the fork is joined
+            by a straight line to the leader's edge this far up the leader
+            (:func:`fork_junction`); the crotch between the leaders is left
+            as the leaders draw it. 1.0 was chosen with
+            :mod:`treeskel.measure_fork` on the 21 development trees in the
+            repository, by the criterion that turned the shoulder fill off:
+            the joins should cover the shoulder beside each leader about as
+            much as the wood does, which lies between the raw depth
+            silhouette and the silhouette minus its 2 px overshoot. The
+            matching reach was 0.98 and 1.30 against the raw silhouette (for
+            shoulders reaching 1.5 and 2 trunk radii up the leader) and 0.5
+            or less against the shrunk one; 1.5 covered more than the raw
+            silhouette at both (``docs/results/fork_junction/``). Not used by
+            the cost map.
+        flat_root: Cut the trunk flat at the root click too
+            (:func:`end_cut`), where its round end would otherwise be drawn
+            whole on the ground below the click: on trees whose root click
+            is more than the trunk's radius above the image's bottom edge
+            (about 1 in 10 development trees). Most root clicks are a few
+            pixels above that edge (median 4 px), where the trunk leaves the
+            frame; there the round end reaches the edge and is kept, since a
+            flat cut would leave a strip of background under the trunk.
     """
 
     depth_weight: float = 0.2
@@ -211,6 +243,8 @@ class GuidedParams:
     widening_length: float = 12.0
     leader_fit_start: float = 1.5
     shoulder_length: float = 0.0
+    junction_reach: float = 1.0
+    flat_root: bool = True
 
 
 @dataclass
@@ -511,6 +545,16 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     )
     # Fill the notches between the trunk and each leader's outer side (none if shoulder_length is 0).
     gt.shoulders = fill_shoulders(gt, params.shoulder_length)
+    cuts = []
+    if params.junction_reach > 0:
+        # Square the trunk's top off, and join it to each leader with straight sides.
+        cuts.append(end_cut(trunk, radii["trunk"][-1]))
+        gt.junction = fork_junction(gt, params.junction_reach)
+    if params.flat_root and trunk[0, 0] + radii["trunk"][0] < fg.shape[0] - 1:
+        # The round end would lie wholly in the image, on the ground below the click. (Nearer the
+        # bottom edge, the trunk leaves the frame, and the round end reaches the edge: kept.)
+        cuts.append(end_cut(trunk[::-1], radii["trunk"][0]))
+    gt.trunk_cuts = [c for c in cuts if c is not None] or None
     return gt
 
 
@@ -980,6 +1024,113 @@ def fill_shoulders(gt: WinterGT, shoulder_length: float) -> np.ndarray:
     out = np.zeros(gt.tree_mask.shape, bool)
     for side, leader, other in (("left", gt.left, gt.right), ("right", gt.right, gt.left)):
         out |= shoulder_fill(out.shape, leader, other, gt.radii[side], fork_r, shoulder_length * fork_r)
+    return out
+
+
+def end_direction(path: np.ndarray, length: float) -> np.ndarray:
+    """Unit vector pointing out of a path at its last point.
+
+    The direction is the chord to the last point from the point about
+    ``length`` px before it (the first point, if the path is shorter), which
+    ignores pixel-scale wiggles.
+
+    Args:
+        path: ``(N, 2)`` path points, in order.
+        length: Chord length (px).
+
+    Returns:
+        ``(2,)`` unit vector ``(d_row, d_col)``, or zeros if the path has no length.
+    """
+    if len(path) < 2:
+        return np.zeros(2)
+    back = arc_length(path)
+    back = back[-1] - back                              # distance back from the last point
+    d = (path[-1] - path[int(np.argmin(np.abs(back - length)))]).astype(float)
+    size = np.hypot(*d)
+    return d / size if size > 0 else np.zeros(2)
+
+
+def end_cut(path: np.ndarray, radius: float) -> tuple[np.ndarray, np.ndarray] | None:
+    """A flat end for a path drawn as discs: the line through its last point, square to it.
+
+    Drawn as a union of discs, a path ends in a half disc of its radius
+    there. Pixels beyond this line (see
+    :attr:`treeskel.winter_gt.WinterGT.trunk_cuts`) are not drawn, which
+    squares the end off. The direction is taken over the path's last
+    ``radius`` px (:func:`end_direction`).
+
+    Args:
+        path: ``(N, 2)`` path points, ending at the end to cut.
+        radius: The drawing radius at that end (px).
+
+    Returns:
+        ``(point, outward direction)`` as float arrays, or None if the path
+        has no direction there.
+    """
+    d = end_direction(path, float(radius))
+    return (path[-1].astype(float), d) if d.any() else None
+
+
+def fork_junction(gt: WinterGT, reach: float) -> np.ndarray:
+    """Pixels joining the trunk's flat top to each leader's outer edge with a straight side.
+
+    With the trunk cut flat at the fork (:func:`end_cut`), each leader
+    is joined to the trunk on its outer side (:func:`outward_normal`): the
+    join is the convex hull of the trunk's top from the fork to its edge on
+    that side, and of the leader's discs up to ``reach`` trunk radii along
+    it, kept to the outer side of the leader's direction. Its outer edge is
+    then the straight line from the trunk's edge to the leader's edge, and
+    the crotch between the leaders is left as the leaders' own discs draw
+    it: a V, not the round top of the trunk. The shoulder fill
+    (:func:`shoulder_fill`) is similar but takes the trunk's round end disc
+    into the hull, so the round top stays.
+
+    Args:
+        gt: A guided result with fitted ``radii``; its trunk ends, and both
+            leaders start, at the fork.
+        reach: How far up each leader the join reaches, in trunk radii at
+            the fork (:attr:`GuidedParams.junction_reach`); 0 or less gives
+            an empty mask.
+
+    Returns:
+        ``(H, W)`` bool mask of the join, to be added to the drawn branches.
+    """
+    shape = gt.tree_mask.shape
+    out = np.zeros(shape, bool)
+    if reach <= 0 or len(gt.trunk) < 2 or len(gt.left) == 0 or len(gt.right) == 0:
+        return out
+    radius = _fork_radius(gt.radii)
+    up = end_direction(gt.trunk, radius)
+    if not up.any():
+        return out
+    fork = gt.trunk[-1]
+    across = np.array([-up[1], up[0]])                   # square to the trunk, along its flat top
+    for side, other in (("left", gt.right), ("right", gt.left)):
+        leader, radii = getattr(gt, side), gt.radii[side]
+        outer = outward_normal(leader, other, max(reach * radius, 10.0))
+        if not outer.any():
+            continue
+        corner = fork + radius * (across if across @ outer >= 0 else -across)   # the trunk's edge on this side
+        base = arc_length(leader) <= reach * radius       # a prefix: arc length only grows
+        # Work in a box around the fork that holds the top and every disc (and so their hull).
+        pad = int(np.ceil(radii[base].max())) + 2
+        points = np.vstack([fork, corner, leader[base]])
+        lo = np.maximum(np.floor(points.min(0)).astype(int) - pad, 0)
+        hi = np.minimum(np.ceil(points.max(0)).astype(int) + pad + 1, shape)
+        if np.any(hi <= lo):
+            continue
+        box = tuple(int(v) for v in hi - lo)
+        parts = np.zeros(box, bool)
+        for (y, x), rad in zip(leader[base], radii[base]):
+            rr, cc = draw_disk((y - lo[0], x - lo[1]), rad, shape=box)
+            parts[rr, cc] = True
+        end = np.round(corner).astype(int)
+        rr, cc = draw_line(int(fork[0] - lo[0]), int(fork[1] - lo[1]), int(end[0] - lo[0]), int(end[1] - lo[1]))
+        inside = (rr >= 0) & (rr < box[0]) & (cc >= 0) & (cc < box[1])
+        parts[rr[inside], cc[inside]] = True
+        yy, xx = np.indices(box)
+        keep = (yy + lo[0] - fork[0]) * outer[0] + (xx + lo[1] - fork[1]) * outer[1] >= 0
+        out[lo[0]:hi[0], lo[1]:hi[1]] |= convex_hull_image(parts) & keep
     return out
 
 
