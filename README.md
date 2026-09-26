@@ -23,7 +23,9 @@ src/treeskel/    Python package
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
   measure_fork.py  measures the masks at the fork against winter depth (sets the shoulder fill)
+  align.py       winter-to-summer alignment: matching, robust transform fits, mask warping
 annotations/     clicked points per tree (winter_clicks.json), committed
+data/matches/    winter-summer point matches per matcher (from align.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
 splits.json      fixed test rows and cross-validation folds (do not change)
@@ -37,6 +39,11 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
+The learned matchers for the winter-to-summer alignment also need PyTorch and
+kornia: install PyTorch first with the command for your GPU from
+[pytorch.org](https://pytorch.org/get-started/locally/), then
+`pip install -e ".[match]"`.
+
 ## Usage
 
 ```bash
@@ -49,6 +56,7 @@ python -m treeskel.annotate data/raw --dev-only            # click tool (develop
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
+python -m treeskel.align data/raw --matcher lightglue --dev-only   # winter-to-summer alignment (needs ".[match]")
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
