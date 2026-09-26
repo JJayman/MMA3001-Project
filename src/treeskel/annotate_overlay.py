@@ -29,7 +29,12 @@ fine-tuning does not undo a lined-up trunk. To judge the fit:
 
 - **space**: flip between the winter and the summer photo. What is lined up
   stays still; what is not jumps;
-- **b**: back to the blend; **1**–**9**: blend from 10% to 90% winter;
+- **b**: back to the blend (30% winter to start); **1**–**9**: blend from 10%
+  to 90% winter;
+- **e**: the summer photo at full strength, with the outlines of what the
+  winter depth camera saw (the tree, posts, neighbouring trunks) in cyan.
+  Line those up with the summer posts and trunk; the drip line is not in
+  depth, so check it in the blend;
 - **m**: show or hide the winter mask (magenta).
 
 A good order: drag until the trunk sits on the summer trunk; then match the
@@ -74,11 +79,13 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage as ndi
 
 from treeskel.align import apply_transform, load_winter_mask, outline
 from treeskel.guided_gt import load_clicks
 from treeskel.io import TreeRecord, index_dataset, load_tree
 from treeskel.summer_gt import Overlay, load_overlays, save_overlays
+from treeskel.winter_gt import foreground_mask
 
 STEPS = {"shift": 1.0, "shift_big": 10.0, "roll": 0.2, "roll_big": 1.0, "scale": 1.005, "scroll": 1.01,
          "tilt": 0.5}
@@ -90,6 +97,22 @@ def median_overlay(overlays: Sequence[Overlay]) -> Overlay:
     if not overlays:
         return Overlay()
     return Overlay(**{k: float(np.median([getattr(o, k) for o in overlays])) for k in Overlay.PARAMS})
+
+
+def depth_silhouette(depth: np.ndarray, valid: np.ndarray, min_area: int = 150) -> np.ndarray:
+    """What the winter depth camera separates from the ground: the tree, posts, neighbouring trunks.
+
+    The depth foreground (:func:`treeskel.winter_gt.foreground_mask`; the rows
+    behind are out of range in winter), opened by one pixel, without pieces
+    smaller than ``min_area`` px. Its outline is much cleaner than edges in
+    the colour photo, where grass and the rows behind give edges everywhere.
+    """
+    fg = ndi.binary_opening(foreground_mask(depth, valid), iterations=1)
+    lab, n = ndi.label(fg)
+    sizes = np.bincount(lab.ravel(), minlength=n + 1)
+    keep = sizes >= min_area
+    keep[0] = False
+    return keep[lab]
 
 
 _HALF = np.array([[1, 0, 0.5], [0, 1, 0.5], [0, 0, 1.0]])
@@ -143,8 +166,8 @@ class OverlayAnnotator:
         self.gt_dir = Path(gt_dir) if gt_dir else None
         self.clock = clock
         self.i = 0
-        self.view = "blend"             # "blend", "winter" or "summer"
-        self.alpha = 0.5
+        self.view = "blend"             # "blend", "winter", "summer" or "outlines"
+        self.alpha = 0.3                # the winter photo is brighter and busier: keep summer visible
         self.show_mask = True
         self.done = False
         self._load()
@@ -177,6 +200,8 @@ class OverlayAnnotator:
         # Warped on every change, so prepared once: the photo with full opacity, and the mask's outline.
         self._rgba = np.dstack([self.winter["rgb"], np.full(self.winter["rgb"].shape[:2], 255, np.uint8)])
         self._outline = outline(self.mask, 2).astype(np.uint8) * 255 if self.mask is not None else None
+        self._depth_outline = outline(depth_silhouette(self.winter["depth"], self.winter["valid"]),
+                                      1).astype(np.uint8) * 255
         c = self.winter_clicks.get(tid)
         self.pin = np.array(c.fork[::-1], float) if c is not None and c.complete and not c.skip \
             else np.array([320.0, 240.0])
@@ -198,7 +223,10 @@ class OverlayAnnotator:
         In the ``"blend"`` view the winter photo covers the summer one at
         ``alpha``, in ``"winter"`` fully, and in ``"summer"`` not at all; the
         part of the summer photo the winter one does not cover always shows
-        through. The mask's outline is drawn in magenta if ``show_mask``.
+        through. The ``"outlines"`` view shows the summer photo at full
+        strength with the outline of the winter depth silhouette
+        (:func:`depth_silhouette`) in cyan. The mask's outline is drawn in
+        magenta if ``show_mask``.
         Blending here into one picture, rather than layering images in the
         window, keeps each update fast.
 
@@ -206,12 +234,16 @@ class OverlayAnnotator:
             ``(480, 640, 3)`` uint8 image.
         """
         m = self.matrix()
-        a = {"blend": self.alpha, "winter": 1.0, "summer": 0.0}[self.view]
+        a = {"blend": self.alpha, "winter": 1.0, "summer": 0.0, "outlines": 0.0}[self.view]
         out = self.summer["rgb"]
         if a > 0:
             w = fast_warp(self._rgba, m).astype(np.float32)
             k = w[..., 3:] * (a / 255.0)
             out = (out * (1 - k) + w[..., :3] * k + 0.5).astype(np.uint8)
+        if self.view == "outlines":
+            line = fast_warp(self._depth_outline, m, nearest=True) > 0
+            out = out.copy()
+            out[line] = (0, 255, 255)
         if self.show_mask and self._outline is not None:
             line = fast_warp(self._outline, m, nearest=True) > 0
             out = out.copy() if out is self.summer["rgb"] else out
@@ -259,7 +291,7 @@ class OverlayAnnotator:
                 f"shift {o.dx:+.1f}, {o.dy:+.1f} px   scale {o.scale:.3f}   roll {o.roll:+.1f}   "
                 f"pitch {o.pitch:+.1f}   yaw {o.yaw:+.1f} deg\n"
                 "drag shift, scroll scale, arrows, [ ] roll, - = scale, i k j l tilt, space flip, b blend, "
-                "m mask | Enter accept, u undo, r reset, s skip, f flag mask, n/p, q quit")
+                "e outlines, m mask | Enter accept, u undo, r reset, s skip, f flag mask, n/p, q quit")
 
     def key(self, key: str) -> None:
         """Handle a key press."""
@@ -287,6 +319,8 @@ class OverlayAnnotator:
             self.view = "summer" if self.view == "winter" else "winter"
         elif key == "b":
             self.view = "blend"
+        elif key == "e":
+            self.view = "outlines"
         elif key in tuple("123456789"):
             self.view, self.alpha = "blend", int(key) / 10
         elif key == "m":
@@ -317,7 +351,7 @@ class OverlayAnnotator:
 
 
 HELP = ("drag: shift   scroll: scale   arrows: 1 px (shift: 10)   [ ]: roll   - =: scale   i k j l: tilt   "
-        "space: flip   b, 1-9: blend   m: mask\n"
+        "space: flip   b, 1-9: blend   e: outlines   m: mask\n"
         "Enter: accept   u: undo   r: reset   s: skip   f: flag the winter mask   n / p: next / previous   q: quit")
 """Key help shown above the picture (the current tree and transform are in the window's title bar)."""
 

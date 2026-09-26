@@ -268,3 +268,29 @@ def test_window_drag_scroll_and_keys(ann_factory):
     fig.canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", fig.canvas, "enter"))
     assert ann.tree.tree_id == "R01N02" and ax.get_xlim() == (-0.5, 639.5)   # new tree: full view
     plt.close(fig)
+
+
+def test_depth_silhouette_keeps_large_near_objects():
+    from treeskel.annotate_overlay import depth_silhouette
+
+    depth = np.zeros((480, 640), np.uint8)
+    depth[50:400, 300:320] = 150                       # a "post" in range; the rest out of range
+    depth[100:105, 100:105] = 150                      # a speck
+    sil = depth_silhouette(depth, depth > 0)
+    assert sil[200, 310] and not sil[102, 102]
+    assert sil.sum() == pytest.approx(350 * 20, rel=0.05)
+
+
+def test_outlines_view_keeps_the_summer_photo_and_draws_winter_depth(ann_factory):
+    ann = ann_factory()
+    assert (ann.view, ann.alpha) == ("blend", 0.3)    # the winter photo starts faint
+    ann.key("e")
+    assert ann.view == "outlines" and "outlines" in ann.prompt()
+    pic = ann.composite()
+    cyan = (pic == (0, 255, 255)).all(-1)
+    magenta = (pic == (255, 0, 255)).all(-1)
+    assert cyan.any() and magenta.any()
+    rest = ~(cyan | magenta)
+    assert np.array_equal(pic[rest], ann.summer["rgb"][rest])      # the summer photo, untouched
+    ann.key("b")
+    assert ann.view == "blend"
