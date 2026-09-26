@@ -1,0 +1,38 @@
+{
+ "R01N01": {
+  "dx": -11.5683,
+  "dy": -59.9185,
+  "scale": 1.1495,
+  "roll": 5.4,
+  "pitch": 0.0,
+  "yaw": 0.0,
+  "skip": false,
+  "mask_flag": false,
+  "note": "",
+  "seconds": 143.047
+ },
+ "R01N02": {
+  "dx": -0.4886,
+  "dy": -47.5593,
+  "scale": 1.1157,
+  "roll": 2.0,
+  "pitch": 0.0,
+  "yaw": 0.0,
+  "skip": false,
+  "mask_flag": false,
+  "note": "",
+  "seconds": 24.078
+ },
+ "R01N04": {
+  "dx": 0.0,
+  "dy": 0.0,
+  "scale": 1.0,
+  "roll": 0.0,
+  "pitch": 0.0,
+  "yaw": 0.0,
+  "skip": true,
+  "mask_flag": false,
+  "note": "skipped in the overlay tool",
+  "seconds": 165.204
+ }
+}
