@@ -11,7 +11,9 @@ python -m treeskel.measure_fork data/tuning data/sample --out docs/results/fork_
 on the 21 annotated **development-row** trees available locally (the 17
 tuning trees plus R01N01, R01N02, R15N05 and R20N06). The four test-row trees
 in `data/sample` were left out automatically (test rows 3, 12 and 16 are read
-from `splits.json`).
+from `splits.json`). The chosen setting was then checked on all 449
+development-row trees on the student's PC (see [Check on all development
+rows](#check-on-all-development-rows-449-trees)).
 
 ## The problem
 
@@ -59,9 +61,11 @@ with the fill (depth: 2%; shrunk depth: 12%).
 | 2.5 | 3697 | 0.89 | 0.950 | 0.781 |
 
 The fork zone is the part of the image within 2.5 R of the fork and within R
-of a traced path. The added pixels are as precise as the rest of the mask
-there (0.94 against 0.955). IoU against depth keeps rising with the fill
-only because depth bleeds, so it cannot be used to choose the setting.
+of a traced path. On these 21 trees the added pixels were as precise as the
+rest of the mask there (0.94 against 0.955); on all development trees they
+are slightly less so (0.91 against 0.966, see below). IoU against depth keeps
+rising with the fill only because depth bleeds, so it cannot be used to
+choose the setting.
 
 ## Choosing `shoulder_length`
 
@@ -73,14 +77,53 @@ only because depth bleeds, so it cannot be used to choose the setting.
 | shrunk depth, reach 2 R | 1.59 | 1.56–1.68 |
 | **Independent check:** the depth width along a leader falls from the fork to the leader's own over | **1.38** R (median of 35 leaders; bootstrap 95% CI 1.05–1.97) | 1.35–1.43 |
 
-**Chosen: 1.4.** It agrees with the width decay, which does not depend on the
-fill's shape, and lies inside the 1.23–1.80 range of matching settings. No
-single setting matches both reaches. The fill's edge is straight, while the
+**Chosen on these 21 trees: 1.4.** It agreed with the width decay here (1.38),
+which does not depend on the fill's shape, and lies inside the 1.23–1.80 range
+of matching settings. (On all development trees the width decay came out
+higher; see the next section.) No single setting matches both reaches. The fill's edge is straight, while the
 real edge curves: near the fork the fill covers slightly more than depth
 (0.987 against 0.980 at 1.5 R), and further up slightly less (0.885 against
 0.927–0.966 at 2 R). Settings up to 2.0 keep 93% of the added pixels on depth,
 so the choice is not critical. 2.0 fills visibly more (last column of the
 figure) but covers the shoulder more fully than depth does at both reaches.
+
+## Check on all development rows (449 trees)
+
+Run on the student's PC after 1.4 had been chosen, with
+`python -m treeskel.measure_fork data/raw --out outputs/measure_fork` (console
+output in `all_dev_rows_output.txt`; test rows left out as before):
+
+| | Coverage, reach 1.5 R | reach 2 R | Notched (< 80%), 1.5 R | 2 R |
+|---|---|---|---|---|
+| Depth silhouette (wood) | 0.965 | 0.950 | 5% | 8% |
+| Depth silhouette shrunk 2 px | 0.924 | 0.898 | 13% | 19% |
+| Masks before (no fill) | 0.850 | 0.764 | 30% | 66% |
+| **Fill, `shoulder_length` 1.4** | **0.984** | **0.872** | **0%** | **23%** |
+| Fill, `shoulder_length` 1.7 | 1.000 | 0.946 | 0% | 0% |
+| Fill, `shoulder_length` 2.0 | 1.000 | 0.997 | 0% | 0% |
+
+- Settings at which the fill covers the shoulder as much as depth: 1.33
+  (depth, 1.5 R), 1.17 (shrunk, 1.5 R), 1.72 (depth, 2 R) and 1.51 (shrunk,
+  2 R); their mean is 1.43. Every leave-one-tree-out range is within 0.02.
+- The fill adds 22,650 px, 91% of them on the depth silhouette. Around the
+  fork the mask's precision against depth is 0.966 before and 0.965 after;
+  IoU rises from 0.739 to 0.754.
+- Width decay: 1.59 trunk radii (median of 811 leaders; bootstrap 95% CI
+  1.50–1.68).
+
+Two statements made from the 21 trees did not hold, and are corrected here:
+
+- The width decay (1.38 on 21 trees) is 1.59 on all development trees, and
+  its confidence interval excludes 1.4. So 1.4 no longer agrees with it;
+  with more data it suggests the transition is slightly longer.
+- The added pixels (94% on depth on 21 trees) are 91% on depth, a little
+  below the 96.6% of the rest of the mask around the fork.
+
+**Kept at 1.4** (the student's decision). It is still near the centre of the
+direct measure of the notch (the four matching settings range from 1.17 to
+1.72, mean 1.43), and 1.5–1.6 would reach only 1–3 px further up the leader.
+The setting was chosen on 21 trees and then checked on all 449 development
+trees (which include those 21); no test-row tree was used.
 
 ## Alternatives tried and rejected
 
@@ -102,7 +145,8 @@ Cyan marks the added pixels.
 
 ## Related finding, not changed
 
-The trunk is drawn with a **constant width in 15 of 21 trees**. For the first
+The trunk is drawn with a **constant width in 15 of 21 trees** (measured on
+the 21 local trees only). For the first
 5–20% of the trunk above the root click, the depth width is near zero, because
 the trunk meets the ground there and depth cannot separate them. Those points
 tilt the straight-line fit upwards, and the "no widening upwards" rule then
@@ -113,8 +157,9 @@ precision 0.976 → 0.974) and barely changes the width at the fork (median 15.5
 
 ## Caveats
 
-- 21 trees. Confirm on all development rows (about 450 trees) with
-  `python -m treeskel.measure_fork data/raw --out outputs/measure_fork`.
+- The setting was chosen on 21 trees and checked on 449. The per-leader data
+  of the full check stay on the student's PC (`outputs/measure_fork`); only
+  its console output is in the repository.
 - Depth bleeding is only bracketed (raw against 2 px shrink), not modelled.
 - The fill's edge is a straight line (a chamfer); real forks curve.
 - The synthetic known-answer tree also fills its shoulders with a straight

@@ -84,9 +84,11 @@ is available). Give exact commands and ask for the output.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 5:
+See the latest file in `docs/progress/`. As of session 6 (masks final,
+including the fork fill):
 1. Align each winter image with its summer image, and warp the winter masks
    into the summer view; measure the error on hand-clicked point pairs.
 2. The same alignment is needed for the hand masks (15–45 px shift).
 3. Summer model: baselines, then a U-Net on RGB-D with the 5 folds.
 4. Score the automatic baseline against the guided ground truth.
+5. Optional: fix the constant-width trunks (session 6, section 6).

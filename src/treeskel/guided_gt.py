@@ -133,14 +133,15 @@ class GuidedParams:
             branch.
         shoulder_length: How far up each leader the shoulder fill reaches
             (:func:`shoulder_fill`), in multiples of the trunk's radius at
-            the fork; 0 turns it off. Set with :mod:`treeskel.measure_fork`
-            on the winter depth of 21 development-row trees: the width
-            along a leader falls from the fork to the leader's own over a
-            median of 1.38 trunk radii (leave-one-tree-out 1.35–1.43), and
-            fills from 1.23 to 1.80 cover the shoulder as much as the depth
-            silhouette does, depending on how far up the leader it is
-            compared and on the correction for depth bleeding (see
-            ``docs/results/fork_shoulders/``). Not used by the cost map.
+            the fork; 0 turns it off. Chosen with :mod:`treeskel.measure_fork`
+            on 21 development-row trees and checked on all 449: fills from
+            1.17 to 1.72 cover the shoulder as much as the winter depth
+            silhouette does (mean 1.43), depending on how far up the leader
+            it is compared and on the correction for depth bleeding. The
+            depth width along a leader falls from the fork to the leader's
+            own over a median of 1.59 trunk radii, so the true transition
+            may be slightly longer (see ``docs/results/fork_shoulders/``).
+            Not used by the cost map.
     """
 
     depth_weight: float = 0.2
