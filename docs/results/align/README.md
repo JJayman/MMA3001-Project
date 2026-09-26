@@ -99,18 +99,37 @@ The first run on the student's PC stopped with `OSError: [WinError 193] %1
 is not a valid Win32 application. Error loading "...\torch\lib\torch_cuda.dll"
 or one of its dependencies`. The error comes from importing PyTorch, before
 any matching. Windows found a DLL in the PyTorch install that is not a
-valid 64-bit program. The usual cause is a damaged or incomplete install:
-an interrupted download, too little disk space, or a DLL held open by
-another program while `pip` replaced it.
+valid 64-bit program, i.e. the install was damaged or incomplete. Here the
+likely cause was disk space: the PC had about 3 GB free, which is not enough
+for the GPU build.
+
+**How much space the builds need:**
+
+| Build | Download | Installed |
+|---|---|---|
+| CPU-only, Windows (torch 2.14.0 from PyPI, measured from the wheel) | 124 MB | 0.48 GB |
+| GPU (CUDA), as installed in the AI assistant's Linux environment (torch 2.14.0, CUDA 13) | — | 5.2 GB (PyTorch 1.2 GB, NVIDIA's CUDA libraries 3.2 GB, Triton 0.9 GB) |
+
+The Windows GPU build bundles the same kind of CUDA libraries, and `pip`
+also needs room for the download (a few GB) while it unpacks, so about 8 GB
+free is a safe margin. Its exact size could not be checked from the AI's
+environment, because the PyTorch download site is blocked there.
+
+**Steps:**
 
 1. Check for an NVIDIA GPU and driver with `nvidia-smi`. The top right shows
-   the highest CUDA version the driver supports. If the command is not
-   found, go to step 3.
+   the highest CUDA version the driver supports. It must be at least the
+   build's version (12.6 for `cu126`); if it is lower, update the driver. An
+   RTX 50-series card needs a build for CUDA 12.8 or later (`cu128` in the
+   address below), because the `cu126` build does not support it. If the
+   command is not found, go to step 3.
 2. Close other programs using the `.venv` (VS Code terminals, Jupyter),
-   check that several GB of disk are free, and reinstall:
+   make sure about 8 GB are free, and reinstall. `pip cache purge` deletes
+   any copy of an earlier download that `pip` kept:
 
    ```bat
    pip uninstall -y torch
+   pip cache purge
    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu126
    python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
    ```
@@ -120,7 +139,7 @@ another program while `pip` replaced it.
 
    ```bat
    pip uninstall -y torch
-   pip install torch
+   pip install --no-cache-dir torch
    ```
 
    Matching is then slower. Measured in the AI assistant's environment (4 CPU
