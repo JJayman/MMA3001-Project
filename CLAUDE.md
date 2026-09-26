@@ -44,10 +44,11 @@ camera, different (autumn) capture.
   session 8: background | bark | background by least squares, so the shaded
   half of a side-lit branch counts; cross-sections within reach of the other
   leader are not used). Each leader is drawn at its own robust width, widened
-  near the fork by a shared +35% that fades over 4 trunk radii
-  (`fit_leader_radius`); these two values came from 21 trees and are
-  provisional, as the 449-tree check preferred a much longer fade (see
-  `docs/results/leader_width/`). Centre lines are smoothed between clicks (σ = 6).
+  near the fork by a shared +35% that fades over 12 trunk radii
+  (`fit_leader_radius`), so it narrows gradually along its length; chosen on
+  all 449 development trees by leave-one-tree-out and the row-grouped folds
+  (a first fit on 21 trees had chosen 4; see `docs/results/leader_width/`).
+  Centre lines are smoothed between clicks (σ = 6).
   **No shoulder fill at the fork** (`shoulder_length = 0`, the student's
   decision in session 8, "for the moment"): the session-6 fill (1.4) closed
   the notch left by leaders drawn too thin; at their true width the masks
