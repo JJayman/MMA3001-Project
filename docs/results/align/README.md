@@ -36,6 +36,37 @@ were not used.
   rotation, shift). Points off the plane, such as the ground and the rows
   behind, shift differently (parallax).
 
+**Found by the student when trying the pair tool:**
+
+- **The camera stood at a different height, pitch, roll and yaw in each
+  season**, so a similarity can leave the masks misaligned. Each change maps
+  to part of the transform. Height and sideways moves shift the tree,
+  distance scales it, and roll rotates it; a similarity covers these. Pitch
+  and yaw also add perspective, which only a homography models. How much
+  that matters was measured on a D435-like camera (focal length 615 px) with
+  7 points spread over the image. For a pitch difference of 3°, 5°, 8° and
+  10°, the similarity's leave-one-out error was 5.5, 9.2, 14.7 and 18.5 px
+  (median). The homography was exact. The affine transform was worse than
+  the similarity (7.6–25.9 px): its extra parameters do not describe
+  perspective. See `test_a_camera_pitch_needs_the_homography` in
+  `tests/test_summer_gt.py`.
+- **The two photos frame the tree differently.** A winter photo may start
+  halfway up the trunk while the summer photo shows the whole trunk, and the
+  other way round at the top. Consistent with this, 18 of the 21 winter
+  root clicks are at the image's bottom edge, and the two usable LightGlue
+  fits put the summer view 72–81 px higher than the winter view. The part
+  of the summer image that the winter image does not cover has no winter
+  label. `summer_gt` writes it as `<tree>_summer_covered.png` so that
+  training can ignore it, and the pair tool shades it. Extending the trunk
+  down into it would be an assumption, not an observation; not done.
+- **Capture order.** A large pale wooden structure behind some row 1 trees
+  in summer (R01N01, R01N02) is missing from the same stretch of alley in
+  winter. Enlarged, it looks like stacked wooden harvest bins (horizontal
+  slats with gaps, stacked in layers). Bins stand in the orchard at picking
+  time, which fits the ripe fruit in the summer photos, so this alone does
+  not show which season was photographed first. It stays an open question
+  (asked of staff in session 3).
+
 ## Automatic matching: what was tried
 
 | Approach | Result | Evidence |
@@ -92,9 +123,12 @@ clicks a point in one, then the same physical point in the other.
   one wrong click raises all three errors (each is checked against a fit
   that uses the other two), so a fourth pair helps.
 - **Model choice:** `python -m treeskel.summer_gt data/raw --dev-only`
-  compares translation, similarity and affine by leave-one-out error on the
-  development rows, on the trees with at least 4 pairs. A homography would
-  need 5 or more pairs per tree to be checked this way.
+  compares the models by leave-one-out error on the development rows, each
+  time on the trees with enough pairs to check every model compared:
+  translation, similarity and affine on trees with at least 4 pairs, and
+  all four including the homography on trees with at least 5. The tool's
+  live fit can use either (`--model similarity` or `--model homography`).
+  The saved pairs do not depend on it.
 - **Error measure:** the leave-one-out error covers click noise, the model's
   fit and points off the plane, measured on points the fit has not seen. A
   planned second clicking of about 20 trees will measure how repeatable the
@@ -183,11 +217,13 @@ environment, because the PyTorch download site is blocked there.
 
 ## Next steps
 
-1. Click pairs on the 21 development trees in the repository first
-   (`--trees R01N01 R01N02 ...`), so the protocol and the tool can be
-   checked here against the images.
-2. Choose the model by leave-one-out error on the development rows, and
-   look at the trees flagged by `summer_gt`.
+1. Click **5–6 pairs** on the 21 development trees in the repository first
+   (`--trees R01N01 R01N02 ...`), one near each corner of the part both
+   images show plus one or two in between, so the homography can be checked
+   and the protocol can be checked here against the images.
+2. Choose the model by leave-one-out error on those trees, and look at the
+   trees flagged by `summer_gt`. That also decides how many pairs the other
+   trees need: 3–4 for a similarity, 5–6 for a homography.
 3. Click the remaining trees (development rows, then test rows), and
    re-click about 20 trees to measure repeatability.
 4. Write the summer masks for all trees; they become the training labels

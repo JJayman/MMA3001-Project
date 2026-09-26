@@ -59,7 +59,7 @@ python -m treeskel.guided_gt data/raw --overlays           # render guided groun
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fill at the fork (development rows only)
 python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
-python -m treeskel.annotate_pairs data/raw --dev-only      # click winter-summer point pairs
+python -m treeskel.annotate_pairs data/raw --dev-only      # click winter-summer point pairs (--model homography)
 python -m treeskel.summer_gt data/raw --dev-only           # alignment error per model; writes the summer masks
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```

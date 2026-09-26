@@ -21,22 +21,36 @@ both seasons, and on the tree's row (the plane the tree grows in):
 Avoid the ground (it lies in front of or behind the row), leaves and fruit,
 the rows behind, and thin branches, which may have grown or bent under the
 fruit. Aim for **4 pairs** (at least 3), spread out across the tree: left
-and right, high and low.
+and right, high and low. To compare the models (see below), click **5–6
+pairs**, one near each corner of the part both images show, plus one or two
+in between.
 
-**Checking as you go.** From 2 pairs on, the winter mask moved by the fitted
-transform (:func:`treeskel.summer_gt.pair_transform`) is outlined on the
-summer image: its trunk should sit on the summer trunk. From 3 pairs on,
-each summer point shows its leave-one-out error, i.e. how far from the click
-the fit of the other pairs puts it (:func:`treeskel.summer_gt.loo_errors`).
-A large one (red, over 10 px) is usually a wrong click: undo it, or reset.
-With only 3 pairs, one wrong click raises all three errors, because each is
-checked against a fit that uses the other two; the largest is usually the
-wrong one, and a fourth pair makes it clear.
+**The model.** The camera stood at a different height, distance and angle
+in each season. A similarity (``--model similarity``, the default) covers a
+shift, a scale and a roll. Pitch or yaw between the seasons also adds
+perspective, which only a homography (``--model homography``, 4 pairs to
+fit, 5 to check) models exactly. With points spread over the image, a 5°
+tilt left the similarity about 9 px off (leave-one-out), while the
+homography was exact (``tests/test_summer_gt.py``). But the homography's
+extra parameters also follow click errors more, so which is better overall
+is decided by ``python -m treeskel.summer_gt`` on the development rows.
+
+**Checking as you go.** Once the model can be fitted, the winter mask moved
+by it is outlined on the summer image: its trunk should sit on the summer
+trunk. The part of the summer image that the winter image does not cover is
+shaded, since the winter mask says nothing there (its label will be
+"unknown"). With one pair more than the fit needs, each summer point shows
+its leave-one-out error, i.e. how far from the click the fit of the other
+pairs puts it (:func:`treeskel.summer_gt.loo_errors`). A large one (red,
+over 10 px) is usually a wrong click: undo it, or reset. With just one pair
+to spare, one wrong click raises all the errors, because each is checked
+against a fit that includes it; the largest is usually the wrong one, and
+another pair makes it clear.
 
 Keys:
 
 ========  ==========================================================
-Enter     accept this tree (at least 2 pairs) and go to the next
+Enter     accept this tree (enough pairs for the model) and go to the next
 u         undo the last click
 r         reset this tree's pairs
 s         skip this tree (no usable points); it gets no summer mask
@@ -65,7 +79,7 @@ import numpy as np
 from treeskel.align import MIN_SAMPLES, describe, load_winter_mask, outline, warp_mask
 from treeskel.guided_gt import load_clicks
 from treeskel.io import TreeRecord, index_dataset, load_tree
-from treeskel.summer_gt import SeasonPairs, load_pairs, loo_errors, pair_transform, save_pairs
+from treeskel.summer_gt import PAIR_MODELS, SeasonPairs, load_pairs, loo_errors, pair_transform, save_pairs
 
 PANELS = ("winter", "summer")
 
@@ -110,6 +124,7 @@ class PairAnnotator:
         self.matrix = None
         self.loo = np.zeros(0)
         self.warped = None
+        self.covered = None
         if self.tree is None:
             self.done = True
             return
@@ -126,9 +141,13 @@ class PairAnnotator:
         enough = len(self.pairs) >= MIN_SAMPLES[self.model]
         self.matrix = pair_transform(self.pairs, self.model) if enough else None
         self.loo = loo_errors(self.pairs, self.model)
-        self.warped = None
-        if self.matrix is not None and self.mask is not None:
-            self.warped, _ = warp_mask(self.mask, self.matrix, self.summer["rgb"].shape[:2])
+        self.warped = self.covered = None
+        if self.matrix is not None:
+            shape = self.summer["rgb"].shape[:2]
+            mask = self.mask if self.mask is not None else np.zeros(shape, bool)
+            self.warped, self.covered = warp_mask(mask, self.matrix, shape)
+            if self.mask is None:
+                self.warped = None
 
     def _snapshot(self) -> None:
         pairs = SeasonPairs(list(self.pairs.winter), list(self.pairs.summer), note=self.pairs.note)
@@ -147,7 +166,7 @@ class PairAnnotator:
             head += "Click a point in either image."
         if self.matrix is not None:
             d = describe(self.matrix, (320, 240))
-            head += f"\nFit: scale {d['scale']:.2f}, rotation {d['rotation']:+.1f} deg"
+            head += f"\nFit ({self.model}): scale {d['scale']:.2f}, rotation {d['rotation']:+.1f} deg"
             if np.isfinite(self.loo).any():
                 head += (f"; leave-one-out error median {np.nanmedian(self.loo):.1f} px, "
                          f"max {np.nanmax(self.loo):.1f} px")
@@ -255,6 +274,10 @@ def run_gui(ann: PairAnnotator, show: bool = True):
         if ann.show_masks:
             if ann.mask is not None:
                 _show_outline(axw, ann.mask)
+            if ann.covered is not None:                 # shade what the winter image does not show
+                shade = np.zeros((*ann.covered.shape, 4))
+                shade[~ann.covered] = (0.0, 0.0, 0.0, 0.45)
+                axs.imshow(shade, interpolation="nearest")
             if ann.warped is not None:
                 _show_outline(axs, ann.warped)
         for k in range(len(ann.pairs)):
@@ -317,6 +340,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
     ap.add_argument("--clicks", default="annotations/winter_clicks.json")
     ap.add_argument("--winter-gt", default="outputs/winter_gt_guided",
                     help="folder of <tree>_winter_gt.png masks; traced from the clicks if missing")
+    ap.add_argument("--model", choices=PAIR_MODELS, default="similarity",
+                    help="transform fitted for the live check (the saved pairs do not depend on it)")
     args = ap.parse_args(argv)
 
     trees = index_dataset(args.data_dir).trees
@@ -327,7 +352,8 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs 
     if args.dev_only:
         test_rows, _ = load_split(args.split, index_dataset(args.data_dir).trees)
         trees = [t for t in trees if t.row not in test_rows]
-    ann = PairAnnotator(trees, args.pairs, redo=args.redo, clicks_path=args.clicks, gt_dir=args.winter_gt)
+    ann = PairAnnotator(trees, args.pairs, redo=args.redo, clicks_path=args.clicks, gt_dir=args.winter_gt,
+                        model=args.model)
     print(f"{len(ann.trees)} trees to align; pairs saved to {args.pairs}")
     run_gui(ann)
     return 0

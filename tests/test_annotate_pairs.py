@@ -145,3 +145,34 @@ def test_window_turns_clicks_and_keys_into_pairs(ann_factory):
     key("n")
     assert ann.tree.tree_id == "R01N02" and axw.get_xlim() != (200, 400)    # new tree: full view again
     plt.close(fig)
+
+
+def test_homography_model_needs_four_pairs_and_shades_the_uncovered_part(ann_factory, sample_dir, tmp_path):
+    ann = ann_factory()
+    ann.model = "homography"
+    shift_pairs(ann)                                      # 3 pairs: too few for a homography
+    assert ann.matrix is None and ann.covered is None
+    ann.key("enter")
+    assert ann.tree.tree_id == "R01N01"                   # not accepted with 3 pairs
+    ann.click("winter", 100.0, 150.0)
+    ann.click("summer", 90.0, 170.0)                      # 4th pair, same shift
+    assert ann.matrix is not None and "Fit (homography)" in ann.prompt()
+    # The shift is 20 px right and 10 px up, so summer's left 20 columns and bottom 10 rows
+    # show what the winter image does not.
+    assert not ann.covered[:, :20].any() and not ann.covered[-10:].any()
+    assert ann.covered[:470, 20:].all()
+
+
+def test_window_shades_the_uncovered_part(ann_factory):
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend("Agg")
+    ann = ann_factory()
+    shift_pairs(ann)
+    fig = run_gui(ann, show=False)
+    fig.canvas.draw()
+    axs = fig.axes[1]
+    shades = [im for im in axs.get_images() if im.get_array().ndim == 3 and im.get_array().shape[2] == 4
+              and im.get_array()[..., 3].max() == pytest.approx(0.45)]
+    assert len(shades) == 1                               # one translucent layer over the uncovered part
+    plt.close(fig)
