@@ -13,7 +13,9 @@ tuning trees plus R01N01, R01N02, R15N05 and R20N06). The four test-row trees
 in `data/sample` were left out automatically (test rows 3, 12 and 16 are read
 from `splits.json`). Console output: `output_21_dev_trees.txt`; per-leader
 numbers: `leaders.csv`; everything else: `report.json`. The check on all 449
-development trees is still to run (see [To do](#to-do)).
+development trees, run on the student's PC after the change was merged, is
+[further down](#check-on-all-development-rows-449-trees): the choice of reach
+held there, one statement about the crotch did not.
 
 ## The problem (seen by the student)
 
@@ -25,9 +27,7 @@ Each part of the mask is a union of discs along its path, so the trunk ended
 at the fork in a half disc of its own radius R (11–22 px here). That round
 top showed in two places:
 
-- **between the leaders**, as a round floor to the crotch: the crotch sat a
-  median 1.00 R above the fork click, against 0.77 R in the depth silhouette
-  (0.66 R with its 2 px overshoot removed);
+- **between the leaders**, as a round floor to the crotch instead of a V;
 - **beside them**, as a notch on each leader's outer side where it left the
   circle (the notch the session-6 shoulder fill closed, keeping the circle).
 
@@ -132,12 +132,13 @@ choose a setting.)
   0.829). Depth blurs a junction: its silhouette merges the two leaders and
   the top of the trunk into one mass. So the change is made for the shape
   the student asked for, and depth shows it is no worse.
-- **The crotch is closer to depth's.** Its bottom drops from 1.00 R to 0.86
-  R above the fork (depth: 0.77 R); the crotch lost 560 mask pixels, 127 of
-  them off depth. In the figure the removed pixels (blue) lie on background
-  in the photos (on R01N02 in deep shadow). On trees whose trunk leans, the
-  flat top is tilted with the trunk, and the round top also went where it
-  bulged past a leader's outer edge onto the ground (R01N25).
+- **The crotch is closer to depth's** on these 21 trees. Its bottom drops
+  from 1.00 R to 0.86 R above the fork (depth: 0.77 R); the crotch lost 560
+  mask pixels, 127 of them off depth. **This did not hold on all 449 trees**
+  (see below). In the figure the removed pixels (blue) lie on background in
+  the photos (on R01N02 in deep shadow). On trees whose trunk leans, the flat
+  top is tilted with the trunk, and the round top also went where it bulged
+  past a leader's outer edge onto the ground (R01N25).
 - **The shoulders.** With reach 1.0 the joins cover the shoulder as much as
   the raw silhouette at 1.5 R (0.958 against 0.955) and between the two
   references at 2 R (0.917, between 0.880 and 0.943). Leaders with a notched
@@ -153,17 +154,18 @@ against the shrunk one; 1.0 lies within that range, at the raw-depth end.
 along each leader the depth silhouette's width falls from the trunk's to the
 leader's over a median 1.59 trunk radii (449 trees). But that decay is
 measured along the leader's centre line, where the crotch limits the width as
-much as the outer shoulder: depth's crotch opens at 0.77 R, about the middle
-of that transition. So the decay describes the whole junction, not how far
-the outer join should reach. Measured directly, 1.5 covers more of the
+much as the outer shoulder: depth's crotch opens within that transition (a
+median 0.77 R above the fork on the 21 trees, 1.07 R on all 449). So the decay
+describes the whole junction, not how far the outer join should reach. Measured directly, 1.5 covers more of the
 shoulder than even the raw silhouette at both reaches (1.000 and 0.961),
 which is why the 1.4 fill was turned off. On the photos, 1.0 and 1.5 differ by
 a few pixels on each outer shoulder (figure, last two columns).
 
 **Other options for the student.** About 0.75 would keep the shoulder
 coverage of the masks the student accepted when turning the fill off (0.929
-and 0.898), changing only the shape: the flat top and the V crotch. 0.5
-leaves deeper notches than the round top did (24–29% of leaders notched).
+and 0.898), changing only the shape: the flat top and the V crotch (about 0.8
+on all 449 trees). 0.5 leaves deeper notches than the round top did (24–29%
+of leaders notched).
 
 **The hand masks do not settle it.** A scratch check (not in the package)
 measured the width along the centre lines relative to the trunk, as for the
@@ -171,6 +173,73 @@ hand masks in `docs/results/leader_width/`, on these 21 trees. The hand masks,
 the round top and junctions 0.5 to 2.0 all come within 0.1 of each other at
 every distance from the fork. The round top changes the outline beside the
 centre line more than the width across it.
+
+## Check on all development rows (449 trees)
+
+Run on the student's PC after the change was merged, with
+`python -m treeskel.measure_fork data/raw --out outputs/measure_fork_junction`
+(console output in `all_dev_rows_output.txt`; test rows left out as before).
+
+| Mean coverage of the shoulder triangle | reach 1.5 R | reach 2 R | Notched (< 80%), 1.5 R | 2 R |
+|---|---|---|---|---|
+| Depth silhouette (wood) | 0.940 | 0.915 | 10% | 16% |
+| Depth silhouette shrunk 2 px | 0.878 | 0.841 | 23% | 31% |
+| Round top (the masks before) | 0.905 | 0.867 | 9% | 32% |
+| Round top + fill 1.4 (session 6, off) | 0.995 | 0.942 | 0% | 5% |
+| Junction 0.5 | 0.860 | 0.832 | 33% | 40% |
+| **Junction 1.0 (chosen)** | **0.935** | **0.886** | **4%** | **25%** |
+| Junction 1.5 | 0.999 | 0.948 | 0% | 2% |
+| Junction 2.0 | 1.000 | 0.998 | 0% | 0% |
+
+| Junction reach at which the joins cover the shoulder as much as | 21 trees | 449 trees (leave-one-tree-out) |
+|---|---|---|
+| depth, reach 1.5 R | 0.98 | 1.04 (1.04–1.06) |
+| shrunk depth, reach 1.5 R | below 0.5 | 0.62 (0.61–0.63) |
+| depth, reach 2 R | 1.30 | 1.23 (1.23–1.25) |
+| shrunk depth, reach 2 R | 0.51 | 0.59 (0.58–0.61) |
+
+| | Pixels added (share on depth / shrunk depth) | Pixels removed (on depth / shrunk depth) | Fork-zone precision | IoU |
+|---|---|---|---|---|
+| Round top | 0 | 0 | 0.941 | 0.833 |
+| **Junction 1.0** | **4,842 (0.85 / 0.69)** | **12,210 (0.83 / 0.69)** | **0.942** | **0.831** |
+| Junction 1.5 | 17,902 (0.77 / 0.61) | 10,733 (0.84 / 0.71) | 0.940 | 0.836 |
+
+| The crotch | Mask pixels off depth / all | Height above the fork (trunk radii, median) | Minus depth's (paired) | Minus shrunk depth's |
+|---|---|---|---|---|
+| Depth silhouette | – | 1.07 | – | – |
+| Depth shrunk 2 px | – | 0.95 | – | – |
+| Round top | 32,666 / 258,992 | 1.00 | −0.06 | +0.06 |
+| **Junction (any reach)** | **31,112 / 248,960** | **0.89** | **−0.18** | **−0.06** |
+
+**What held:**
+
+- **The reach.** 1.0 now lies between the two references at both reaches
+  (0.935 between 0.878 and 0.940; 0.886 between 0.841 and 0.915); on the 21
+  trees it had been level with raw depth at 1.5 R. The four matching reaches
+  (0.59–1.23, mean 0.87) agree with the 21-tree ones, and each
+  leave-one-tree-out range is within 0.03. Reach 1.5 again covers more of the
+  shoulder than raw depth at both reaches (0.999 and 0.948). Notched leaders
+  at 2 R: 25%, between depth (16%) and shrunk depth (31%).
+- **Neutral by depth.** Per tree the junction adds about 11 px and removes
+  about 27 px; both are 83–85% on depth (69% on the shrunk silhouette), and
+  precision and IoU around the fork barely move (0.941 → 0.942, 0.833 →
+  0.831).
+- The round top's shoulder coverage corresponds to a reach of about 0.8
+  (0.80 and 0.82).
+
+**What did not hold: the crotch.** On the 21 trees depth's crotch was lower
+than the round top's (0.77 against 1.00 R), and the junction's (0.86 R) was
+closer to it. On all 449 trees depth's crotch is at 1.07 R (0.95 R with the
+overshoot removed). Against the corrected silhouette the round top is 0.06 R
+too high and the junction 0.06 R too low, about 1 px either way; against the
+raw silhouette the round top is closer. Of the 10,032 crotch pixels the
+junction removes, 1,554 (15%) are off depth. So depth does not favour the V in
+the crotch; it ties. The change rests on the shape: the round knob the
+student saw and the hand masks do not have. The 21 local trees were again
+unrepresentative (17 of them were picked as problem trees for tuning).
+
+The width decay is the same as in session 6 (1.59 trunk radii, 811 leaders),
+as it must be: it is measured on depth alone.
 
 ## A known answer
 
@@ -191,8 +260,9 @@ synthetic tree does not have, and the trunk's radius, 16 px against 15.5).
 
 ## Caveats
 
-- Chosen on 21 trees, most of them the unusual trees used for tuning; the
-  check on all 449 development trees is still to run.
+- Chosen on 21 trees, most of them the unusual trees used for tuning, and
+  checked on all 449 development trees (which include those 21); no
+  test-row tree was used. The reach held; the crotch comparison did not.
 - The reach is set by the shoulder coverage against a bracketed reference
   (raw against shrunk depth), not a model of the depth overshoot at a fork.
 - The join's edge is straight (a chamfer). Real forks curve: depth covers
@@ -205,16 +275,9 @@ synthetic tree does not have, and the trunk's radius, 16 px against 15.5).
   `docs/results/leader_width/`) still show a trunk that is too wide or too
   narrow.
 
-## To do
+## The student's check
 
-On the student's PC:
-
-```
-python -m treeskel.guided_gt data/raw --overlays
-python -m treeskel.measure_fork data/raw --out outputs/measure_fork_junction \
-    --figure outputs/fork_junction.jpg --figure-trees R01N17 R01N18 R07N25 R01N32 R09N12 R01N05
-```
-
-The first re-renders the ground truth for all 541 trees (check R01N17 and
-R01N18 against the hand masks); the second measures the junction on all
-development trees.
+The change was made for how the fork looks, which depth cannot judge. After
+re-rendering all masks on their PC (`python -m treeskel.guided_gt data/raw
+--overlays`), the student compared R01N17 and R01N18, the two trees whose
+masks showed the circle, with the hand masks: "they look a lot better now".
