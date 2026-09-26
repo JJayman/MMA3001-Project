@@ -187,6 +187,46 @@ def test_redo_starts_from_the_saved_transform_and_adds_the_time(ann_factory, tmp
     assert load_overlays(tmp_path / "overlay.json")["R01N01"].seconds == 25.0     # 10 s + 15 s
 
 
+def test_fast_warp_matches_the_exact_warps():
+    """What the window shows must be what is saved: masks exactly, photos to about a grey level."""
+    from treeskel.align import warp_image, warp_mask
+    from treeskel.annotate_overlay import fast_warp
+
+    rng = np.random.default_rng(0)
+    photo = (rng.uniform(0, 255, (60, 80, 3)).repeat(8, 0).repeat(8, 1)).astype(np.uint8)   # 480 x 640 blocks
+    mask = np.zeros((480, 640), bool)
+    mask[100:300, 200:230] = True
+    mask[150:170, 230:400] = True
+    for o in (Overlay(dx=12.3, dy=-40.7), Overlay(dx=-7, dy=25, scale=1.04, roll=2.5, pitch=3, yaw=-2)):
+        m = o.matrix()
+        assert np.array_equal(fast_warp(mask.astype(np.uint8) * 255, m, nearest=True) > 127, warp_mask(mask, m)[0])
+        ref, covered = warp_image(photo, m)
+        inner = covered & np.roll(covered, 2, 0) & np.roll(covered, -2, 0) & np.roll(covered, 2, 1) & np.roll(covered, -2, 1)
+        diff = np.abs(fast_warp(photo, m).astype(int) - ref.astype(int))[inner]
+        assert diff.mean() < 1.0
+
+
+def test_views_show_what_they_say(ann_factory):
+    from treeskel.annotate_overlay import fast_warp
+
+    ann = ann_factory()
+    ann.shift(20, -10)
+    ann.key("m")                                       # mask off, to compare the photos alone
+    ann.key(" ")
+    winter = ann.composite()
+    ann.key(" ")
+    assert np.array_equal(ann.composite(), ann.summer["rgb"])
+    moved = fast_warp(ann.winter["rgb"], ann.matrix())
+    assert np.array_equal(winter[:460, 20:], moved[:460, 20:])        # the covered part shows winter
+    assert np.array_equal(winter[:, :20], ann.summer["rgb"][:, :20])  # the rest shows summer
+    ann.key("5")
+    blend = ann.composite().astype(int)
+    expect = (ann.summer["rgb"].astype(int) + moved.astype(int)) / 2
+    assert np.abs(blend[:460, 20:] - expect[:460, 20:]).max() <= 1
+    ann.key("m")
+    assert (ann.composite() == (255, 0, 255)).all(-1).any()          # the mask's outline in magenta
+
+
 def test_window_drag_scroll_and_keys(ann_factory):
     """The real matplotlib wiring, driven by simulated events on the Agg canvas."""
     import matplotlib.pyplot as plt
@@ -197,23 +237,23 @@ def test_window_drag_scroll_and_keys(ann_factory):
     fig = run_gui(ann, show=False)
     fig.canvas.draw()
     ax = fig.axes[0]
-    limits = (ax.get_xlim(), ax.get_ylim())
+    (picture,) = ax.get_images()
+    before = picture.get_array().copy()
 
     def mouse(name, col, row, button=MouseButton.LEFT, **kw):
         x, y = ax.transData.transform((col, row))
         fig.canvas.callbacks.process(name, MouseEvent(name, fig.canvas, x, y, button=button, **kw))
 
+    ax.set_xlim(100, 400)                                             # zoomed in
     mouse("button_press_event", 300, 300)
     mouse("motion_notify_event", 312, 290, button=None)
-    layer = [im for im in ax.get_images()][1]
-    assert layer.get_extent() == pytest.approx((11.5, 651.5, 469.5, -10.5), abs=1e-6)   # slid, not resampled
-    assert (ax.get_xlim(), ax.get_ylim()) == limits                                    # the view stays
+    assert (ann.ov.dx, ann.ov.dy) == pytest.approx((12.0, -10.0))    # moves while dragging
+    assert not np.array_equal(picture.get_array(), before)
     mouse("button_release_event", 312, 290)
-    assert (ann.ov.dx, ann.ov.dy) == pytest.approx((12.0, -10.0))
-    assert [im for im in ax.get_images()][1].get_extent() == pytest.approx((-0.5, 639.5, 479.5, -0.5))
+    assert ax.get_xlim() == (100, 400)                                # the zoom stays
     n = len(ann.history)
-    mouse("button_press_event", 100, 100)                             # a click without a drag
-    mouse("button_release_event", 100, 100)
+    mouse("button_press_event", 200, 200)                             # a click without a drag
+    mouse("button_release_event", 200, 200)
     assert len(ann.history) == n
     fig.canvas.toolbar = types.SimpleNamespace(mode="zoom rect")       # zoom on: drags ignored
     mouse("button_press_event", 300, 300)
@@ -226,5 +266,5 @@ def test_window_drag_scroll_and_keys(ann_factory):
     fig.canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", fig.canvas, "u"))
     assert ann.ov.scale == pytest.approx(1.0)
     fig.canvas.callbacks.process("key_press_event", KeyEvent("key_press_event", fig.canvas, "enter"))
-    assert ann.tree.tree_id == "R01N02"
+    assert ann.tree.tree_id == "R01N02" and ax.get_xlim() == (-0.5, 639.5)   # new tree: full view
     plt.close(fig)
