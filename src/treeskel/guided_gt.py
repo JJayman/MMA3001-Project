@@ -37,12 +37,13 @@ and the branches are traced between them automatically:
    past each edge and merges with things behind. Each leader is drawn at its
    own robust width, widened near the fork by an amount shared by all
    leaders that fades with distance (:func:`fit_leader_radius`).
-6. **Fork** (:func:`shoulder_fill`): a straight taper cannot show a leader
-   widening where it joins the trunk, so a thin leader would stick out of
-   the round top of a much wider trunk, leaving a notch (a "shoulder") on
-   each side. In the winter depth images the wood fills these notches, so
-   on each leader's outer side the mask is filled out to the straight line
-   from the trunk's edge at the fork to the leader's edge a little way up.
+6. **Fork** (:func:`shoulder_fill`, off by default since session 8): a
+   leader drawn much thinner than the trunk sticks out of the round top of
+   the trunk, leaving a notch (a "shoulder") on each side. The fill closes
+   it on each leader's outer side, out to the straight line from the
+   trunk's edge at the fork to the leader's edge a little way up. It was
+   needed while the leaders were drawn about half as wide as their bark;
+   at their true width the notch has mostly gone.
 7. **Result** (:func:`guided_gt`): a :class:`treeskel.winter_gt.WinterGT`, so
    the same rendering, shape measures and overlays apply to both methods.
 
@@ -158,13 +159,13 @@ class GuidedParams:
             width further up (a fraction); 0 turns the widening off.
         widening_length: Distance (in trunk radii at the fork) over which
             the widening falls by a factor e. ``fork_widening`` and
-            ``widening_length`` are shared by all leaders. They were fitted
-            to the widths measured across 42 leaders of 21 development-row
-            trees (:mod:`treeskel.measure_width`): +35% at the fork (+24% 1.5
-            trunk radii up it), fading over 4 trunk radii; leave-one-tree-out
-            picked 0.30–0.45 and 3–5. The evidence is weak: the fitted shape
-            beats a constant width on 12 of the 21 held-out trees. A straight
-            taper along the whole leader is not supported (median change 0%).
+            ``widening_length`` are shared by all leaders. The values here
+            were fitted on 21 development-row trees (+35% at the fork,
+            fading over 4 trunk radii) and are provisional: on all 449
+            development trees (:mod:`treeskel.measure_width`) the best length
+            was 12, the longest then tried, and the leaders narrow along
+            their whole length (median free taper −16%). They are to be
+            re-chosen on all 449 with the extended grid.
         leader_fit_start: A leader's own width is estimated from points at
             least this many trunk radii from the fork; nearer, the
             cross-section cuts through the top of the trunk. Cross-sections
@@ -173,15 +174,17 @@ class GuidedParams:
             one is a median 2.1 trunk radii from the fork.
         shoulder_length: How far up each leader the shoulder fill reaches
             (:func:`shoulder_fill`), in multiples of the trunk's radius at
-            the fork; 0 turns it off. Chosen with :mod:`treeskel.measure_fork`
-            on 21 development-row trees and checked on all 449: fills from
-            1.17 to 1.72 cover the shoulder as much as the winter depth
-            silhouette does (mean 1.43), depending on how far up the leader
-            it is compared and on the correction for depth bleeding. The
-            depth width along a leader falls from the fork to the leader's
-            own over a median of 1.59 trunk radii, so the true transition
-            may be slightly longer (see ``docs/results/fork_shoulders/``).
-            Not used by the cost map.
+            the fork; 0 (the default) turns it off. Session 6 chose 1.4 with
+            :mod:`treeskel.measure_fork`, when the leaders were drawn about
+            half as wide as their bark and left a deep notch beside the
+            trunk. With the leaders at their true width (session 8), the
+            masks without any fill already cover the shoulder between the
+            depth silhouette and the silhouette minus its measured 2 px
+            overshoot, on all 449 development trees (0.914 against
+            0.875–0.938 at 1.5 trunk radii), while 1.4 covered more than
+            depth did. So the student turned it off, for the moment; 1.4
+            restores the session-6 masks' fill (see
+            ``docs/results/fork_shoulders/``). Not used by the cost map.
     """
 
     depth_weight: float = 0.2
@@ -204,7 +207,7 @@ class GuidedParams:
     fork_widening: float = 0.35
     widening_length: float = 4.0
     leader_fit_start: float = 1.5
-    shoulder_length: float = 1.4
+    shoulder_length: float = 0.0
 
 
 @dataclass
@@ -503,7 +506,7 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
         trunk_shape=path_shape(trunk, radius), left_shape=path_shape(left, radius),
         right_shape=path_shape(right, radius), ok=True,
     )
-    # Fill the notches between the trunk and each leader's outer side.
+    # Fill the notches between the trunk and each leader's outer side (none if shoulder_length is 0).
     gt.shoulders = fill_shoulders(gt, params.shoulder_length)
     return gt
 

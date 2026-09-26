@@ -45,11 +45,14 @@ camera, different (autumn) capture.
   half of a side-lit branch counts; cross-sections within reach of the other
   leader are not used). Each leader is drawn at its own robust width, widened
   near the fork by a shared +35% that fades over 4 trunk radii
-  (`fit_leader_radius`). Centre lines are smoothed between clicks (σ = 6).
-  At the fork, the notch on each leader's outer side is filled out to the
-  straight line from the trunk's edge to the leader's edge 1.4 trunk radii up
-  it (`shoulder_fill`, session 6; with the session-8 widths it may no longer
-  be needed, see `docs/results/leader_width/`); the crotch between the
+  (`fit_leader_radius`); these two values came from 21 trees and are
+  provisional, as the 449-tree check preferred a much longer fade (see
+  `docs/results/leader_width/`). Centre lines are smoothed between clicks (σ = 6).
+  **No shoulder fill at the fork** (`shoulder_length = 0`, the student's
+  decision in session 8, "for the moment"): the session-6 fill (1.4) closed
+  the notch left by leaders drawn too thin; at their true width the masks
+  without it already match depth on all 449 development trees, and 1.4
+  overfilled. `shoulder_length = 1.4` restores it. The crotch between the
   leaders is not filled.
 
 ## Where things are

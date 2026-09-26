@@ -324,8 +324,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--figure", help="also save fork crops (winter RGB, masks) as this image")
     ap.add_argument("--figure-trees", nargs="+", help="trees for the figure (default: the first six)")
-    ap.add_argument("--figure-lengths", type=float, nargs="+", default=[GuidedParams().shoulder_length],
-                    help="shoulder_length settings shown in the figure, after 0")
+    ap.add_argument("--figure-lengths", type=float, nargs="+", default=[1.4],
+                    help="shoulder_length settings shown in the figure, after 0 (no fill); "
+                         "default: 1.4, the session-6 choice")
     args = ap.parse_args(argv)
 
     test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
@@ -394,7 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     failed: list[str] = []
     if args.figure:
         shown = [r for r in results if r["tiles"] is not None]
-        labels = ["no fill (before)"] + [f"shoulder_length {k:g}" for k in args.figure_lengths]
+        labels = ["no fill"] + [f"shoulder_length {k:g}" for k in args.figure_lengths]
         save_image(_figure(shown, labels), Path(args.figure), failed, quality=90)
     print(f"Saved {out / 'leaders.csv'} and {out / 'report.json'}" + (f" and {args.figure}" if args.figure else ""))
     report_failed(failed)
