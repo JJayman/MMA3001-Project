@@ -125,6 +125,32 @@ direct measure of the notch (the four matching settings range from 1.17 to
 The setting was chosen on 21 trees and then checked on all 449 development
 trees (which include those 21); no test-row tree was used.
 
+## Re-check with the corrected leader widths (session 8)
+
+In session 8 the leaders turned out to have been drawn about half as wide as
+their bark (see `docs/results/leader_width/`). With their true widths
+(median 0.27 R before, about 0.5 R now) most of the notch the fill was made
+for has gone. `measure_fork` re-run on the same 21 trees with the new widths
+(`new_leader_widths/`, figure `docs/figures/fork_shoulders_new_leader_widths.jpg`):
+
+| Mean coverage of the shoulder triangle | reach 1.5 R | reach 2 R |
+|---|---|---|
+| Depth silhouette (wood) | 0.954 | 0.943 |
+| Depth silhouette shrunk 2 px | 0.896 | 0.879 |
+| **New masks, no fill** | **0.936** | **0.912** |
+| New masks, fill 1.0 | 0.967 | 0.935 |
+| New masks, fill 1.4 (current) | 0.998 | 0.964 |
+
+- Without any fill the new masks lie between the two depth references, the
+  criterion used above. Session 8 also measured the depth overshoot
+  directly: a median 2.0 px past clear bark edges, so the shrunk silhouette is
+  the better reference, and against it no fill is needed.
+- Matching settings: 0.58 (depth, 1.5 R; leave-one-out 0.36–1.03) and 1.12
+  (depth, 2 R; 1.00–1.36); against the shrunk depth, below 0.
+- The pixels the 1.4 fill adds are 81% on depth (94% before on these trees).
+- Not changed yet: `shoulder_length` stays 1.4 until the student decides
+  between keeping it, lowering it to about 1.0, or turning it off.
+
 ## Alternatives tried and rejected
 
 Prototyped in the same session (the prototypes are not in the package; the

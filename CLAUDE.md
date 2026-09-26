@@ -39,19 +39,26 @@ camera, different (autumn) capture.
   `winter_gt` is kept as a **baseline** only.
 - **Two leaders per tree**, matching the hand masks. "Left" is the leader
   whose tip is further left in the image.
-- **Masks:** the trunk width comes from depth; the leader widths come from
-  colour (scale-space); both use a robust taper fit; centre lines are
-  smoothed between clicks (σ = 6). At the fork, the notch on each leader's
-  outer side is filled out to the straight line from the trunk's edge to the
-  leader's edge 1.4 trunk radii up it (`shoulder_fill`, session 6); the
-  crotch between the leaders is not filled.
+- **Masks:** the trunk width comes from depth (robust straight taper). Each
+  leader's width is measured across the branch in colour (`branch_edges`,
+  session 8: background | bark | background by least squares, so the shaded
+  half of a side-lit branch counts; cross-sections within reach of the other
+  leader are not used). Each leader is drawn at its own robust width, widened
+  near the fork by a shared +35% that fades over 4 trunk radii
+  (`fit_leader_radius`). Centre lines are smoothed between clicks (σ = 6).
+  At the fork, the notch on each leader's outer side is filled out to the
+  straight line from the trunk's edge to the leader's edge 1.4 trunk radii up
+  it (`shoulder_fill`, session 6; with the session-8 widths it may no longer
+  be needed, see `docs/results/leader_width/`); the crotch between the
+  leaders is not filled.
 
 ## Where things are
 
 ```
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                (tracing, widths, fork fill), annotate.py (click tool),
-               tune_cost.py, measure_fork.py, align.py (transforms, matchers),
+               tune_cost.py, measure_fork.py, measure_width.py (leader widths),
+               align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
                (line-up tool, chosen), summer_gt.py (summer masks and checks)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py

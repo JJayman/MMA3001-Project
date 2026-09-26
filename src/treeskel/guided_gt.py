@@ -27,12 +27,16 @@ and the branches are traced between them automatically:
 4. **Smoothing** (:func:`smooth_segment`): the pixel path zig-zags by a
    pixel or two (bark texture, 8-connected steps), so each stretch between
    clicks is smoothed with the clicks held fixed.
-5. **Widths** (:func:`fit_taper`): the trunk's width is measured from depth,
-   and the leaders' from the colour image by scale-space ridge detection
-   (:func:`scale_space_radius`), because depth roughly doubles thin
-   branches' widths. Point measurements are noisy, so each part's radius is
-   fitted as a straight-line taper along its length by robust Huber
-   regression (:func:`huber_line`), within plausible limits.
+5. **Widths**: the trunk's width is measured from depth and fitted as a
+   straight-line taper along its length by robust Huber regression
+   (:func:`fit_taper`, :func:`huber_line`). Each leader's width is measured
+   across the branch in the colour image (:func:`branch_edges`): every
+   cross-section is split into background, branch and background by least
+   squares, so both the sunlit and the shaded half of a branch lit from one
+   side count. Depth is not used for leaders because it reaches about 2 px
+   past each edge and merges with things behind. Each leader is drawn at its
+   own robust width, widened near the fork by an amount shared by all
+   leaders that fades with distance (:func:`fit_leader_radius`).
 6. **Fork** (:func:`shoulder_fill`): a straight taper cannot show a leader
    widening where it joins the trunk, so a thin leader would stick out of
    the round top of a much wider trunk, leaving a notch (a "shoulder") on
@@ -62,6 +66,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy import ndimage as ndi
+from scipy.spatial import cKDTree
 from skimage.color import rgb2hsv
 from skimage.filters import frangi
 from skimage.draw import disk as draw_disk
@@ -85,9 +90,9 @@ Point = tuple[int, int]
 
 @dataclass(frozen=True)
 class GuidedParams:
-    """Settings for the cost map.
+    """Settings for the cost map and for drawing the branches.
 
-    The defaults were chosen by :mod:`treeskel.tune_cost` on 17 annotated
+    The cost-map defaults were chosen by :mod:`treeskel.tune_cost` on 17 annotated
     trees (64 correction clicks). The first defaults (depth 0.5, tube 0.3,
     colour 0.2, power 2, centre weight 0.5) made wood almost free, so paths
     wandered within thick trunks and needed many corrections: 62% of the
@@ -120,17 +125,52 @@ class GuidedParams:
             stretch between clicks (:func:`smooth_segment`); 0 = no smoothing.
             Not used by the cost map, so :mod:`treeskel.tune_cost` results
             are unaffected.
-        leader_width_source: ``"colour"`` to measure leader widths from the
-            RGB image by scale-space ridge detection
-            (:func:`scale_space_radius`), or ``"depth"`` to use the depth
-            foreground like the trunk. Depth "bleeds" a few pixels past
-            branch edges, which roughly doubles thin leaders' widths, so
-            colour is the default. Trunks always use depth: a trunk lit on
-            one side makes the colour estimate lock onto the bright half.
-        leader_scales: Range (px) of Gaussian scales searched for leaders.
+        leader_width_source: How leader widths are measured: ``"profile"``
+            (default) finds both edges of the branch in colour cross-sections
+            (:func:`branch_edges`); ``"scale_space"`` uses scale-space ridge
+            detection (:func:`scale_space_radius`, the default until session
+            8); ``"depth"`` uses the depth foreground like the trunk. On the
+            21 development trees in the repository, ``"scale_space"`` gave
+            about half the width of the bark: it responds to the sunlit half
+            of a branch lit from one side. Depth reaches a median 2.0 px past
+            clear bark edges; with that removed, it agrees with
+            ``"profile"`` (median difference −0.4 px per leader), see
+            :mod:`treeskel.measure_width`. Trunks always use depth.
+        leader_scales: Range (px) of Gaussian scales searched for leaders
+            (``"scale_space"`` only).
         scale_window: Half-size (px) of the neighbourhood searched around
             each path point, so a slightly off-centre path still finds the
-            branch.
+            branch (``"scale_space"`` only).
+        profile_half_width: How far (px) either side of the path each
+            cross-section reaches (``"profile"`` only); wider than the widest
+            leader plus a few pixels of background.
+        profile_along: Cross-sections are averaged over this many path
+            points either side (``"profile"`` only), which evens out bark
+            texture and background clutter. Longer averages blurred the edges
+            where leaders curve.
+        leader_fit: ``"widening"`` (default) draws each leader at its own
+            width, widened near the fork (:func:`fit_leader_radius`);
+            ``"taper"`` fits a free straight taper per leader
+            (:func:`fit_taper`, the method until session 8). Free tapers are
+            unreliable: on the 21 development trees, half of the leaders came
+            out widening upwards.
+        fork_widening: How much wider a leader is at the fork than its own
+            width further up (a fraction); 0 turns the widening off.
+        widening_length: Distance (in trunk radii at the fork) over which
+            the widening falls by a factor e. ``fork_widening`` and
+            ``widening_length`` are shared by all leaders. They were fitted
+            to the widths measured across 42 leaders of 21 development-row
+            trees (:mod:`treeskel.measure_width`): +35% at the fork (+24% 1.5
+            trunk radii up it), fading over 4 trunk radii; leave-one-tree-out
+            picked 0.30–0.45 and 3–5. The evidence is weak: the fitted shape
+            beats a constant width on 12 of the 21 held-out trees. A straight
+            taper along the whole leader is not supported (median change 0%).
+        leader_fit_start: A leader's own width is estimated from points at
+            least this many trunk radii from the fork; nearer, the
+            cross-section cuts through the top of the trunk. Cross-sections
+            that could reach the other leader are not used either
+            (:func:`clear_of`); on the development trees the first usable
+            one is a median 2.1 trunk radii from the fork.
         shoulder_length: How far up each leader the shoulder fill reaches
             (:func:`shoulder_fill`), in multiples of the trunk's radius at
             the fork; 0 turns it off. Chosen with :mod:`treeskel.measure_fork`
@@ -155,9 +195,15 @@ class GuidedParams:
     centre_source: str = "depth"
     wood_threshold: float = 0.45
     smooth_sigma: float = 6.0
-    leader_width_source: str = "colour"
+    leader_width_source: str = "profile"
     leader_scales: tuple[float, float] = (1.5, 12.0)
     scale_window: int = 4
+    profile_half_width: int = 20
+    profile_along: int = 3
+    leader_fit: str = "widening"
+    fork_widening: float = 0.35
+    widening_length: float = 4.0
+    leader_fit_start: float = 1.5
     shoulder_length: float = 1.4
 
 
@@ -424,15 +470,31 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     for p in (trunk, left, right):
         skel[p[:, 0], p[:, 1]] = True
     measured = {k: radius[p[:, 0], p[:, 1]] for k, p in (("trunk", trunk), ("left", left), ("right", right))}
-    if params.leader_width_source == "colour":
+    if params.leader_width_source == "profile":
+        for k, p, other in (("left", left, right), ("right", right, left)):
+            first, last = branch_edges(rgb, p, params.profile_half_width, params.profile_along)
+            widths = (last - first + 1) / 2.0
+            # Near the fork a cross-section can reach the other leader and take it in too.
+            widths[~clear_of(p, other, params.profile_half_width + NEIGHBOUR_MARGIN)] = np.nan
+            measured[k] = widths
+    elif params.leader_width_source == "scale_space":
         grey = rgb.astype(float).mean(2) / 255.0
         both = np.concatenate([left, right])
         r = scale_space_radius(grey, both, params.leader_scales, params.scale_window)
         measured["left"], measured["right"] = r[:len(left)], r[len(left):]
-    radii = {k: fit_taper(p, measured[k], k) for k, p in (("trunk", trunk), ("left", left), ("right", right))}
-    # A leader cannot start wider than the trunk it grows from.
+    elif params.leader_width_source != "depth":
+        raise ValueError(f"unknown leader_width_source {params.leader_width_source!r}")
+    radii = {"trunk": fit_taper(trunk, measured["trunk"], "trunk")}
     fork_r = _fork_radius(radii)
-    for k in ("left", "right"):
+    for k, p in (("left", left), ("right", right)):
+        if params.leader_fit == "widening":
+            radii[k] = fit_leader_radius(p, measured[k], fork_r, params.fork_widening, params.widening_length,
+                                         params.leader_fit_start, part=k)
+        elif params.leader_fit == "taper":
+            radii[k] = fit_taper(p, measured[k], k)
+        else:
+            raise ValueError(f"unknown leader_fit {params.leader_fit!r}")
+        # A leader cannot start wider than the trunk it grows from.
         radii[k] = np.minimum(radii[k], fork_r)
     gt = WinterGT(
         tree_mask=fg, skeleton=skel, radii=radii,
@@ -451,6 +513,24 @@ RADIUS_LIMITS = {"trunk": (4.0, 25.0), "left": (2.5, 15.0), "right": (2.5, 15.0)
 
 FALLBACK_RADIUS = {"trunk": 10.0, "left": 5.0, "right": 5.0}
 """Radius used when too few width measurements survive (px)."""
+
+NEIGHBOUR_MARGIN = 10.0
+"""Extra distance (px) beyond a cross-section's reach that the other leader must be,
+for the cross-section to be used: about a leader's half-width plus a few pixels."""
+
+
+def clear_of(path: np.ndarray, other: np.ndarray, distance: float) -> np.ndarray:
+    """True for the points of ``path`` further than ``distance`` px from every point of ``other``.
+
+    Used to drop cross-sections that could include the other leader: near
+    the fork the two leaders are close together, and a cross-section across
+    one then takes in the other as well. On a synthetic tree with leaders of
+    constant width, such cross-sections measured the leaders 1.7–2.4 times too
+    wide up to 3 trunk radii from the fork.
+    """
+    if len(path) == 0 or len(other) == 0:
+        return np.ones(len(path), bool)
+    return cKDTree(other).query(path)[0] > distance
 
 
 def huber_line(x: np.ndarray, y: np.ndarray, k: float = 1.345, iters: int = 30) -> tuple[float, float]:
@@ -483,6 +563,27 @@ def huber_line(x: np.ndarray, y: np.ndarray, k: float = 1.345, iters: int = 30) 
     return float(new[0]), float(new[1])
 
 
+def huber_location(y: np.ndarray, k: float = 1.345, iters: int = 30) -> float:
+    """Robust average of ``y`` by Huber's M-estimator (see :func:`huber_line`).
+
+    Starts from the median; values more than ``k`` robust standard
+    deviations away are down-weighted, so a minority of outliers (e.g.
+    cross-sections that also caught a branch behind) barely move it.
+    """
+    y = np.asarray(y, float)
+    m = float(np.median(y))
+    for _ in range(iters):
+        res = y - m
+        scale = 1.4826 * np.median(np.abs(res)) or 1e-9
+        u = np.abs(res) / (k * scale)
+        w = np.where(u <= 1, 1.0, 1.0 / np.maximum(u, 1e-12))
+        new = float(np.sum(w * y) / np.sum(w))
+        if abs(new - m) < 1e-6:
+            return new
+        m = new
+    return m
+
+
 def scale_space_radius(grey: np.ndarray, points: np.ndarray, scales: tuple[float, float] = (1.5, 12.0),
                        window: int = 4, ratio: float = 1.2) -> np.ndarray:
     """Branch half-width at each point, by scale-space ridge detection.
@@ -494,8 +595,15 @@ def scale_space_radius(grey: np.ndarray, points: np.ndarray, scales: tuple[float
     darker than sky both count. For a bar of half-width *a* this normalised
     response peaks at σ = *a* (the maximum of 2u·φ(u) is at u = a/σ = 1), so
     the scale of the strongest response within ``window`` px of each point
-    is taken as its half-width. On synthetic cylinder-shaded bars of
-    half-width 3–12 px the error is at most 0.5 px.
+    is taken as its half-width. On synthetic bars that are brighter than the
+    background right to their edges, of half-width 3–12 px, the error is at
+    most 0.5 px.
+
+    Real bark is not like that: a branch lit from one side is bright on that
+    side and dark on the other, and its edges are darker than its middle.
+    On such (Lambertian) bars this returns about 0.55–0.6 of the half-width,
+    and on the development trees about half the bark's width, so it is no
+    longer the default (see :func:`branch_edges`).
 
     Only a box around the points (padded by 3σ) is filtered, to save time.
 
@@ -527,6 +635,201 @@ def scale_space_radius(grey: np.ndarray, points: np.ndarray, scales: tuple[float
         better = v > best_resp
         best_resp[better], best_sig[better] = v[better], s
     return best_sig
+
+
+def path_normals(path: np.ndarray, half: int = 6) -> np.ndarray:
+    """Unit normals to a path, from the chord ``half`` points either side.
+
+    The chord ignores pixel-scale wiggles. The normal is the direction of
+    travel turned by 90° to its left, ``(−d_col, d_row)``.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` points in order.
+        half: Chord half-length in points (shortened at the ends).
+
+    Returns:
+        ``(N, 2)`` unit vectors ``(d_row, d_col)``; zero where the path does
+        not move.
+    """
+    n = len(path)
+    i = np.arange(n)
+    d = (path[np.minimum(i + half, n - 1)] - path[np.maximum(i - half, 0)]).astype(float)
+    size = np.hypot(d[:, 0], d[:, 1])[:, None]
+    d = np.divide(d, size, out=np.zeros_like(d), where=size > 0)
+    return np.stack([-d[:, 1], d[:, 0]], 1)
+
+
+def straighten(image: np.ndarray, path: np.ndarray, half_width: int, order: int = 1) -> np.ndarray:
+    """Sample an image across a path: one row per path point.
+
+    Row ``i`` holds the image along the normal at point ``i``
+    (:func:`path_normals`), from ``−half_width`` to ``+half_width`` px, so
+    the branch runs down the middle column. Samples outside the image take
+    the nearest edge value.
+
+    Args:
+        image: ``(H, W)`` or ``(H, W, C)`` array.
+        path: ``(N, 2)`` ``(row, col)`` points.
+        half_width: Reach either side of the path (px).
+        order: Interpolation order (1 = bilinear, 0 = nearest).
+
+    Returns:
+        ``(N, 2·half_width + 1)`` or ``(N, 2·half_width + 1, C)`` float array.
+    """
+    normals = path_normals(path)
+    off = np.arange(-half_width, half_width + 1)[None, :]
+    coords = [path[:, :1] + off * normals[:, :1], path[:, 1:] + off * normals[:, 1:]]
+    img = np.asarray(image, float)
+    if img.ndim == 2:
+        return ndi.map_coordinates(img, coords, order=order, mode="nearest")
+    return np.stack([ndi.map_coordinates(img[..., k], coords, order=order, mode="nearest")
+                     for k in range(img.shape[2])], -1)
+
+
+def _cumsum0(values: np.ndarray, axis: int) -> np.ndarray:
+    """Cumulative sum along ``axis`` with a leading zero (so sums over i0..i1-1 are c[i1] − c[i0])."""
+    pad = [(0, 0)] * values.ndim
+    pad[axis] = (1, 0)
+    return np.cumsum(np.pad(values, pad), axis=axis)
+
+
+def profile_edges(profiles: np.ndarray, min_background: int = 3, min_half: int = 1) -> tuple[np.ndarray, np.ndarray]:
+    """Where the branch starts and ends in each cross-section profile.
+
+    Each profile is modelled in three pieces and fitted by least squares:
+    the background on one side (a constant colour), the branch (a quadratic
+    in position, per colour channel) and the background on the other side
+    (a constant). A branch lit from one side is bright on that side and dark
+    on the other; the quadratic follows that shading across the whole branch,
+    whereas an edge or ridge detector stops at the change from the lit to
+    the shaded half. Every pair of change points is tried: the squared
+    error of each piece comes from cumulative sums of the samples and their
+    powers, so all pairs are scored at once. The branch must include the
+    centre (the path).
+
+    On synthetic branches lit from the front or either side, of half-width
+    3–9 px with the path up to 2 px off-centre, the half-width was found to
+    within 0.5 px in 47 of 48 cases, and within 1 px in the last (a
+    front-lit branch whose dark rim was as bright as the background).
+    Where a shaded half is as dark as the background next to it, it can be
+    left out; the robust fit along the leader (:func:`fit_leader_radius`)
+    absorbs such points.
+
+    Args:
+        profiles: ``(M, N)`` or ``(M, N, C)`` samples across the branch, ``N``
+            odd, centred on the path (e.g. from :func:`straighten`).
+        min_background: Fewest background samples on each side.
+        min_half: The branch reaches at least this many samples either side
+            of the centre.
+
+    Returns:
+        ``(first, last)``: ``(M,)`` int offsets from the centre (px) of the
+        first and last branch samples. The half-width is
+        ``(last − first + 1) / 2``.
+    """
+    p = np.asarray(profiles, float)
+    if p.ndim == 2:
+        p = p[..., None]
+    m, n, _ = p.shape
+    half = n // 2
+    if m == 0:
+        return np.zeros(0, int), np.zeros(0, int)
+    x = (np.arange(n) - half) / max(half, 1)                       # in [-1, 1], for conditioning
+    firsts = np.arange(min_background, half - min_half + 1)
+    lasts = np.arange(half + min_half, n - min_background)
+    if len(firsts) == 0 or len(lasts) == 0:
+        raise ValueError(f"profiles of {n} samples are too short for {min_background} background "
+                         f"and {min_half} branch samples on each side")
+    a, b = (g.ravel() for g in np.meshgrid(firsts, lasts, indexing="ij"))
+    sx = _cumsum0(np.stack([x ** k for k in range(5)]), 1)          # (5, n+1): sums of x^k
+    sxy = _cumsum0(np.stack([x ** k for k in range(3)])[:, None, :, None] * p[None], 2)  # (3, m, n+1, C)
+    syy = _cumsum0((p ** 2).sum(-1), 1)                            # (m, n+1)
+
+    def constant_sse(i0: np.ndarray, i1: np.ndarray) -> np.ndarray:
+        """Squared error of the best constant over samples i0..i1-1, per profile and pair."""
+        s = sxy[0][:, i1] - sxy[0][:, i0]
+        return syy[:, i1] - syy[:, i0] - (s ** 2).sum(-1) / (i1 - i0)
+
+    # Quadratic over a..b: normal equations G β = r, error = Σy² − rᵀG⁻¹r.
+    i0, i1 = a, b + 1
+    gram = np.stack([np.stack([sx[j + k][i1] - sx[j + k][i0] for k in range(3)], -1) for j in range(3)], -2)
+    r = np.stack([sxy[j][:, i1] - sxy[j][:, i0] for j in range(3)], 2)   # (m, pairs, 3, C)
+    solved = np.einsum("pjk,mpkc->mpjc", np.linalg.inv(gram), r)
+    quadratic = syy[:, i1] - syy[:, i0] - (r * solved).sum((2, 3))
+    cost = constant_sse(np.zeros_like(a), a) + quadratic + constant_sse(b + 1, np.full_like(b, n))
+    best = np.argmin(cost, 1)
+    return a[best] - half, b[best] - half
+
+
+def branch_edges(rgb: np.ndarray, path: np.ndarray, half_width: int = 20,
+                 along: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """Both edges of a branch at each point of its path, from the colour image.
+
+    The image is sampled across the path (:func:`straighten`), each
+    cross-section is averaged with its ``along`` neighbours either side, and
+    the edges are found by :func:`profile_edges`.
+
+    Args:
+        rgb: ``(H, W, 3)`` colour image.
+        path: ``(N, 2)`` points along the branch.
+        half_width: Reach of each cross-section either side of the path (px).
+        along: Cross-sections averaged either side of each point.
+
+    Returns:
+        ``(first, last)``: ``(N,)`` int offsets (px) of the branch's edges
+        along each point's normal (:func:`path_normals`).
+    """
+    if len(path) == 0:
+        return np.zeros(0, int), np.zeros(0, int)
+    samples = straighten(rgb, path, half_width)
+    if along > 0:
+        samples = ndi.uniform_filter1d(samples, 2 * along + 1, axis=0, mode="nearest")
+    return profile_edges(samples)
+
+
+def fit_leader_radius(path: np.ndarray, measured: np.ndarray, fork_radius: float, widening: float = 0.35,
+                      length: float = 4.0, start: float = 1.5, part: str = "left",
+                      min_valid: float = 2.5, min_points: int = 8) -> np.ndarray:
+    """A leader's drawing radius: its own width, widened near the fork.
+
+    ``r(s) = c · (1 + widening · exp(−s / (length · R)))``, where ``s`` is the
+    distance along the leader from the fork and ``R`` the trunk's radius at
+    the fork. The shape is shared by all leaders (see
+    :attr:`GuidedParams.fork_widening`), because one leader's widths are
+    too noisy to fit its own taper: with a free straight taper, half of
+    the development trees' leaders came out widening upwards. Only the
+    leader's own width ``c`` is fitted, as a robust (Huber) average of
+    ``measured / (1 + widening · exp(…))`` over the points at least
+    ``start · R`` from the fork. Nearer, the cross-section cuts through the
+    top of the trunk. Measurements at or below ``min_valid`` (failed edges)
+    or nan (no measurement, e.g. a cross-section that could include the
+    other leader, see :func:`clear_of`) are ignored. With fewer than
+    ``min_points`` usable measurements,
+    :data:`FALLBACK_RADIUS` is used for ``c``. The result is clipped to
+    :data:`RADIUS_LIMITS`.
+
+    Args:
+        path: ``(N, 2)`` leader path starting at the fork.
+        measured: ``(N,)`` measured half-widths (px), nan where not measured.
+        fork_radius: The trunk's radius at the fork, ``R`` (px).
+        widening: Extra width at the fork, as a fraction of ``c``.
+        length: Distance over which the widening falls by a factor e, in
+            trunk radii.
+        start: Nearest distance from the fork used to fit ``c``, in trunk
+            radii.
+        part: ``"left"`` or ``"right"`` (for the limits and fallback).
+
+    Returns:
+        ``(N,)`` radii to draw.
+    """
+    lo, hi = RADIUS_LIMITS[part]
+    if len(path) == 0:
+        return np.zeros(0)
+    s = arc_length(path)
+    shape = 1 + widening * np.exp(-s / max(length * fork_radius, 1e-9))
+    use = (measured > min_valid) & (s >= start * fork_radius)
+    level = huber_location(measured[use] / shape[use]) if use.sum() >= min_points else FALLBACK_RADIUS[part]
+    return np.clip(level * shape, lo, hi)
 
 
 def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
