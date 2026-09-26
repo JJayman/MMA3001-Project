@@ -1,0 +1,36 @@
+Command (21 development-row trees available in the repository, SIFT matcher):
+python -m treeskel.align DATA --matcher sift --trees R01N01 R01N02 R01N04 R01N05 R01N08 R01N13 R01N18 R01N25 R01N32 R07N09 R07N17 R07N25 R07N26 R07N29 R07N32 R09N12 R09N18 R09N32 R09N34 R15N05 R20N06
+
+
+Fitted 21 trees (36 s). Inlier threshold 5.0 px.
+Medians over trees. 'on tree': share of inliers within 20 px of the winter mask; 'no depth': share without a winter depth reading (background); scale, rotation and shift at the fork click.
+model          usable  inliers  on tree  no depth   scale  |rot|   shift x, y
+translation     0/21         2     0.00      1.00   1.000    0.0      0,   15
+similarity      0/21         3     0.33      0.50   0.756   70.4      2, -129
+affine          0/21         4     0.25      0.50   0.813  119.0     -7, -160
+homography      0/21         5     0.20      0.50   0.619  101.0   -130, -142
+
+Flagged for similarity (21 trees; limits are provisional):
+  R01N01: only 3 inliers; scale 0.42; rotation -13.9 deg
+  R01N02: only 4 inliers; scale 0.71; rotation -94.9 deg
+  R01N04: only 4 inliers; rotation 13.8 deg
+  R01N05: only 3 inliers; inliers cover 0.3% of the image; scale 0.67; rotation 63.1 deg
+  R01N08: only 3 inliers; inliers cover 0.0% of the image; rotation 33.0 deg
+  R01N13: only 3 inliers; scale 0.31; rotation -139.8 deg
+  R01N18: only 3 inliers; inliers cover 0.0% of the image; scale 0.29
+  R01N25: only 3 inliers; rotation -82.3 deg
+  R01N32: only 3 inliers; inliers cover 0.0% of the image; scale 3.92; rotation 14.6 deg
+  R07N09: only 2 inliers; inliers cover 0.0% of the image; scale 0.40; rotation 50.1 deg
+  R07N17: only 3 inliers; rotation -12.4 deg
+  R07N25: only 3 inliers; inliers cover 0.0% of the image; rotation -141.4 deg
+  R07N26: only 3 inliers; inliers cover 0.0% of the image; scale 5.52; rotation -70.4 deg
+  R07N29: only 2 inliers; inliers cover 0.0% of the image; scale 1.55; rotation -72.7 deg
+  R07N32: only 3 inliers; scale 0.31; rotation 106.7 deg
+  R09N12: only 3 inliers; rotation -115.8 deg
+  R09N18: only 3 inliers; scale 0.00; rotation 77.3 deg
+  R09N32: only 3 inliers; rotation 16.4 deg
+  R09N34: only 3 inliers; inliers cover 0.0% of the image; rotation 149.2 deg
+  R15N05: only 3 inliers; scale 0.28; rotation -76.8 deg
+  R20N06: only 3 inliers; inliers cover 0.0% of the image; scale 0.37; rotation 36.4 deg
+
+Results in outputs/align/sift

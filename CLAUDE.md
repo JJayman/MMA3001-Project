@@ -51,9 +51,10 @@ camera, different (autumn) capture.
 ```
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                (tracing, widths, fork fill), annotate.py (click tool),
-               tune_cost.py, measure_fork.py
+               tune_cost.py, measure_fork.py, align.py (winter-to-summer)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
+data/matches/  winter-summer matches per matcher (computed on the student's PC)
 data/raw/      full dataset, git-ignored, only on the student's PC
 docs/progress/ session summaries (the project's memory)
 docs/figures/, docs/results/  evidence for the report
@@ -61,7 +62,10 @@ docs/figures/, docs/results/  evidence for the report
 
 The assistant's environment has only `data/sample` and `data/tuning`. Runs on
 the full dataset happen on the student's Windows PC (the `.venv` there, a GPU
-is available). Give exact commands and ask for the output.
+is available). Give exact commands and ask for the output. Loading downloaded
+pretrained network weights (e.g. the matchers in `align.py`) is blocked in the
+assistant's environment: those models run on the student's PC, and their
+outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Conventions
 
