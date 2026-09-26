@@ -572,7 +572,8 @@ def _image_tensor(rgb: np.ndarray, device):
     """``(H, W, 3)`` uint8 image as a ``(1, 3, H, W)`` float tensor in [0, 1]."""
     import torch
 
-    return torch.from_numpy(np.ascontiguousarray(rgb)).permute(2, 0, 1)[None].float().div(255).to(device)
+    # A copy: images loaded with PIL are read-only arrays, which torch warns about.
+    return torch.from_numpy(np.array(rgb, np.uint8)).permute(2, 0, 1)[None].float().div(255).to(device)
 
 
 def disk_lightglue_match(disk, lightglue, rgb_winter: np.ndarray, rgb_summer: np.ndarray,
@@ -800,7 +801,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     todo = [t for t in trees if args.rematch or t.tree_id not in saved]
     if todo and not args.no_match:
         print(f"Loading the {args.matcher} matcher...", flush=True)
-        matcher = make_matcher(args.matcher, args.device, args.max_keypoints)
+        try:
+            matcher = make_matcher(args.matcher, args.device, args.max_keypoints)
+        except (ImportError, OSError) as e:             # PyTorch missing or broken, or a failed download
+            print(f"Could not load the {args.matcher} matcher: {type(e).__name__}: {e}\n"
+                  "If PyTorch itself fails to load (e.g. WinError 193 or 126), see 'If PyTorch does not "
+                  "load' in docs/results/align/README.md.")
+            return 1
         meta = {"matcher": args.matcher, "max_keypoints": args.max_keypoints}
         t0 = time.time()
         errors = []

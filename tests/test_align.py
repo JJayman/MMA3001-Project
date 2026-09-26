@@ -316,3 +316,30 @@ def test_cli_reports_a_tree_that_cannot_be_matched_and_carries_on(sample_dir, tm
     assert "could not match R01N01: RuntimeError: CUDA out of memory" in text
     saved, _ = load_matches(mpath)
     assert sorted(saved) == ["R01N02"]
+
+
+def test_cli_explains_a_matcher_that_cannot_load(sample_dir, tmp_path, monkeypatch, capsys):
+    """E.g. a damaged PyTorch install on Windows: a clear message instead of a traceback."""
+    def broken(*a, **k):
+        raise OSError('[WinError 193] %1 is not a valid Win32 application. Error loading "torch_cuda.dll"')
+
+    monkeypatch.setattr(align, "make_matcher", broken)
+    mpath = tmp_path / "matches.npz"
+    args = [str(sample_dir), "--trees", "R01N01", "--matches", str(mpath), "--out", str(tmp_path / "out")]
+    assert align.main(args) == 1
+    text = capsys.readouterr().out
+    assert "WinError 193" in text and "If PyTorch does not load" in text
+    assert not mpath.exists()
+
+
+def test_image_tensor_accepts_read_only_images_without_warning():
+    torch = pytest.importorskip("torch")
+    import warnings
+
+    rgb = textured_image(32, 48)
+    rgb.setflags(write=False)                              # as loaded by PIL
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        t = align._image_tensor(rgb, "cpu")
+    assert t.shape == (1, 3, 32, 48) and float(t.max()) <= 1.0
+    assert torch.equal(t[0, 0], torch.from_numpy(rgb[..., 0].astype(np.float32) / 255))
