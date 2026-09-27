@@ -840,8 +840,10 @@ def print_summary(s: dict, params: ShapeParams = ShapeParams()) -> None:
 
 NETWORK_HELP = """\
 The shape table was saved; only the summer features are missing. They need PyTorch and torchvision:
-- torchvision missing: install it with the same command from pytorch.org that installed your PyTorch
-  (with its --index-url), so that pip does not replace your GPU build with another one.
+- torchvision missing: install it for the PyTorch you have, pinned to it, so that pip does not replace
+  your GPU build. Print the version (python -c "import torch; print(torch.__version__)", e.g.
+  2.7.1+cu126), then: pip install torchvision "torch==2.7.1+cu126" --index-url
+  https://download.pytorch.org/whl/cu126 (with your version and its +cu... part in both places).
 - PyTorch fails to load (e.g. WinError 193 or 126): see 'If PyTorch does not load' in
   docs/results/align/README.md.
 - The weights could not be downloaded (about 45 MB, once): download
