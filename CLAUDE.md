@@ -52,7 +52,10 @@ camera, different (autumn) capture.
   predicted masks' shape is scored against them. The test rows' masks stay
   unused until the final evaluation. Caveat: several masks sit 20–60 px off
   the visible summer trunk (R20N06 about 90), varying by tree, so pixel
-  scores against them are not the headline; the shape scores are.
+  scores against them are not the headline; the shape scores are. After the
+  first run the student chose to line the masks up by hand
+  (`treeskel.annotate_mask`, shifts in `annotations/mask_overlay.json`;
+  `segment --mask-overlay` trains only on lined-up trees).
 - **Two leaders per tree**, matching the hand masks. "Left" is the leader
   whose tip is further left in the image.
 - **Masks:** the trunk width comes from depth (robust straight taper). Each
@@ -90,7 +93,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                measure_width.py (leader widths), measure_registration.py (depth-colour shift),
                align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
-               (line-up tool, chosen), summer_gt.py (summer masks and checks),
+               (line-up tool, chosen), annotate_mask.py (hand masks onto their summer
+               photos, session 11), summer_gt.py (summer masks and checks),
                shape.py (shape measures without alignment; summer CNN features),
                shape_model.py (predicting the winter shape from summer, 5 folds),
                shape_cnn.py (fine-tuning a CNN on the winter shape; the student's GPU),
@@ -156,7 +160,8 @@ See the latest file in `docs/progress/`. As of session 10:
     right.
 - **Session 11:** the student chose segmentation trained on the hand masks
   (`treeskel.segment`, U-Net with a ResNet-18 encoder, 5 row-grouped folds);
-  its first run is on the student's PC. See the latest progress file.
+  the first run (masks as drawn) is on the student's PC; next, the masks
+  lined up by hand and a second run. See the latest progress file.
 - **Next (the student's call):**
   1. The segmentation's results against the angle CNN, tree by tree.
   2. Or regularise the angle CNN, compared with nested folds.

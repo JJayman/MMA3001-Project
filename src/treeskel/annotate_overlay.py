@@ -356,7 +356,7 @@ HELP = ("drag: shift   scroll: scale   arrows: 1 px (shift: 10)   [ ]: roll   - 
 """Key help shown above the picture (the current tree and transform are in the window's title bar)."""
 
 
-def run_gui(ann: OverlayAnnotator, show: bool = True):
+def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
     """Open the window and connect mouse and keyboard events.
 
     For speed, the window is drawn in full only when needed (a new tree, a
@@ -366,8 +366,10 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
     system draws.
 
     Args:
-        ann: The annotator.
+        ann: The annotator (or another with the same interface, e.g.
+            :class:`treeskel.annotate_mask.MaskAnnotator`).
         show: Block in ``plt.show()`` (False only for tests).
+        help_text: Key help shown above the picture.
 
     Returns:
         The matplotlib figure.
@@ -381,7 +383,7 @@ def run_gui(ann: OverlayAnnotator, show: bool = True):
     fig, ax = plt.subplots(figsize=(10, 8.2))
     fig.subplots_adjust(0.005, 0.005, 0.995, 0.93)
     ax.set_axis_off()
-    fig.suptitle(HELP, fontsize=8)
+    fig.suptitle(help_text, fontsize=8)
     picture = ax.imshow(np.zeros((480, 640, 3), np.uint8), interpolation="nearest", animated=True)
     canvas = fig.canvas
     st = {"tree": None, "drag": None, "bg": None}

@@ -20,7 +20,8 @@ sample's masks 15–45 px from the visible summer trunk. On the 21 development
 trees in the repository (session 11, by eye) most sit on the trunk or
 within about its width, but several are 20–60 px off to either side, and
 R20N06's about 90 px (on the winter position, session 7). So the network
-learns the drawn masks, offsets included. The pixel scores against the hand
+learns the drawn masks, offsets included (unless they are lined up first,
+``--mask-overlay``). The pixel scores against the hand
 masks mix its error with theirs and are not directly comparable with Chen et
 al.'s. The shape measures do not depend on where a mask sits, so the
 headline score against the winter traces is unaffected.
@@ -59,11 +60,19 @@ its row out:
   over the mean shape as in :mod:`treeskel.shape_model`. A predicted mask in
   which no fork is found counts as the mean shape (the fold's training mean),
   so failures are not dropped from the score; their number is reported.
-- tree by tree against the angle CNN's runs (:func:`compare_with`).
+- tree by tree against the angle CNN's runs and, for a run on lined-up
+  masks, the run on the masks as drawn (:func:`compare_with`).
+
+**Lined-up masks** (``--mask-overlay``, session 11, the student's choice
+after the first run): each hand mask moved onto its summer photo with
+:mod:`treeskel.annotate_mask`. Only trees lined up (and not skipped) train,
+and the pixel scores are against the lined-up masks. The shape scores need
+no change: moving a mask does not change its angles.
 
 Usage::
 
     python -m treeskel.segment data/raw                      # the student's PC (GPU); docs/results/segment/
+    python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # docs/results/segment_lined_up/
     python -m treeskel.segment data/raw --depth              # docs/results/segment_depth/
     python -m treeskel.segment --replot docs/results/segment # figures only
 """
@@ -539,9 +548,31 @@ def read_predictions(path: Path, column: str) -> dict[tuple[str, str], tuple[flo
 # Data and figures
 # --------------------------------------------------------------------------
 
+def hand_mask(rec, overlays: dict | None = None) -> np.ndarray | None:
+    """A tree's 256x256 hand mask: as drawn, or, given the line-up file's ``overlays``
+    (:mod:`treeskel.annotate_mask`), moved onto the summer photo. With ``overlays``, a tree that was
+    skipped or not lined up yet has none (None), so moved and unmoved masks are never mixed."""
+    from treeskel.io import load_mask
+
+    if not rec.has_mask:
+        return None
+    if overlays is None:
+        return load_mask(rec.paths[("summer", "mask")])
+    ov = overlays.get(rec.tree_id)
+    if ov is None or ov.skip:
+        return None
+    from treeskel.annotate_mask import move_mask
+
+    return move_mask(load_mask(rec.paths[("summer", "mask")]), ov)
+
+
 def load_frames(records: dict, ids: Sequence[str], size: int, depth: bool = False,
-                progress: Callable[[str], None] = print) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                progress: Callable[[str], None] = print,
+                overlays: dict | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The summer photos and hand masks of ``ids`` in the masks' frame (centre 480x480), at ``size``.
+
+    With ``overlays`` (the mask line-up file), each mask is moved onto its photo
+    (:func:`hand_mask`), and trees not lined up count as having none.
 
     Returns:
         ``(images, masks, has_mask)``: ``(n, size, size, 3 or 4)`` uint8 (depth
@@ -551,7 +582,7 @@ def load_frames(records: dict, ids: Sequence[str], size: int, depth: bool = Fals
     """
     from PIL import Image
 
-    from treeskel.io import CROP_COLS, load_mask, load_tree
+    from treeskel.io import CROP_COLS, load_tree
 
     images = np.zeros((len(ids), size, size, 4 if depth else 3), np.uint8)
     masks = np.zeros((len(ids), size, size), np.uint8)
@@ -565,9 +596,9 @@ def load_frames(records: dict, ids: Sequence[str], size: int, depth: bool = Fals
         if depth:
             images[i, ..., 3] = np.asarray(Image.fromarray(np.ascontiguousarray(summer["depth"][:, crop]))
                                            .resize((size, size), Image.NEAREST))
-        if records[t].has_mask:
-            m = load_mask(records[t].paths[("summer", "mask")]).astype(np.uint8) * 255
-            masks[i] = np.asarray(Image.fromarray(m).resize((size, size), Image.BILINEAR))
+        hm = hand_mask(records[t], overlays)
+        if hm is not None:
+            masks[i] = np.asarray(Image.fromarray(hm.astype(np.uint8) * 255).resize((size, size), Image.BILINEAR))
             has[i] = True
         if (i + 1) % step == 0 or i + 1 == len(ids):
             progress(f"  {i + 1}/{len(ids)} photos loaded")
@@ -598,12 +629,14 @@ def example_trees(dice: dict[str, float], k: int = 6) -> list[str]:
     return [ranked[i][1] for i in picks]
 
 
-def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: float = 0.5):
+def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: float = 0.5,
+                 overlays: dict | None = None):
     """One tree as a row of three: the winter trace, the hand mask and the predicted mask, each with the
-    lines :func:`treeskel.shape.shape_measures` fits (PIL image, resized by ``scale``, then labelled)."""
+    lines :func:`treeskel.shape.shape_measures` fits (PIL image, resized by ``scale``, then labelled). With
+    ``overlays``, the hand mask is shown lined up (:func:`hand_mask`)."""
     from PIL import Image, ImageDraw, ImageFont
 
-    from treeskel.io import load_mask, load_tree, mask_to_image_frame
+    from treeskel.io import load_tree, mask_to_image_frame
     from treeskel.shape import MASK_ZOOM as ZOOM, draw_shape, fitted_lines, mask_to_image
 
     params = ShapeParams()
@@ -625,9 +658,9 @@ def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: f
         w = load_tree(rec, "winter")["rgb"]
         lines = fitted_lines(trace["trunk"], trace["left"], trace["right"], trace["fork_radius"], params)
         tiles.append((draw_shape(w, (trace["trunk"], trace["left"], trace["right"]), lines), f"{label}: winter trace"))
-    hand = load_mask(rec.paths[("summer", "mask")]) if rec.has_mask else None
-    tiles.append(on_summer(hand, "hand mask", (60, 120, 255)) if hand is not None
-                 else (draw_shape(s, (), {}), "no hand mask"))
+    hand = hand_mask(rec, overlays)
+    tiles.append(on_summer(hand, "hand mask, lined up" if overlays is not None else "hand mask", (60, 120, 255))
+                 if hand is not None else (draw_shape(s, (), {}), "no hand mask used"))
     tiles.append(on_summer(pred, "predicted mask", (0, 200, 0)))
     size = (round(tiles[0][0].width * scale), round(tiles[0][0].height * scale))
     out = Image.new("RGB", (size[0] * len(tiles), size[1]))
@@ -644,17 +677,24 @@ SEGMENT_STYLE = ("#008300", "P")
 angle CNN's runs (checked with the palette validator: adjacent colours stay apart under colour-vision
 deficiencies) and its own marker."""
 
+LINED_UP_STYLE = ("#4a3aa7", "X")
+"""The run on the lined-up masks: the slot after it, and its own marker."""
+
+RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
+             "segment_lined_up": "U-Net on the lined-up hand masks, its masks measured"}
+
 
 def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tuple[str, dict]] = ()) -> None:
     """The comparison figure of :func:`treeskel.shape_cnn.plot_comparison`, with the segmentation added."""
     from treeskel.shape_cnn import plot_comparison
 
     scores = report["scores"]
+    key = "segment_lined_up" if report.get("mask_overlay") else "segment"
     series = [("hand masks", {k: v["hand masks"] for k, v in scores.items()})]
-    series += list(others)
-    series.append(("segment", {k: v["segmentation"] for k, v in scores.items()}))
-    plot_comparison(series, path, failed, names={"segment": "U-Net trained on the hand masks, its masks measured"},
-                    styles={"segment": SEGMENT_STYLE},
+    series += [o for o in others if o[0] != key]
+    series.append((key, {k: v["segmentation"] for k, v in scores.items()}))
+    plot_comparison(series, path, failed, names=RUN_NAMES,
+                    styles={"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE},
                     title="A U-Net trained on the hand masks, its masks measured against the winter traces",
                     subtitle=f"{report['n_trees']} trees, each from the fold that held its row out; "
                              f"{_n(report['no_fork'], 'U-Net mask')} with no fork count as the mean shape")
@@ -669,13 +709,14 @@ def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
 
 
 def _other_runs(results: Path) -> list[tuple[str, dict]]:
-    """The angle CNN's saved runs, for the comparison figure."""
+    """The angle CNN's saved runs and the segmentation on the masks as drawn, for the comparison figure."""
     out = []
-    for name in ("shape_cnn", "shape_cnn_480x640"):
+    for name, model in (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"),
+                        ("segment", "segmentation")):
         p = results / name / "report.json"
         if p.exists():
             rep = json.loads(p.read_text())
-            out.append((name, {k: v["cnn fine-tuned"] for k, v in rep["scores"].items()}))
+            out.append((name, {k: v[model] for k, v in rep["scores"].items()}))
     return out
 
 
@@ -690,9 +731,10 @@ def replot(out: Path, figures: Path) -> list[str]:
     return failed
 
 
-def variant(params: SegParams) -> str:
-    """The run's name, which is also its results folder: ``segment``, ``segment_depth``, ``segment_resnet34``, ..."""
-    name = "segment" + ("_depth" if params.depth else "")
+def variant(params: SegParams, lined_up: bool = False) -> str:
+    """The run's name, which is also its results folder: ``segment``, ``segment_depth``, ``segment_resnet34``,
+    ``segment_lined_up`` (trained on the lined-up masks), ..."""
+    name = "segment" + ("_lined_up" if lined_up else "") + ("_depth" if params.depth else "")
     if params.encoder != SegParams.encoder:
         name += f"_{params.encoder}"
     return name if params.size == SegParams.size else f"{name}_{params.size}"
@@ -720,6 +762,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--size", type=int, default=SegParams.size, help="side of the input (divisible by 32)")
     ap.add_argument("--encoder", default=SegParams.encoder, choices=("resnet18", "resnet34"))
     ap.add_argument("--depth", action="store_true", help="also give the network the summer depth")
+    ap.add_argument("--mask-overlay", metavar="JSON",
+                    help="train on the hand masks lined up with treeskel.annotate_mask (e.g. "
+                         "annotations/mask_overlay.json); only lined-up trees train")
     ap.add_argument("--batch", type=int, default=SegParams.batch,
                     help="photos per training step (smaller if the GPU runs out of memory; recorded in the report)")
     ap.add_argument("--seed", type=int, default=SegParams.seed)
@@ -763,8 +808,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     what = "photos, depth and hand masks" if params.depth else "photos and hand masks"
     print(f"{len(trees)} development trees; loading the summer {what} at {params.size}x{params.size}...", flush=True)
-    images, masks, has = load_frames(records, trees, params.size, params.depth, lambda m: print(m, flush=True))
-    print(f"{int(has.sum())} of them have a hand mask to train on", flush=True)
+    overlays = None
+    if args.mask_overlay:
+        from treeskel.summer_gt import load_overlays
+
+        overlays = load_overlays(args.mask_overlay)
+        if not overlays:
+            print(f"No lined-up masks in {args.mask_overlay}. Stopping.")
+            return 1
+    images, masks, has = load_frames(records, trees, params.size, params.depth, lambda m: print(m, flush=True),
+                                     overlays)
+    print(f"{int(has.sum())} of them have a hand mask to train on"
+          + (f" (lined up; {sum(1 for t in trees if t in overlays and overlays[t].skip)} skipped, "
+             f"{sum(1 for t in trees if records[t].has_mask and t not in overlays)} not lined up yet)"
+             if overlays is not None else ""), flush=True)
     rows = np.array([by_id[t]["row"] for t in trees])
     t0 = time.time()
     try:
@@ -777,7 +834,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     minutes = round((time.time() - t0) / 60, 1)
 
     # Score every predicted tree: its mask against the hand mask, its shape against the winter trace.
-    from treeskel.io import MASK_SHAPE, load_mask
+    from treeskel.io import MASK_SHAPE
 
     done = cv["fold"] >= 0
     pred_masks = np.zeros((len(trees),) + MASK_SHAPE, bool)
@@ -790,7 +847,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         m, _ = mask_shape(pred_masks[i])
         seg[i] = [m[k] for k in MEASURES]
         if has[i]:
-            scores[t] = mask_scores(pred_masks[i], load_mask(records[t].paths[("summer", "mask")]))
+            scores[t] = mask_scores(pred_masks[i], hand_mask(records[t], overlays))   # the mask it was trained on
     y = np.array([[by_id[t][f"winter_{k}"] for k in MEASURES] for t in trees], float)
     hand = np.array([[by_id[t][f"hand_{k}"] for k in MEASURES] for t in trees], float)
     mean = np.full_like(y, np.nan)
@@ -802,10 +859,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     no_fork = int((done & ~np.isfinite(seg).any(axis=1)).sum())
     seg_filled = fill_failures(seg, mean)
 
-    report = {"n_trees": int(done.sum()), "n_masks": int((done & has).sum()), "variant": variant(params),
+    report = {"n_trees": int(done.sum()), "n_masks": int((done & has).sum()), "variant": variant(params, overlays is not None),
+              "mask_overlay": args.mask_overlay,
               "params": asdict(params), "device": cv["device"],
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "epochs": cv["epochs"],
-              "minutes": minutes, "no_fork": no_fork, "masks": {}, "scores": {}, "against_angle_cnn": {}}
+              "minutes": minutes, "no_fork": no_fork, "masks": {}, "scores": {}, "against_runs": {}}
     for c in MASK_COLUMNS:
         v = np.array([scores[t][c] for t in trees])[done & has]
         v = v[np.isfinite(v)]
@@ -831,7 +889,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"\n{title}:")
         print_scores(report, names)
 
-    out = Path(args.out or f"docs/results/{variant(params)}")
+    out = Path(args.out or f"docs/results/{variant(params, overlays is not None)}")
     out.mkdir(parents=True, exist_ok=True)
     failed: list[str] = []
 
@@ -872,14 +930,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     write(out / "training_log.csv", training_log)
     write(out / "predicted_masks.npz", lambda p: save_masks(p, [t for i, t in enumerate(trees) if done[i]],
                                                             pred_masks[done]))
-    # Tree by tree against the angle CNN's runs, on the same trees and folds.
+    # Tree by tree against the other runs, on the same trees and folds.
     if (out / "predictions.csv").exists():
         mine = read_predictions(out / "predictions.csv", "segmentation")
-        for name in ("shape_cnn", "shape_cnn_480x640"):
+        # the angle CNN's runs, and the segmentation on the masks as drawn (for a lined-up run)
+        for name, column in (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"),
+                             ("segment", "segmentation")):
             p = out.parent / name / "predictions.csv"
             if p.exists() and p.resolve() != (out / "predictions.csv").resolve():
-                report["against_angle_cnn"][name] = compare_with(mine, read_predictions(p, "cnn fine-tuned"))
-        for name, measures in report["against_angle_cnn"].items():
+                report["against_runs"][name] = compare_with(mine, read_predictions(p, column))
+        for name, measures in report["against_runs"].items():
             print(f"\nAgainst {name}, tree by tree (MAE: {name} -> segmentation; trees predicted more closely; "
                   "Wilcoxon p):")
             for k, c in measures.items():
@@ -902,7 +962,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for t in picks:
             i = trees.index(t)
             label = f"{t}  Dice {scores[t]['dice']:.2f}"
-            tiles.append(draw_example(records[t], pred_masks[i], traces.get(t), label))
+            tiles.append(draw_example(records[t], pred_masks[i], traces.get(t), label, overlays=overlays))
         if tiles:
             sheet = Image.new("RGB", (max(im.width for im in tiles), sum(im.height for im in tiles)))
             ytop = 0

@@ -28,6 +28,7 @@ src/treeskel/    Python package
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
   annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
+  annotate_mask.py     line up each provided hand mask on its own summer photo (opens a window)
   summer_gt.py   winter masks moved into the summer view (from the overlay transforms or pairs)
   shape.py       the tree's shape without alignment (V opening, leader angles, bends) from the winter traces
                  and the hand masks, and summer image features from a pretrained network
@@ -89,6 +90,8 @@ python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   # shap
 python -m treeskel.shape_model                             # predict the winter shape from the summer photo (5 folds)
 python -m treeskel.shape_cnn data/raw                      # fine-tune a CNN on the winter shape (5 folds, GPU)
 python -m treeskel.segment data/raw                        # U-Net on the hand masks, scored against winter (5 folds, GPU)
+python -m treeskel.annotate_mask data/raw --dev-only       # line up each hand mask on its summer photo
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # U-Net on the lined-up masks
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
