@@ -870,7 +870,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("data_dirs", nargs="+", help="dataset folder(s)")
     ap.add_argument("--clicks", default="annotations/winter_clicks.json")
     ap.add_argument("--split", default="splits.json", help="its test rows are never measured")
-    ap.add_argument("--out", default="data/shape", help="folder for the table and the features (committed)")
+    ap.add_argument("--out", help="folder for the table and the features (default data/shape, committed; "
+                                  "with --trees, outputs/shape_trees)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="trees traced in parallel")
     ap.add_argument("--features", choices=("resnet18", "none"), default="resnet18",
                     help="summer image features to compute (needs PyTorch and torchvision)")
@@ -878,6 +879,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--random-weights", action="store_true", help=argparse.SUPPRESS)   # tests only
     ap.add_argument("--figure", help="also save the fitted lines on a few trees as this image")
     ap.add_argument("--figure-trees", nargs="+", help="trees for the figure (default: six spread over the rows)")
+    ap.add_argument("--trees", nargs="+", help="only these trees, e.g. to draw them with --figure; the table goes "
+                                               "to outputs/shape_trees and no features are computed")
     args = ap.parse_args(argv)
 
     split = json.loads(Path(args.split).read_text())
@@ -887,10 +890,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     ids = sorted(t for t, c in clicks.items()
                  if t in records and c.complete and not c.skip and records[t].row not in test_rows)
     n_test = sum(records[t].row in test_rows for t in records)
+    if args.trees:
+        # A few trees only: never overwrite the committed table with them, and features need all trees.
+        unknown = sorted(set(args.trees) - set(ids))
+        if unknown:
+            print(f"Not development-row trees with clicks, left out: {', '.join(unknown)}")
+        ids = [t for t in ids if t in set(args.trees)]
+        args.features = "none"
+        args.figure_trees = args.figure_trees or ids
     if not ids:
         print("No annotated development-row trees found; nothing to measure.")
         return 1
-    out = Path(args.out)
+    out = Path(args.out or ("outputs/shape_trees" if args.trees else "data/shape"))
     out.mkdir(parents=True, exist_ok=True)
     params = ShapeParams()
     fig_ids = set()

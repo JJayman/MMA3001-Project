@@ -44,7 +44,7 @@ that only helps in one fold is not reliable.
 
 Usage::
 
-    python -m treeskel.shape_model                   # data/shape/ -> docs/results/shape/
+    python -m treeskel.shape_model --plots docs/figures   # data/shape/ -> docs/results/shape/
 """
 
 from __future__ import annotations
@@ -285,10 +285,10 @@ def cross_validate(x2: np.ndarray, y: np.ndarray, rows: np.ndarray, fold_rows: S
         for j, name in enumerate(names):
             if a[j] in (alphas[0], alphas[-1]):
                 edge.append(f"fold {i} {name}: {a[j]:g}")
-        for alpha in sorted(set(a.tolist())):
-            use = [j for j in range(len(names)) if a[j] == alpha]
-            p = predict_all(x2[tr], y[tr], x2[va], [alpha], names, mirror)[0]
-            ridge[np.ix_(va, use)] = p[:, use]
+        # One fit gives every penalty's predictions; each measure takes its own penalty's.
+        p = predict_all(x2[tr], y[tr], x2[va], alphas, names, mirror)
+        which = [list(alphas).index(v) for v in a]
+        ridge[va] = p[which, :, range(len(names))].T
         mean[va] = np.nanmean(y[tr], axis=0)
     return {"ridge": ridge, "mean": mean, "fold": fold, "alpha": chosen, "alpha_at_edge": edge}
 
@@ -352,8 +352,8 @@ def run(table: Sequence[dict], ids: Sequence[str], arrays: dict, fold_rows: Sequ
 
     Returns:
         ``(report, predictions)``: the scores per measure and model, and the
-        per-tree predictions (``{model: (n, k)}`` plus ``"truth"``, ``"hand"``,
-        ``"fold"``, ``"tree"``, ``"row"``).
+        per-tree predictions (``{model: (n, k)}``, the hand masks and the mean
+        shape included, plus ``"truth"``, ``"fold"``, ``"tree"``, ``"row"``).
     """
     by_id = {r["tree"]: r for r in table}
     keep = [i for i, t in enumerate(ids) if t in by_id]
@@ -370,8 +370,8 @@ def run(table: Sequence[dict], ids: Sequence[str], arrays: dict, fold_rows: Sequ
         label = f"ridge {fs}" + ("" if mirror else " no-mirror")
         models[label] = cv
         base = cv
-    preds = {"tree": trees, "row": rows, "truth": y, "hand": hand, "fold": base["fold"], "mean": base["mean"],
-             **{label: cv["ridge"] for label, cv in models.items()}}
+    preds = {"tree": trees, "row": rows, "truth": y, "fold": base["fold"], "mean shape": base["mean"],
+             "hand masks": hand, **{label: cv["ridge"] for label, cv in models.items()}}
     report = {"n_trees": len(trees), "fold_rows": [list(map(int, f)) for f in fold_rows],
               "alphas": {label: cv["alpha"] for label, cv in models.items()},
               "alpha_at_edge": {label: cv["alpha_at_edge"] for label, cv in models.items() if cv["alpha_at_edge"]},
@@ -403,6 +403,148 @@ def _round(v: float) -> str:
     return "" if not np.isfinite(v) else f"{v:.2f}"
 
 
+LABELS = {"v_opening": "V opening", "left_bend": "Left bend", "right_bend": "Right bend",
+          "left_angle": "Left leader from trunk", "right_angle": "Right leader from trunk", "lean": "V's lean from trunk",
+          "trunk_tilt": "Trunk from vertical", "left_tilt": "Left leader from vertical",
+          "right_tilt": "Right leader from vertical", "lean_v": "V's lean from vertical"}
+"""Readable names of the measures for figures."""
+
+INK, SECONDARY, MUTED, GRID, AXIS, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"
+COLOURS = {"hand masks": "#2a78d6", "ridge rgb": "#eb6834"}
+"""Series colours (the first two categorical slots of the project's validated palette)."""
+
+
+def _style(ax) -> None:
+    ax.set_facecolor(SURFACE)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(AXIS)
+    ax.tick_params(colors=MUTED, labelsize=7.5, length=0)
+    ax.set_axisbelow(True)
+
+
+def _save(fig, path: Path, failed: list[str]) -> None:
+    try:
+        fig.savefig(path, facecolor=SURFACE)
+    except OSError as e:                                    # e.g. open in a viewer on Windows
+        failed.append(f"{path}: {e.strerror or e}")
+
+
+def plot_skill(report: dict, path: Path, failed: list[str], models: Sequence[str] = ("hand masks", "ridge rgb")) -> None:
+    """Horizontal bars: each model's skill over the mean shape, per measure, with the range over the folds.
+
+    Skill 0 is the mean shape (the axis line) and 1 a perfect prediction.
+    The whiskers span the five folds' skills, so a model that only helps in
+    some rows shows it.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    groups = (("No reference", HEADLINE), ("From the trunk", TRUNK_RELATIVE), ("From the vertical", VERTICAL))
+    rows, labels, y, pos = [], [], [], 0.0
+    for _, names in groups:
+        for k in names:
+            rows.append(k)
+            labels.append(LABELS[k])
+            y.append(pos)
+            pos += 1.0
+        pos += 0.6                                           # a gap between the groups
+    y = -np.array(y)
+    fig, ax = plt.subplots(figsize=(7.6, 5.2), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    _style(ax)
+    h = 0.34
+    for i, m in enumerate(models):
+        off = (i - (len(models) - 1) / 2) * (h + 0.04)
+        sk = [report["scores"][k][m].get("skill", np.nan) for k in rows]
+        ax.barh(y - off, sk, height=h, color=COLOURS.get(m, MUTED), label=_model_name(m), zorder=2)
+        for yy, k, v in zip(y - off, rows, sk):
+            fs = [f for f in report["scores"][k][m].get("fold_skill", []) if f is not None]
+            if fs:
+                ax.plot([min(fs), max(fs)], [yy, yy], color=SECONDARY, lw=0.8, zorder=3, solid_capstyle="round")
+            if k == "v_opening" and np.isfinite(v):          # label the headline only, clear of the whisker
+                ax.text(max([v, 0.0, *fs]) + 0.02, yy, _signed(v), va="center", fontsize=7.5, color=SECONDARY)
+    ax.axvline(0, color=AXIS, lw=1.0, zorder=1)
+    ax.set_yticks(y, labels, fontsize=8, color=SECONDARY)
+    ax.set_xlim(-0.2, 1.0)
+    ax.set_xlabel("Skill over the mean shape: 1 − MSE / MSE(mean shape)   (whiskers: the range over the 5 folds)",
+                  fontsize=8, color=SECONDARY)
+    ax.grid(axis="x", color=GRID, lw=0.5)
+    gy = 0.0
+    for title, names in groups:                               # group titles above each block
+        ax.text(-0.2, gy + 0.55, title, fontsize=7.5, color=MUTED, ha="left", va="bottom", style="italic")
+        gy -= len(names) + 0.6
+    fig.suptitle("The hand masks read the V from the summer photo; the network's features barely do", x=0.02,
+                 ha="left", fontsize=10.5, color=INK, fontweight="bold")
+    ax.set_title(f"{report['n_trees']} development trees, each predicted by the fold that held its row out",
+                 loc="left", fontsize=8, color=SECONDARY)
+    fig.legend(*ax.get_legend_handles_labels(), loc="lower left", bbox_to_anchor=(0.02, 0.0), ncol=2,
+               frameon=False, fontsize=7.5, labelcolor=SECONDARY)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    _save(fig, path, failed)
+    plt.close(fig)
+
+
+def _signed(v: float) -> str:
+    """``+0.12`` style, without a minus sign on a value that rounds to zero."""
+    text = f"{v:+.2f}"
+    return "+0.00" if text == "-0.00" else text
+
+
+def _model_name(m: str) -> str:
+    return {"hand masks": "Hand masks (a person's reading of the summer photo)",
+            "ridge rgb": "Ridge regression on ResNet-18 features of the summer photo"}.get(m, m)
+
+
+def plot_scatter(preds: dict, report: dict, path: Path, failed: list[str],
+                 models: Sequence[str] = ("hand masks", "ridge rgb"), names: Sequence[str] = HEADLINE) -> None:
+    """Small multiples: each model's prediction against the winter truth, one panel per model and measure.
+
+    The diagonal is a perfect prediction; the dashed line is the mean shape.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(len(models), len(names), figsize=(3.0 * len(names), 2.9 * len(models)), dpi=150,
+                             squeeze=False)
+    fig.patch.set_facecolor(SURFACE)
+    for c, k in enumerate(names):
+        j = MEASURES.index(k)
+        truth = preds["truth"][:, j]
+        lo, hi = np.nanpercentile(truth, [0.5, 99.5])
+        pad = 0.08 * (hi - lo)
+        lim = (lo - pad, hi + pad)
+        for r, m in enumerate(models):
+            ax = axes[r, c]
+            _style(ax)
+            p = preds[m][:, j]
+            ok = np.isfinite(p) & np.isfinite(truth)
+            ax.plot(lim, lim, color=AXIS, lw=0.8, zorder=1)
+            ax.axhline(np.nanmean(truth), color=MUTED, lw=0.8, ls=(0, (3, 3)), zorder=1)
+            ax.scatter(truth[ok], p[ok], s=9, color=COLOURS.get(m, MUTED), alpha=0.55, lw=0, zorder=2)
+            ax.set_xlim(lim)
+            ax.set_ylim(lim)
+            ax.set_aspect("equal")
+            ax.grid(color=GRID, lw=0.5)
+            sc = report["scores"][k][m]
+            ax.set_title(f"{LABELS[k]}: MAE {sc['mae']:.1f}°, skill {_signed(sc['skill'])}", loc="left",
+                         fontsize=7.5, color=SECONDARY)
+            if r == len(models) - 1:
+                ax.set_xlabel("Winter trace (°)", fontsize=7.5, color=SECONDARY)
+            if c == 0:
+                ax.set_ylabel({"hand masks": "Hand mask (°)", "ridge rgb": "Ridge prediction (°)"}.get(m, m),
+                              fontsize=7.5, color=SECONDARY)
+    fig.suptitle("Predicted against the winter trace, per tree (diagonal: perfect; dashed: the mean shape)",
+                 x=0.02, ha="left", fontsize=9.5, color=INK, fontweight="bold")
+    fig.tight_layout()
+    _save(fig, path, failed)
+    plt.close(fig)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Cross-validate the models on the development rows and save the scores."""
     ap = argparse.ArgumentParser(prog="python -m treeskel.shape_model", description=__doc__.splitlines()[0])
@@ -411,6 +553,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--split", default="splits.json")
     ap.add_argument("--out", default="docs/results/shape")
     ap.add_argument("--sets", nargs="+", choices=tuple(FEATURE_SETS), default=list(FEATURE_SETS))
+    ap.add_argument("--plots", help="also save the two figures (skill per measure, scatters) in this folder")
     args = ap.parse_args(argv)
 
     split = json.loads(Path(args.split).read_text())
@@ -435,8 +578,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(report, indent=2))
     save_predictions(out / "predictions.csv", preds)
-    print(f"\nSaved {out / 'report.json'} and {out / 'predictions.csv'}")
-    return 0
+    failed: list[str] = []
+    saved = [str(out / "report.json"), str(out / "predictions.csv")]
+    if args.plots and "ridge rgb" in preds:
+        folder = Path(args.plots)
+        folder.mkdir(parents=True, exist_ok=True)
+        plot_skill(report, folder / "shape_model_skill.png", failed)
+        plot_scatter(preds, report, folder / "shape_model_scatter.png", failed)
+        saved += [str(folder / "shape_model_skill.png"), str(folder / "shape_model_scatter.png")]
+    print(f"\nSaved {', '.join(saved)}")
+    for f in failed:
+        print(f"Could not write {f}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

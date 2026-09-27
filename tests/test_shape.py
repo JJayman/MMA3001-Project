@@ -330,3 +330,19 @@ def test_hand_frame_of_a_mask_drawn_in_a_rolled_view():
               "left": polyline([fork, ray(fork, -24.0, 330.0)]), "right": polyline([fork, ray(fork, 22.0, 330.0)])}
     f = hand_frame(winter, mb)
     assert f["rotation"] == pytest.approx(4.0, abs=1.0) and f["residual"] < 3.0
+
+
+def test_cli_draws_chosen_trees_without_touching_the_table(sample_dir, tmp_path, monkeypatch, capsys):
+    from treeskel.shape import main
+
+    monkeypatch.chdir(tmp_path)                            # the default output folder is relative
+    split = tmp_path / "splits.json"
+    split.write_text(__import__("json").dumps({"test_rows": [3, 12, 16]}))
+    fig = tmp_path / "trees.jpg"
+    clicks = __import__("pathlib").Path(__file__).resolve().parents[1] / "annotations" / "winter_clicks.json"
+    assert main([str(sample_dir), "--trees", "R01N02", "R12N02", "--figure", str(fig), "--split", str(split),
+                 "--clicks", str(clicks), "--jobs", "1"]) == 0
+    text = capsys.readouterr().out
+    assert "left out: R12N02" in text                      # a test-row tree is never measured
+    assert (tmp_path / "outputs" / "shape_trees" / "shape_measures.csv").exists() and fig.exists()
+    assert not (tmp_path / "data").exists() and "Computing summer features" not in text

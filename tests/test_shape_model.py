@@ -184,7 +184,10 @@ def test_main_end_to_end(tmp_path, capsys):
     assert table[0]["row"] == 1 and np.isfinite(table[0]["winter_v_opening"])
     out = tmp_path / "results"
     assert main(["--table", str(tmp_path / "shape_measures.csv"), "--features", str(tmp_path / "summer_resnet18.npz"),
-                 "--split", str(tmp_path / "splits.json"), "--out", str(out), "--sets", "rgb"]) == 0
+                 "--split", str(tmp_path / "splits.json"), "--out", str(out), "--sets", "rgb",
+                 "--plots", str(tmp_path / "figs")]) == 0
+    assert (tmp_path / "figs" / "shape_model_skill.png").exists()
+    assert (tmp_path / "figs" / "shape_model_scatter.png").exists()
     text = capsys.readouterr().out
     assert "Headline" in text and "hand masks" in text and "ridge rgb no-mirror" in text
     report = json.loads((out / "report.json").read_text())
@@ -192,7 +195,10 @@ def test_main_end_to_end(tmp_path, capsys):
     assert sc["ridge rgb"]["skill"] > 0.8
     assert sc["hand masks"]["bias"] == pytest.approx(1.0, abs=1e-3)     # the hand values were +1 degree
     with open(out / "predictions.csv") as f:
-        assert sum(1 for _ in f) == 1 + len(y) * len(MEASURES)
+        header = f.readline().strip().split(",")
+        assert sum(1 for _ in f) == len(y) * len(MEASURES)
+    assert header[:5] == ["tree", "row", "fold", "measure", "winter"]
+    assert {"mean shape", "hand masks", "ridge rgb", "ridge rgb no-mirror"} <= set(header)
 
 
 def test_main_refuses_test_rows(tmp_path, capsys):
