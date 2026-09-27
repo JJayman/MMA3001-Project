@@ -49,6 +49,12 @@ decides the modality, and the embedded one is kept as
 Depth images are stored as 8-bit greyscale (three identical channels). They are
 a scaled visualisation of depth, not metric distance: brighter pixels are closer
 to the camera and 0 means "no reading" (out of range or sensor dropout).
+
+**The depth does not line up exactly with the colour image.** The winter
+depth sits about 5 px below the colour image and about 1 px to its left
+(``docs/results/depth_registration/``). :func:`load_tree` moves it by
+:data:`DEPTH_SHIFT` to correct this (``register=False`` loads it as stored);
+the shift is measured by :mod:`treeskel.measure_registration`.
 """
 
 from __future__ import annotations
@@ -74,6 +80,28 @@ MASK_SHAPE = (256, 256)
 
 CROP_COLS = (80, 560)
 """Columns of the 640-wide photo covered by a mask (the centre 480x480)."""
+
+DEPTH_SHIFT: dict[str, tuple[int, int]] = {"summer": (0, 0), "winter": (-5, 1)}
+"""Whole pixels ``(rows, cols)`` each season's depth image is moved by on loading
+(:func:`load_tree`), so that it lines up with the colour image; negative rows
+move it up.
+
+**Winter: 5 rows up, 1 column right** (the student's decision, session 9),
+measured on all 449 development trees with :mod:`treeskel.measure_registration`
+(``docs/results/depth_registration/``). The shift is the same for every tree
+(its real spread is about 0.4 px) and does not depend on distance. How far is
+less certain: session 8's measure gives 3.1 rows, but the bark's centre found
+in colour follows the window it is measured in, and the windows sat on paths
+traced along the misplaced depth. The two estimates that take that out give
+5.06 and 5.09 rows (above session 8's in all 16 rows), and with the depth
+moved 5 rows up and the trees traced again, session 8's measure leaves
++0.04 px. Columns: +0.8 to +0.9 by every estimate on all cross-sections.
+
+**Summer: not moved.** Mutual information, the only check that needs no
+traced branches, puts the summer depth about 2.3 px low, but in winter it was
+too unreliable (biased by band, and at the edge of its search on 184 of 449
+trees) to set a correction on its own.
+"""
 
 EXCLUDED_ROWS: dict[int, str] = {
     4: "Every winter depth image in row 4 is a copy of R03N34's winter depth "
@@ -388,12 +416,40 @@ def load_depth(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     return depth, depth > 0
 
 
-def load_tree(rec: TreeRecord, season: str) -> dict[str, np.ndarray]:
+def shift_image(image: np.ndarray, shift: tuple[int, int], fill=0) -> np.ndarray:
+    """Move an image by whole pixels, filling the uncovered edge.
+
+    Args:
+        image: ``(H, W)`` or ``(H, W, C)`` array.
+        shift: ``(rows, cols)``; positive moves the content down and right.
+        fill: Value for the pixels the move uncovers (for depth, 0 = no reading).
+
+    Returns:
+        A new array the shape and dtype of ``image``: ``out[r + rows, c + cols] =
+        image[r, c]`` wherever both are inside the image.
+
+    Example:
+        >>> shift_image(np.arange(1, 7).reshape(2, 3), (1, -1)).tolist()
+        [[0, 0, 0], [2, 3, 0]]
+    """
+    dy, dx = (int(v) for v in shift)
+    h, w = image.shape[:2]
+    out = np.full_like(image, fill)
+    if abs(dy) < h and abs(dx) < w:
+        out[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = \
+            image[max(-dy, 0):h - max(dy, 0), max(-dx, 0):w - max(dx, 0)]
+    return out
+
+
+def load_tree(rec: TreeRecord, season: str, register: bool = True) -> dict[str, np.ndarray]:
     """Load the RGB image, depth and validity mask for one tree and season.
 
     Args:
         rec: A complete :class:`TreeRecord`.
         season: ``"summer"`` or ``"winter"`` (case-insensitive).
+        register: Move the depth by the season's :data:`DEPTH_SHIFT` so that it
+            lines up with the colour image (pixels it uncovers get no reading).
+            False returns the depth as stored, e.g. to measure the shift.
 
     Returns:
         Dict with keys ``"rgb"`` (480x640x3 uint8), ``"depth"`` (480x640
@@ -407,6 +463,9 @@ def load_tree(rec: TreeRecord, season: str) -> dict[str, np.ndarray]:
     if season not in SEASONS:
         raise ValueError(f"Unknown season {season!r}; expected one of {SEASONS}")
     depth, valid = load_depth(rec.paths[(season, "depth")])
+    if register and any(DEPTH_SHIFT[season]):
+        depth = shift_image(depth, DEPTH_SHIFT[season])
+        valid = depth > 0
     return {"rgb": load_rgb(rec.paths[(season, "rgb")]), "depth": depth, "valid": valid}
 
 

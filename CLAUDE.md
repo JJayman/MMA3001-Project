@@ -37,6 +37,13 @@ camera, different (autumn) capture.
 - **Ground truth:** click-guided (`guided_gt`), with clicks in
   `annotations/winter_clicks.json`, all 541 trees done. The automatic
   `winter_gt` is kept as a **baseline** only.
+- **Depth registration** (session 9, the student's decision): the winter depth
+  is moved **5 rows up and 1 column right** on loading
+  (`treeskel.io.DEPTH_SHIFT`, applied by `load_tree`; `register=False` gives
+  the depth as stored). Summer is not moved. Measured on all 449 development
+  trees with `measure_registration`; the colour-edge fit follows its window,
+  which made session 8's estimate (3.1–3.8) low. See
+  `docs/results/depth_registration/`.
 - **Two leaders per tree**, matching the hand masks. "Left" is the leader
   whose tip is further left in the image.
 - **Masks:** the trunk width comes from depth (robust straight taper). Each
@@ -71,7 +78,7 @@ camera, different (autumn) capture.
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                (tracing, widths, fork junction), annotate.py (click tool),
                tune_cost.py, measure_fork.py (fork fill and junction),
-               measure_width.py (leader widths),
+               measure_width.py (leader widths), measure_registration.py (depth-colour shift),
                align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
                (line-up tool, chosen), summer_gt.py (summer masks and checks)

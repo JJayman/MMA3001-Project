@@ -24,6 +24,7 @@ src/treeskel/    Python package
   tune_cost.py   tunes the tracing cost map against corrected annotations
   measure_fork.py  measures the masks at the fork against winter depth (shoulder fill, fork junction)
   measure_width.py measures the leaders' widths against winter depth and the hand masks (sets the width model)
+  measure_registration.py  measures how far the depth images sit from the colour images (the depth-colour shift)
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
   annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
@@ -61,6 +62,7 @@ python -m treeskel.guided_gt data/raw --overlays           # render guided groun
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fork junction and fill (development rows only)
 python -m treeskel.measure_width data/raw                  # check the leader widths (development rows only)
+python -m treeskel.measure_registration data/raw           # measure the depth-colour shift (development rows only)
 python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
 python -m treeskel.annotate_overlay data/raw --dev-only    # line up each tree's winter photo on its summer photo
 python -m treeskel.summer_gt data/raw                      # check the alignments; write the summer masks
@@ -73,7 +75,9 @@ pdoc -o docs/_build src/treeskel           # build HTML documentation
 Each tree (e.g. `R20N03` = row 20, tree 3 on the orchard map) has a summer
 and a winter RGB image and depth image (640x480 PNG), plus a hand-labelled
 256x256 summer mask of the main branches, used for validation only. Depth is 8-bit relative depth (brighter = closer,
-0 = no reading), not metric. See [`data/sample/README.md`](data/sample/README.md).
+0 = no reading), not metric. The winter depth sits about 5 px below the colour image, so it is moved 5 rows
+up and 1 column right when loaded ([`docs/results/depth_registration`](docs/results/depth_registration/)).
+See [`data/sample/README.md`](data/sample/README.md).
 
 The full dataset ("Dataset (With Summer GT)", 562 trees in 20 rows) comes from the MMA3001 teaching team
 and is not redistributed here. Put it in `data/raw/`, which is git-ignored.
