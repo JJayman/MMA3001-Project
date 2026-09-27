@@ -24,10 +24,11 @@ squares (`line_direction`), in degrees:
 | V's lean from trunk | the V's bisector from the trunk's axis, positive to the right | no effect |
 | Trunk / left / right leader from vertical, V's lean from vertical | the same lines from the photo's vertical | adds to them |
 
-- **The trunk's axis** is its top: from the fork down 4 trunk radii.
-- **The leader lines** run from 1.5 to 16 trunk radii from the fork (the
-  student's choice, below). A trunk radius scales with the photo, so the same
-  stretch of tree is measured in any photo of it.
+- **The trunk's axis** is its top: from the fork down 66 px.
+- **The leader lines** run from 25 to 264 px up each leader from the fork in
+  the winter photo (1.5 to 16 units of 16.5 px, the median trunk radius), and
+  over the same stretch times 1.12 in the summer view (the student's choices,
+  below).
 - **Checks with known answers** (`tests/test_shape.py`): synthetic V trees with
   set tilts and bends are measured to within 0.15–0.5°; a bend along a circle
   is half its turning, as it should be; shifting, scaling and rolling the tree
@@ -44,32 +45,75 @@ leaders do not follow it: the trellis holds them.
 
 | 449 trees | SD across trees |
 |---|---|
-| Trunk from vertical | 15.4° |
-| V's lean from trunk | 16.4° |
-| V's lean from vertical | 6.3° |
+| Trunk from vertical | 15.0° |
+| V's lean from trunk | 16.2° |
+| V's lean from vertical | 6.0° |
 
 So angles measured from the trunk mostly measure the trunk's own lean (in the
 clicks alone, the trunk's lean and the V's lean from the trunk correlate at
 −0.96). Angles from the vertical avoid that, but carry the camera's roll
 between the seasons, which differs by row (section 3).
 
-**A fixed stretch of each leader (1.5–16 trunk radii), not all of it in
-view.** The leaders curve (the bends), so a line through everything in view
-depends on where the photo's top edge cuts the leaders, and the summer photos
-are framed tighter than the winter ones. How much a tighter top edge would
-change the measures (median / 95th percentile, 449 trees, `framing_change`):
+**A fixed stretch of each leader, not all of it in view.** The leaders curve
+(the bends), so a line through everything in view depends on where the
+photo's top edge cuts the leaders, and the summer photos are framed tighter
+than the winter ones. How much a tighter top edge would change the measures
+(median / 95th percentile, 449 trees, `framing_change`):
 
 | Height above the fork left in view | Fixed stretch: V opening, left bend, right bend | Whole leader: V opening, left bend, right bend |
 |---|---|---|
-| 85% | 0.0 / 0.0°, 0.0 / 0.0°, 0.0 / 0.0° | 3.1 / 6.7°, 3.5 / 8.9°, 2.8 / 7.5° |
-| 70% | 0.0 / 1.0°, 0.0 / 2.4°, 0.0 / 0.9° | 5.5 / 14.1°, 6.5 / 17.0°, 6.0 / 15.6° |
+| 85% | 0.0 / 0.0°, 0.0 / 0.0°, 0.0 / 0.0° | 3.1 / 6.8°, 3.5 / 8.8°, 2.8 / 7.6° |
+| 70% | 0.0 / 0.0°, 0.0 / 0.0°, 0.0 / 0.0° | 5.5 / 14.1°, 6.4 / 17.1°, 6.0 / 15.7° |
 
-In view, the winter leaders are a median 27.7 trunk radii long and the hand
-masks' 23.4; 1 of 898 winter leaders and 9 of 896 hand-mask leaders are
-shorter than 16 trunk radii.
+**Its length in pixels, not in each tree's own trunk radius.** The stretch
+was first 1.5–16 trunk radii, so that it would scale with the photo. The
+student's check of the trees where the hand masks disagreed most (section 6)
+led to a second look, which found three problems:
 
-The choice was made on the framing check alone. The stretch was not tuned for
-agreement with the hand masks, which would favour the baseline being scored.
+- **The trunk radius varies a lot.** The winter trunk radius at the fork
+  varies by a factor of 2.2 between trees (9.9–21.9 px, 5th to 95th
+  percentile), so 16 trunk radii covered anywhere from about 160 to 350 px of
+  leader.
+- **A hand mask's trunk is only as wide as it was drawn,** from under 0.86 to
+  over 3 times the winter one.
+- **On curved leaders the length matters.** A stretch 20% shorter or 25%
+  longer moves the winter angles by a median 2.6–3.0° (V opening), 4.1–4.5°
+  (bends) and 1.7–2.2° (tilts); 95th percentiles 9–14° (449 trees, from the
+  saved traces).
+
+A length in pixels varies only with the camera's distance (1.8–2.2 m by Chen
+et al., about ±10%). In the summer view it is multiplied by 1.12. The scale
+between the seasons is not pinned down (session 7), but two estimates agree:
+the hand masks' trunks are drawn a median 1.12 times as wide as the winter
+ones, and the student's two overlays gave 1.12 and 1.15. The winter leaders
+are at least 362 px long in view (1st percentile), so the stretch is in view
+on every tree in both seasons (a median 27.6 and 23.0 units long).
+
+Measured in pixels, the hand masks correlate better with the winter traces on
+every measure, and differ less on all but one:
+
+| Hand mask against winter | Median abs. difference, trunk radii → pixels | r, trunk radii → pixels |
+|---|---|---|
+| V opening | 2.9° → 2.6° | 0.86 → 0.93 |
+| Left leader from trunk | 4.9° → 4.7° | 0.86 → 0.88 |
+| Right leader from trunk | 4.9° → 4.7° | 0.84 → 0.88 |
+| V's lean from trunk | 4.5° → 4.7° | 0.85 → 0.87 |
+| Left bend | 4.7° → 4.2° | 0.72 → 0.86 |
+| Right bend | 4.8° → 3.8° | 0.67 → 0.80 |
+| Trunk from vertical | 4.1° → 4.0° | 0.82 → 0.84 |
+| Left leader from vertical | 2.8° → 2.6° | 0.86 → 0.91 |
+| Right leader from vertical | 2.9° → 2.5° | 0.81 → 0.87 |
+| V's lean from vertical | 2.3° → 2.2° | 0.82 → 0.86 |
+
+The one exception is the median difference for the V's lean from the trunk
+(4.5° → 4.7°). The winter V opening's spread across trees falls from 13.7° to
+12.5°, as expected if the trunk radii had added variation that is not the
+V's.
+
+Both choices were made on grounds other than agreement with the hand masks:
+framing, and how much the unit varies. The agreement is shown as a
+consequence, not used to tune the stretch; tuning it on agreement would
+favour the baseline being scored.
 
 ## 2. The winter shape of the development trees
 
@@ -78,16 +122,16 @@ provided hand masks' measures against them:
 
 | Measure | Winter mean | SD across trees | Hand mask − winter: mean | Median abs. difference | r |
 |---|---|---|---|---|---|
-| V opening | 53.1° | 13.7° | −0.3° | 2.9° | 0.86 |
-| Left leader from trunk | 21.8° | 17.7° | +2.8° | 4.9° | 0.86 |
-| Right leader from trunk | 31.3° | 17.8° | −3.1° | 4.9° | 0.84 |
-| V's lean from trunk | 4.7° | 16.4° | −3.0° | 4.5° | 0.85 |
-| Left bend | −2.9° | 12.0° | −0.3° | 4.7° | 0.72 |
-| Right bend | −5.6° | 12.0° | −0.5° | 4.8° | 0.67 |
-| Trunk from vertical | −2.9° | 15.4° | +1.7° | 4.1° | 0.82 |
-| Left leader from vertical | −24.7° | 9.5° | −1.1° | 2.8° | 0.86 |
-| Right leader from vertical | 28.4° | 9.1° | −1.4° | 2.9° | 0.81 |
-| V's lean from vertical | 1.8° | 6.3° | −1.3° | 2.3° | 0.82 |
+| V opening | 52.8° | 12.5° | +0.1° | 2.6° | 0.93 |
+| Left leader from trunk | 21.7° | 17.1° | +2.9° | 4.7° | 0.88 |
+| Right leader from trunk | 31.0° | 17.6° | −2.8° | 4.7° | 0.88 |
+| V's lean from trunk | 4.7° | 16.2° | −2.9° | 4.7° | 0.87 |
+| Left bend | −2.3° | 12.1° | −0.4° | 4.2° | 0.86 |
+| Right bend | −5.4° | 11.2° | −0.5° | 3.8° | 0.80 |
+| Trunk from vertical | −2.7° | 15.0° | +1.4° | 4.0° | 0.84 |
+| Left leader from vertical | −24.5° | 8.8° | −1.5° | 2.6° | 0.91 |
+| Right leader from vertical | 28.3° | 8.5° | −1.4° | 2.5° | 0.87 |
+| V's lean from vertical | 1.9° | 6.0° | −1.4° | 2.2° | 0.86 |
 
 - The leaders bend back towards the vertical on average (negative bends).
 - R07N19, which splits at the ground, has no trunk axis; R17N23's hand mask
@@ -149,23 +193,28 @@ predictions:
 
 | Measure | Mean shape | Hand masks | **Ridge, photo (the model)** | Ridge, depth | Ridge, both | Ridge, whole photo only | Ridge, no mirror images |
 |---|---|---|---|---|---|---|---|
-| V opening | 10.4° | 4.4° / +0.74 | **10.0° / +0.06** | 9.9° / +0.10 | 10.0° / +0.06 | 10.1° / +0.04 | 10.0° / +0.07 |
-| Left bend | 9.6° | 6.5° / +0.40 | **9.5° / +0.03** | 9.5° / +0.02 | 9.5° / +0.02 | 9.6° / +0.01 | 9.6° / +0.01 |
-| Right bend | 9.4° | 6.8° / +0.36 | **9.4° / 0.00** | 9.4° / 0.00 | 9.4° / 0.00 | 9.4° / 0.00 | 9.4° / 0.00 |
-| Left leader from trunk | 13.5° | 6.8° / +0.71 | **13.5° / 0.00** | 13.6° / −0.01 | 13.5° / 0.00 | 13.5° / −0.01 | 13.5° / +0.01 |
-| Right leader from trunk | 13.9° | 7.0° / +0.68 | **13.8° / +0.01** | 13.7° / +0.03 | 13.8° / +0.02 | 13.8° / +0.02 | 13.5° / +0.06 |
-| V's lean from trunk | 12.4° | 6.4° / +0.69 | **12.5° / −0.01** | 12.5° / 0.00 | 12.5° / 0.00 | 12.4° / −0.01 | 12.3° / +0.02 |
-| Trunk from vertical | 11.2° | 6.1° / +0.66 | **11.1° / +0.02** | 11.2° / −0.01 | 11.2° / +0.02 | 11.1° / 0.00 | 10.9° / +0.06 |
-| Left leader from vertical | 7.4° | 3.5° / +0.73 | **7.1° / +0.07** | 7.1° / +0.06 | 7.1° / +0.07 | 7.2° / +0.04 | 7.1° / +0.07 |
-| Right leader from vertical | 7.3° | 3.8° / +0.61 | **7.1° / +0.02** | 7.2° / +0.04 | 7.2° / +0.01 | 7.3° / 0.00 | 7.2° / +0.01 |
-| V's lean from vertical | 5.0° | 2.9° / +0.60 | **4.9° / +0.04** | 5.0° / −0.01 | 4.9° / +0.03 | 5.0° / −0.01 | 5.0° / −0.01 |
+| V opening | 9.8° | 3.3° / +0.87 | **9.2° / +0.10** | 9.3° / +0.11 | 9.3° / +0.10 | 9.3° / +0.09 | 9.2° / +0.10 |
+| Left bend | 9.5° | 5.1° / +0.70 | **9.4° / +0.03** | 9.5° / 0.00 | 9.4° / +0.02 | 9.5° / +0.02 | 9.5° / +0.01 |
+| Right bend | 8.8° | 5.2° / +0.61 | **8.8° / −0.01** | 8.8° / 0.00 | 8.8° / 0.00 | 8.8° / −0.01 | 8.8° / −0.01 |
+| Left leader from trunk | 13.0° | 6.3° / +0.75 | **13.0° / 0.00** | 13.1° / −0.02 | 13.0° / 0.00 | 13.0° / −0.03 | 13.1° / +0.01 |
+| Right leader from trunk | 13.8° | 6.4° / +0.75 | **13.7° / +0.03** | 13.5° / +0.03 | 13.6° / +0.03 | 13.6° / +0.03 | 13.3° / +0.06 |
+| V's lean from trunk | 12.3° | 6.1° / +0.73 | **12.4° / 0.00** | 12.3° / −0.01 | 12.4° / 0.00 | 12.2° / −0.01 | 12.1° / +0.03 |
+| Trunk from vertical | 10.9° | 5.7° / +0.70 | **10.8° / +0.03** | 10.9° / −0.01 | 10.8° / +0.03 | 10.8° / 0.00 | 10.5° / +0.06 |
+| Left leader from vertical | 7.1° | 3.1° / +0.80 | **6.7° / +0.09** | 6.9° / +0.05 | 6.7° / +0.08 | 6.8° / +0.06 | 6.9° / +0.05 |
+| Right leader from vertical | 6.9° | 3.1° / +0.73 | **6.7° / +0.05** | 6.8° / +0.06 | 6.7° / +0.05 | 6.8° / +0.02 | 6.8° / +0.04 |
+| V's lean from vertical | 4.8° | 2.7° / +0.66 | **4.8° / +0.03** | 4.8° / 0.00 | 4.8° / +0.04 | 4.9° / −0.01 | 4.8° / 0.00 |
 
 **V opening, in detail:**
-- The model is better than the mean shape on 55% of trees (Wilcoxon
-  p = 0.006), r = 0.20. Its skill per fold is −0.02, +0.04, +0.09, +0.06 and
-  +0.16.
-- The hand masks are better on 76% of trees, r = 0.86, with skill per fold
-  +0.54 to +0.86.
+- The model is better than the mean shape on 58% of trees (Wilcoxon
+  p = 0.003), r = 0.27. Its skill per fold is −0.02, +0.08, +0.11, +0.12 and
+  +0.24.
+- The hand masks are better on 78% of trees, r = 0.93, with skill per fold
+  +0.80 to +0.91.
+
+With the stretch in trunk radii (the first run, before the switch to pixels)
+the scores were lower: V opening +0.74 for the hand masks and +0.06 for the
+model, bends +0.40 and +0.36 for the hand masks. The trunk radius had added
+variation to the targets that no summer photo can predict.
 
 Full output: [`model_output.txt`](model_output.txt); scores, penalties and
 per-fold skills: [`report.json`](report.json); every tree's predictions:
@@ -182,8 +231,8 @@ same nested row-grouped cross-validation (exploratory, no mirror images;
 
 | Skill | V opening | Left bend | Right bend | Best of the other measures |
 |---|---|---|---|---|
-| k nearest neighbours | +0.06 | 0.00 | 0.00 | +0.07 (trunk from vertical) |
-| Kernel ridge (RBF) | +0.04 | 0.00 | 0.00 | +0.07 (trunk from vertical) |
+| k nearest neighbours | +0.09 | −0.02 | −0.02 | +0.06 (three measures) |
+| Kernel ridge (RBF) | +0.07 | 0.00 | −0.01 | +0.09 (trunk from vertical) |
 
 No model does better than about +0.1, so the limit is in the features.
 
@@ -198,15 +247,15 @@ No model does better than about +0.1, so the limit is in the features.
 - **ImageNet features describe objects and textures, not the geometry of thin,
   partly hidden branches.**
 - **The penalty confirms it.** It is chosen large (3×10³ to 3×10⁵, fairly
-  stable over the folds; for the right bend the top of the grid, 10⁷, which
-  is the mean shape, in 3 of 5 folds), so the predictions stay within a few
-  degrees of the mean shape (see the scatter figure).
+  stable over the folds; for the right bend up to the top of the grid, 10⁷,
+  which is the mean shape), so the predictions stay within a few degrees of
+  the mean shape (see the scatter figure).
 
 ## 5. What this means
 
 - **The information is in the summer photo.** A person's reading of it (the
-  hand masks) predicts the winter V opening to 4.4° (MAE) against 10.4° for
-  the mean shape (skill +0.74), and the other measures with skill 0.36–0.73.
+  hand masks) predicts the winter V opening to 3.3° (MAE) against 9.8° for
+  the mean shape (skill +0.87), and the other measures with skill 0.61–0.80.
 - **Fixed ImageNet features do not capture it,** whatever the regression on
   top: skill at most about 0.1.
 - **The next model has to see where the branches are.** Two ways:
@@ -219,20 +268,32 @@ No model does better than about +0.1, so the limit is in the features.
      change "hand masks are for validation only", so it is the student's
      decision.
 
-## 6. Trees to look at
+## 6. The trees where the hand masks and the winter traces disagree most
 
-The largest disagreements between the hand masks and the winter traces may be
-tracing slips near the fork, bad hand masks, or unusual trees:
+The 14 trees with the largest disagreements (the four largest in each of the
+V opening, the bends and the leaders' tilts, with the stretch then in trunk
+radii) were drawn with their fitted lines in both seasons
+(`python -m treeskel.shape data/raw --trees ... --figure outputs/shape_outliers.jpg`).
+The student looked at the other 13 on the PC; R09N32, one of the local trees,
+was checked by the AI.
 
-| Measure | Tree: hand mask − winter (winter value) |
+**Every winter trace was right (14 of 14).** No disagreement came from the
+ground truth. The student's verdicts on the hand masks' centre lines in the
+summer photos (12 of the 13; R17N02 has none):
+
+| Verdict | Trees |
 |---|---|
-| V opening | R01N06 +53° (20°), R01N40 +43° (6°), R14N30 −43° (126°), R01N41 +30° (25°) |
-| Left bend | R01N40 +57° (−13°), R17N02 −40° (−2°), R02N20 −40° (9°) |
-| Right bend | R14N15 +48° (−52°), R01N43 +45° (−19°), R02N27 −40° (0°) |
+| Slightly off the branch | R01N06, R01N40, R01N41 (also a different view), R02N27, R07N15, R11N19, R14N15 |
+| Close, but shifted sideways (left, or right on one leader and the trunk) | R01N43, R02N20 (also a different view), R14N30, R15N24 |
+| Close | R05N04 |
+| A different view of a correct trace (AI's check) | R09N32: the summer camera stood closer and lower, rolled about 7°, so the leader looks flatter near the fork |
 
-8.9% of trees differ by more than 10° in the V opening. The fitted lines on
-chosen trees can be drawn with
-`python -m treeskel.shape data/raw --trees R01N06 R01N40 R14N30 R14N15 --figure outputs/shape_outliers.jpg`.
+A sideways shift alone does not change an angle; the known shift of the hand
+masks (session 3) is harmless here. What did change the angles was partly
+the unit: in these 14 trees the drawn trunk was 0.73–3.06 times the winter
+one, which made the stretch in the hand mask up to three times too long
+(R01N40, R15N24) or a quarter too short (R17N02). That led to the switch to
+pixels (section 1).
 
 ## 7. Reproduce
 
@@ -241,3 +302,12 @@ python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   & rem 
 python -m treeskel.shape_model --plots docs/figures                      & rem anywhere: 3 min
 python docs/results/shape/robustness.py                                  & rem anywhere: 5 min
 ```
+
+- The first command writes `data/shape/`: the table of measures, the summer
+  features, and the winter traces (`winter_traces.npz`, `load_traces`), so a
+  change to a measure can be tried without the photos. With
+  `--features none` it skips the features, which do not depend on the
+  measures (how the pixel-unit table was made).
+- `python -m treeskel.shape data/raw --trees <ids> --figure outputs/<name>.jpg`
+  draws chosen trees at full size into `outputs/`, without touching
+  `data/shape/`.
