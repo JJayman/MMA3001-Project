@@ -301,8 +301,55 @@ any result):
   but the gap stays. One row group is much harder: rows 1, 8 and 15, held out
   within fold 5, stay at 1.3 against 0.7–0.8.
 
-`docs/figures/shape_cnn_skill.png` compares the three with the range over the
-folds.
+### More input: the summer depth, and the photo at full size
+
+The student's choice after the first run. The recipe was kept the same:
+- **Depth:** the summer depth as a fourth channel, its first-layer weights
+  starting as the mean of the colour weights, no colour jitter.
+- **Full size:** the photo at 480x640, four times the pixels.
+
+(MAE / skill; ◆ = better than the first run tree by tree, Wilcoxon p < 0.01)
+
+| Measure | Photo, 240x320 | Photo and depth | Photo, 480x640 | Hand masks |
+|---|---|---|---|---|
+| V opening | 8.9° / +0.16 | 8.8° / +0.15 | 8.7° / +0.18 | 3.3° / +0.87 |
+| Left bend | 9.1° / +0.07 | 8.9° / +0.07 | 8.9° / +0.06 | 5.1° / +0.70 |
+| Right bend | 8.6° / +0.05 | 9.1° / −0.04 | 8.7° / +0.05 | 5.2° / +0.61 |
+| Left leader from trunk | 11.8° / +0.15 | 11.5° / +0.16 | 11.2° / +0.23 ◆ | 6.3° / +0.75 |
+| Right leader from trunk | 11.3° / +0.28 | 11.5° / +0.26 | 11.0° / +0.37 | 6.4° / +0.75 |
+| V's lean from trunk | 10.6° / +0.22 | 10.6° / +0.22 | 10.1° / +0.32 | 6.1° / +0.73 |
+| Trunk from vertical | 8.8° / +0.30 | 8.9° / +0.28 | 8.5° / +0.38 | 5.7° / +0.70 |
+| Left leader from vertical | 6.3° / +0.18 | 6.2° / +0.18 | 5.9° / +0.24 ◆ | 3.1° / +0.80 |
+| Right leader from vertical | 6.4° / +0.13 | 6.4° / +0.12 | 6.2° / +0.15 | 3.1° / +0.73 |
+| V's lean from vertical | 4.5° / +0.14 | 4.4° / +0.15 | 4.3° / +0.22 ◆ | 2.7° / +0.66 |
+
+Each run was compared with the first on the same trees (`--replot` with
+several folders; `docs/results/shape_cnn_runs.json`), because the folds'
+skills swing widely: the V opening's from −0.15 to +0.44 within the depth
+run.
+
+- **Depth adds nothing.** No measure improves tree by tree, and the right bend
+  gets a little worse (p = 0.008, lower in all 5 folds). The summer depth is a
+  smooth surface over the canopy (session 9), so it holds no more about the
+  branches than the photo.
+- **The full-size photo helps the trunk and the leaders' tilts a little.**
+  - The skill rises by 0.06–0.10 on six measures, in 4 or 5 of 5 folds on
+    most of them.
+  - Tree by tree it is significant on three: the left leader from the trunk,
+    the left leader's tilt, and the V's lean from vertical.
+  - The trunk's tilt rises in all 5 folds (+0.30 to +0.38), but only 50% of
+    trees are predicted more closely (p = 0.35). Its gain comes from fewer
+    large misses, which the squared error in the skill weighs heavily.
+- **The V opening and the bends do not move** (+0.18 at best, against +0.87
+  for the hand masks).
+- 19 minutes on the student's GPU, against 6 for 240x320.
+
+All three runs are reported. The full-size run is the best on most measures,
+but choosing it on these same folds flatters it slightly. The test rows are
+untouched for one final model.
+
+`docs/figures/shape_cnn_skill.png` compares every model with the range over the
+folds; the learning curves of each run are in `docs/figures/shape_cnn*_training.png`.
 
 ## 6. What this means
 
@@ -312,16 +359,16 @@ folds.
 - **Fixed ImageNet features do not capture it,** whatever the regression on
   top: skill at most about 0.1.
 - **Fine-tuning the network on the winter measures captures some of it:**
-  the trunk well (+0.30), the V less (V opening +0.16), the bends hardly. It
-  fits its 270–360 training photos far better than new rows.
-- **Still open:**
-  1. more input for the same network: the summer depth, or the photo at full
-     size (the student's next choice);
-  2. a segmentation network trained on the hand masks, which session 10 showed
-     are drawn in the summer view and have the winter shape (448 of 448 laid
-     onto the winter traces within 8 px). Its predicted masks would be measured
-     with the same code and scored against the winter traces. This would change
-     "hand masks are for validation only", so it is the student's decision.
+  the trunk well (+0.30; +0.38 at full size), the V less (V opening +0.16 to
+  +0.18), the bends hardly. It fits its 270–360 training photos far better
+  than new rows. The summer depth adds nothing; the full-size photo helps the
+  trunk and the leaders' tilts a little.
+- **Still open:** a segmentation network trained on the hand masks, which
+  session 10 showed are drawn in the summer view and have the winter shape
+  (448 of 448 laid onto the winter traces within 8 px). Its predicted masks
+  would be measured with the same code and scored against the winter traces.
+  This would change "hand masks are for validation only", so it is the
+  student's decision.
 
 ## 7. The trees where the hand masks and the winter traces disagree most
 
@@ -357,7 +404,9 @@ python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   & rem 
 python -m treeskel.shape_model --plots docs/figures                      & rem anywhere: 3 min
 python docs/results/shape/robustness.py                                  & rem anywhere: 5 min
 python -m treeskel.shape_cnn data/raw                                    & rem the student's GPU: 6 min
-python -m treeskel.shape_cnn --replot docs/results/shape_cnn             & rem the figures, anywhere
+python -m treeskel.shape_cnn data/raw --depth                            & rem 6.5 min
+python -m treeskel.shape_cnn data/raw --size 480 640                     & rem 19 min
+python -m treeskel.shape_cnn --replot docs/results/shape_cnn docs/results/shape_cnn_depth docs/results/shape_cnn_480x640   & rem figures and comparison, anywhere
 ```
 
 - The first command writes `data/shape/`: the table of measures, the summer

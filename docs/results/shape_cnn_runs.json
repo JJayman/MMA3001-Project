@@ -1,0 +1,166 @@
+{
+  "shape_cnn_depth": {
+    "v_opening": {
+      "skill": 0.15230090404186758,
+      "reference_skill": 0.1638043593573869,
+      "closer": 0.5412026726057907,
+      "wilcoxon_p": 0.31373596731077946,
+      "folds_better": 4,
+      "n_folds": 5
+    },
+    "left_angle": {
+      "skill": 0.16064575668995784,
+      "reference_skill": 0.14764986598774454,
+      "closer": 0.5334821428571429,
+      "wilcoxon_p": 0.2518290095092697,
+      "folds_better": 4,
+      "n_folds": 5
+    },
+    "right_angle": {
+      "skill": 0.26009819714193116,
+      "reference_skill": 0.2794396713745798,
+      "closer": 0.484375,
+      "wilcoxon_p": 0.35882316588140506,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "lean": {
+      "skill": 0.21958522595724672,
+      "reference_skill": 0.22483056551681846,
+      "closer": 0.4888392857142857,
+      "wilcoxon_p": 0.7563242489364636,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "left_bend": {
+      "skill": 0.068510392660602,
+      "reference_skill": 0.06644554309314099,
+      "closer": 0.5300668151447662,
+      "wilcoxon_p": 0.1845911331458886,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "right_bend": {
+      "skill": -0.036127974932298024,
+      "reference_skill": 0.04871027612263268,
+      "closer": 0.45657015590200445,
+      "wilcoxon_p": 0.007931883728923424,
+      "folds_better": 0,
+      "n_folds": 5
+    },
+    "trunk_tilt": {
+      "skill": 0.2794627892741599,
+      "reference_skill": 0.30304150875053426,
+      "closer": 0.4799107142857143,
+      "wilcoxon_p": 0.42699871053546534,
+      "folds_better": 2,
+      "n_folds": 5
+    },
+    "left_tilt": {
+      "skill": 0.18239735890486497,
+      "reference_skill": 0.17796857166913282,
+      "closer": 0.5055679287305123,
+      "wilcoxon_p": 0.6164454334046867,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "right_tilt": {
+      "skill": 0.1220982609356629,
+      "reference_skill": 0.12942826557531684,
+      "closer": 0.46993318485523383,
+      "wilcoxon_p": 0.9193861065355445,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "lean_v": {
+      "skill": 0.15039754669167005,
+      "reference_skill": 0.14010727885206653,
+      "closer": 0.49665924276169265,
+      "wilcoxon_p": 0.8094982028552663,
+      "folds_better": 2,
+      "n_folds": 5
+    }
+  },
+  "shape_cnn_480x640": {
+    "v_opening": {
+      "skill": 0.17621842011049826,
+      "reference_skill": 0.1638043593573869,
+      "closer": 0.5367483296213809,
+      "wilcoxon_p": 0.42742323194306053,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "left_angle": {
+      "skill": 0.23376393543270757,
+      "reference_skill": 0.14764986598774454,
+      "closer": 0.5625,
+      "wilcoxon_p": 0.007801122324216847,
+      "folds_better": 5,
+      "n_folds": 5
+    },
+    "right_angle": {
+      "skill": 0.36735988056368085,
+      "reference_skill": 0.2794396713745798,
+      "closer": 0.5379464285714286,
+      "wilcoxon_p": 0.26107533321861676,
+      "folds_better": 4,
+      "n_folds": 5
+    },
+    "lean": {
+      "skill": 0.32156621977402666,
+      "reference_skill": 0.22483056551681846,
+      "closer": 0.5223214285714286,
+      "wilcoxon_p": 0.07056643956325472,
+      "folds_better": 5,
+      "n_folds": 5
+    },
+    "left_bend": {
+      "skill": 0.06253140900084997,
+      "reference_skill": 0.06644554309314099,
+      "closer": 0.5189309576837416,
+      "wilcoxon_p": 0.28562780120089204,
+      "folds_better": 2,
+      "n_folds": 5
+    },
+    "right_bend": {
+      "skill": 0.05353602295384796,
+      "reference_skill": 0.04871027612263268,
+      "closer": 0.48997772828507796,
+      "wilcoxon_p": 0.4600282546686406,
+      "folds_better": 2,
+      "n_folds": 5
+    },
+    "trunk_tilt": {
+      "skill": 0.3810418356739258,
+      "reference_skill": 0.30304150875053426,
+      "closer": 0.5044642857142857,
+      "wilcoxon_p": 0.3534055363428811,
+      "folds_better": 5,
+      "n_folds": 5
+    },
+    "left_tilt": {
+      "skill": 0.23701322228586041,
+      "reference_skill": 0.17796857166913282,
+      "closer": 0.5389755011135857,
+      "wilcoxon_p": 0.0089378209358343,
+      "folds_better": 4,
+      "n_folds": 5
+    },
+    "right_tilt": {
+      "skill": 0.14567402763641968,
+      "reference_skill": 0.12942826557531684,
+      "closer": 0.5144766146993318,
+      "wilcoxon_p": 0.22525967745547848,
+      "folds_better": 3,
+      "n_folds": 5
+    },
+    "lean_v": {
+      "skill": 0.2155761336229659,
+      "reference_skill": 0.14010727885206653,
+      "closer": 0.5523385300668151,
+      "wilcoxon_p": 0.008053930957959397,
+      "folds_better": 5,
+      "n_folds": 5
+    }
+  }
+}
