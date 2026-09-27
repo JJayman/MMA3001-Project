@@ -120,37 +120,34 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 8:
+See the latest file in `docs/progress/`. As of session 9:
 
-- **Winter masks improved** (session 8, student-approved): leaders drawn at
-  their bark's width with a gentle taper, no shoulder fill, and a flat trunk
-  top with straight joins at the fork (the student checked the look). See
-  the "Masks" decision above, `docs/results/leader_width/` and
-  `docs/results/fork_junction/`.
-- **Found at the end of session 8: the winter depth sits about 4 px below
-  the colour image** (and about 0.6 px left), the same across the image and
-  on 19 of 21 local trees (`docs/results/depth_registration/`). The tracing
-  follows depth, so the paths are about 1 px off the bark on sloping leaders;
-  the fork measurements compared masks with a shifted silhouette. Nothing is
-  changed yet. Two proposed fixes were rejected there: re-centring the
-  leaders on the colour bark centre (mostly noise) and trunk widths from
-  colour (fails on side-lit trunks and objects beside them).
+- **Winter masks** (sessions 8–9, student-approved): leaders drawn at their
+  bark's width with a gentle taper, no shoulder fill, and a flat trunk top
+  with straight joins at the fork; since session 9 traced with the corrected
+  depth. Every session-8 setting was re-checked with the corrected depth on
+  all 449 development trees and holds (`docs/results/depth_registration/`).
+- **Depth registration done for winter** (session 9): see the fixed decision
+  above. Found on the way: the colour-edge fit (`branch_edges`) follows the
+  window it is measured in (the mean moves 0.55–0.7 px per px the window
+  moves; the median does not), which made session 8's estimate low and may
+  bias the leader widths slightly. The summer depth is not corrected (about
+  2.3 px low by mutual information, which was too unreliable in winter).
 - **Next (the student's order):**
-  1. **Correct the depth-colour registration.** Turn
-     `docs/results/depth_registration/reproduce.py` into a package module,
-     run it on all 449 development trees (is the shift the same for every
-     row?), find a check for the summer images, then move the depth on
-     loading, re-trace, re-render, and re-check the fork measurements and
-     leader widths against the corrected depth.
-  2. **Learn the tree's shape from winter, alignment-free:** shape measures
+  1. **Learn the tree's shape from winter, alignment-free:** shape measures
      from the winter traces that need no alignment (leader angles relative to
      the trunk, V opening, curvature), predicted from summer RGB-D with the 5
      folds. Baselines: the mean shape, and the hand masks' shape.
-  3. Optional later: train on the hand masks (roughly in the summer view)
+  2. Optional later: train on the hand masks (roughly in the summer view)
      with the winter traces as shape truth. This would change "hand masks are
      for validation only", so ask first.
+  3. Optional: the crotch (with the corrected depth, the wood reaches 0.2–0.3
+     trunk radii higher between the leaders than the masks draw); the colour
+     fit's window dependence in the leader widths; a hand check of the
+     registration (bark edges clicked at about 30 places) if the report needs
+     an independent one.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`): too little rigid structure is visible in both
   seasons, and the scale is not pinned down. The tools stay as evidence.
 - Still open: score the automatic winter baseline against the guided ground
-  truth; which season was photographed first.
+  truth; which season was photographed first; the summer depth registration.

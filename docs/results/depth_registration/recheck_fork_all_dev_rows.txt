@@ -1,0 +1,45 @@
+(.venv) C:\Users\jjada\Documents\GitHub\MMA3001-Project>python -m treeskel.measure_fork data/raw --out outputs/measure_fork_registered
+Measuring 449 development-row trees (92 test-row trees left out)...
+  [progress lines omitted; 449/449 trees in 170 s]
+
+898 leaders on 449 trees. Shoulder coverage (mean fraction of the triangle):
+  reach 1.5 R: depth 0.925, depth shrunk 2 px 0.852 | masks by shoulder_length 0: 0.892, 1: 0.932, 1.4: 0.993, 1.7: 1.000, 2: 1.000, 2.5: 1.000 | by junction_reach 0.5: 0.833, 1: 0.917, 1.5: 0.999, 2: 1.000, 2.5: 1.000
+    leaders with less than 80% covered: depth: 13%, shrunk: 30%, k0.0: 12%, k1.0: 1%, k1.4: 0%, k1.7: 0%, k2.0: 0%, k2.5: 0%, j0.5: 42%, j1.0: 6%, j1.5: 0%, j2.0: 0%, j2.5: 0%
+  reach 2 R: depth 0.895, depth shrunk 2 px 0.812 | masks by shoulder_length 0: 0.840, 1: 0.870, 1.4: 0.926, 1.7: 0.969, 2: 0.998, 2.5: 1.000 | by junction_reach 0.5: 0.793, 1: 0.856, 1.5: 0.932, 2: 0.998, 2.5: 1.000
+    leaders with less than 80% covered: depth: 20%, shrunk: 38%, k0.0: 43%, k1.0: 30%, k1.4: 6%, k1.7: 0%, k2.0: 0%, k2.5: 0%, j0.5: 50%, j1.0: 34%, j1.5: 5%, j2.0: 0%, j2.5: 0%
+shoulder_length matching the depth coverage (leave-one-tree-out range):
+  depth@1.5    0.83 (0.82-0.88)
+  shrunk@1.5   outside the measured range (n/a)
+  depth@2.0    1.18 (1.17-1.19)
+  shrunk@2.0   outside the measured range (n/a)
+junction_reach matching the depth coverage (leave-one-tree-out range):
+  depth@1.5    1.05 (1.04-1.06)
+  shrunk@1.5   0.62 (0.61-0.63)
+  depth@2.0    1.26 (1.25-1.27)
+  shrunk@2.0   0.65 (0.64-0.67)
+Pixels added to and removed from the round-top masks (share on depth / on depth shrunk 2 px), and fork-zone agreement:
+  round top     added      0 px ( -   /  -  ), removed      0 px ( -   /  -  ); zone precision 0.949, IoU 0.838
+  fill 1        added   7084 px (0.82 / 0.67), removed      0 px ( -   /  -  ); zone precision 0.948, IoU 0.841
+  fill 1.4      added  22138 px (0.79 / 0.63), removed      0 px ( -   /  -  ); zone precision 0.946, IoU 0.847
+  fill 1.7      added  35849 px (0.75 / 0.58), removed      0 px ( -   /  -  ); zone precision 0.943, IoU 0.851
+  fill 2        added  51138 px (0.71 / 0.54), removed      0 px ( -   /  -  ); zone precision 0.940, IoU 0.854
+  fill 2.5      added  77877 px (0.66 / 0.48), removed      0 px ( -   /  -  ); zone precision 0.932, IoU 0.857
+  junction 0.5  added    451 px (0.72 / 0.57), removed  19380 px (0.85 / 0.71); zone precision 0.950, IoU 0.830
+  junction 1    added   4987 px (0.83 / 0.68), removed   9948 px (0.85 / 0.73); zone precision 0.949, IoU 0.836
+  junction 1.5  added  19837 px (0.77 / 0.60), removed   7291 px (0.90 / 0.81); zone precision 0.946, IoU 0.843
+  junction 2    added  38055 px (0.70 / 0.53), removed   6639 px (0.93 / 0.85); zone precision 0.942, IoU 0.847
+  junction 2.5  added  57743 px (0.66 / 0.48), removed   6414 px (0.94 / 0.86); zone precision 0.936, IoU 0.849
+The crotch: mask pixels between the leaders off the depth silhouette (off / all), and its height above the fork in trunk radii (median; depth 1.35, depth shrunk 2 px 1.23), with the difference from each, paired by tree:
+  round top     off  20241 / 244978; height 1.05 (-0.23, -0.10)
+  fill 1        off  20241 / 244978; height 1.05 (-0.23, -0.10)
+  fill 1.4      off  20241 / 244978; height 1.05 (-0.23, -0.10)
+  fill 1.7      off  20241 / 244978; height 1.05 (-0.23, -0.10)
+  fill 2        off  20241 / 244978; height 1.05 (-0.23, -0.10)
+  fill 2.5      off  20242 / 245027; height 1.05 (-0.23, -0.10)
+  junction 0.5  off  20047 / 239220; height 1.04 (-0.33, -0.21)
+  junction 1    off  20047 / 239220; height 1.04 (-0.33, -0.21)
+  junction 1.5  off  20047 / 239220; height 1.04 (-0.33, -0.21)
+  junction 2    off  20047 / 239220; height 1.04 (-0.33, -0.21)
+  junction 2.5  off  20048 / 239275; height 1.04 (-0.33, -0.21)
+Width decay from the fork (independent check): median 1.91 trunk radii over 797 leaders, bootstrap 95% CI 1.82-2.00, leave-one-tree-out 1.91-1.91
+Saved outputs\measure_fork_registered\leaders.csv and outputs\measure_fork_registered\report.json
