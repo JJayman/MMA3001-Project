@@ -619,6 +619,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--epochs", type=int, default=CNNParams.epochs, help="most epochs tried")
     ap.add_argument("--size", type=int, nargs=2, default=list(CNNParams.size), metavar=("H", "W"))
     ap.add_argument("--depth", action="store_true", help="also give the network the summer depth")
+    ap.add_argument("--batch", type=int, default=CNNParams.batch,
+                    help="photos per training step (smaller if the GPU runs out of memory; recorded in the report)")
     ap.add_argument("--seed", type=int, default=CNNParams.seed)
     ap.add_argument("--replot", nargs="+", metavar="DIR", help="only redraw the figures from these results folders")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
@@ -635,7 +637,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     from treeskel.io import index_dataset
 
-    params = CNNParams(size=tuple(args.size), epochs=args.epochs, seed=args.seed, depth=args.depth)
+    params = CNNParams(size=tuple(args.size), epochs=args.epochs, seed=args.seed, depth=args.depth, batch=args.batch)
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
     table = load_table(args.table)
@@ -668,7 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, RuntimeError) as e:                   # a failed weights download, or out of GPU memory
         print(f"Training stopped: {type(e).__name__}: {e}\nIf the weights could not be downloaded, see the note "
               "printed by python -m treeskel.shape when that happens (the file resnet18-f37072fd.pth). If the GPU ran "
-              "out of memory (at 480x640), close other programs using it and try again.")
+              "out of memory, close other programs using it (nvidia-smi lists them) and try again, or add --batch 8.")
         return 1
     ridge = _ridge_predictions(Path(args.ridge), trees, MEASURES)
     report = {"n_trees": len(trees), "variant": variant(params), "params": asdict(params), "device": cv["device"],
