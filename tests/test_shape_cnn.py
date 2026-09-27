@@ -20,8 +20,10 @@ from treeskel.shape_cnn import (  # noqa: E402
     mirror_columns,
     normalise,
     predict,
+    replot,
     target_scale,
     train,
+    variant,
 )
 from treeskel.shape_model import mirror_matrix  # noqa: E402
 
@@ -145,3 +147,49 @@ def test_cli_on_the_local_trees(tmp_path, capsys):
     assert set(report["scores"]["v_opening"]) == {"mean shape", "hand masks", "cnn fine-tuned", "ridge rgb"}
     assert report["weights"] == "random" and len(report["epochs"]) == 4       # fold 3's rows are not in the sample
     assert (out / "predictions.csv").exists() and (out / "training_log.csv").exists()
+
+
+# --- the depth channel, the run names and the figures ------------------------------
+
+def test_depth_channel_starts_as_the_mean_of_the_colour_weights():
+    torch.manual_seed(0)
+    rgb = make_model(3, pretrained=False)
+    torch.manual_seed(0)
+    rgbd = make_model(3, pretrained=False, channels=4)
+    w3, w4 = rgb.conv1.weight, rgbd.conv1.weight
+    assert w4.shape[1] == 4 and torch.allclose(w4[:, :3], w3) and torch.allclose(w4[:, 3], w3.mean(dim=1))
+    assert rgbd(torch.zeros(2, 4, 32, 32)).shape == (2, 3)
+    with pytest.raises(ValueError):
+        make_model(3, pretrained=False, channels=2)
+
+
+def test_colour_jitter_leaves_the_depth_alone():
+    x = torch.rand(4, 4, 12, 16)
+    out, flipped = augment(x, torch.Generator().manual_seed(1), CNNParams(crop=1.0, jitter=0.5), flip_p=0.0)
+    assert not flipped.any()
+    assert torch.allclose(out[:, 3], normalise(x)[:, 3], atol=1e-5)          # depth: only normalised
+    assert not torch.allclose(out[:, :3], normalise(x)[:, :3], atol=1e-3)    # colour: jittered
+    out, flipped = augment(x, torch.Generator().manual_seed(1), CNNParams(crop=1.0, jitter=0.0), flip_p=1.0)
+    assert torch.allclose(out[:, 3], normalise(x.flip(-1))[:, 3], atol=1e-5)  # mirrored with the photo
+
+
+def test_run_names():
+    assert variant(CNNParams()) == "shape_cnn"
+    assert variant(CNNParams(depth=True)) == "shape_cnn_depth"
+    assert variant(CNNParams(size=(480, 640))) == "shape_cnn_480x640"
+    assert variant(CNNParams(size=(480, 640), depth=True)) == "shape_cnn_depth_480x640"
+
+
+def test_cli_with_depth_and_the_figures(tmp_path, capsys):
+    data = [str(ROOT / "data" / "sample"), str(ROOT / "data" / "tuning")]
+    out = tmp_path / "shape_cnn_depth"
+    assert main([*data, "--depth", "--random-weights", "--device", "cpu", "--size", "48", "64", "--epochs", "2",
+                 "--out", str(out), "--table", str(ROOT / "data/shape/shape_measures.csv"),
+                 "--split", str(ROOT / "splits.json"), "--ridge", str(ROOT / "docs/results/shape/predictions.csv")]) == 0
+    assert "photos and depth" in capsys.readouterr().out
+    report = json.loads((out / "report.json").read_text())
+    assert report["variant"] == "shape_cnn_depth_48x64" and report["params"]["depth"] is True   # the size is in it
+    figures = tmp_path / "figures"
+    assert replot([out], figures) == []
+    assert (figures / "shape_cnn_skill.png").exists() and (figures / "shape_cnn_depth_training.png").exists()
+    assert main(["--replot", str(out), "--figures", str(figures)]) == 0

@@ -33,9 +33,19 @@ averages the photo's and the mirror of its mirror image's (:func:`predict`).
 The rows being predicted never influence a choice, and the recipe
 (:class:`CNNParams`) was fixed before any result.
 
+**Variants** (the student's choice after the first run, session 10): the
+summer depth as a fourth input channel (``--depth``; the first layer's
+weights for it start as the mean of its colour weights, and the colour
+jitter leaves it alone), and the photos at full size (``--size 480 640``).
+Each variant saves to its own folder. They are all reported, since choosing
+the best on the same folds would flatter it.
+
 Usage::
 
-    python -m treeskel.shape_cnn data/raw        # the student's PC (GPU); results in docs/results/shape_cnn/
+    python -m treeskel.shape_cnn data/raw                  # the student's PC (GPU); docs/results/shape_cnn/
+    python -m treeskel.shape_cnn data/raw --depth          # docs/results/shape_cnn_depth/
+    python -m treeskel.shape_cnn data/raw --size 480 640   # docs/results/shape_cnn_480x640/
+    python -m treeskel.shape_cnn --replot docs/results/shape_cnn docs/results/shape_cnn_depth   # figures only
 """
 
 from __future__ import annotations
@@ -73,6 +83,7 @@ class CNNParams:
         jitter: Brightness, contrast and saturation are scaled by up to
             ``1 ± jitter``.
         seed: Random seed (each training run adds its own offset).
+        depth: Also give the network the summer depth, as a fourth channel.
     """
 
     size: tuple[int, int] = (240, 320)
@@ -84,6 +95,12 @@ class CNNParams:
     crop: float = 0.8
     jitter: float = 0.2
     seed: int = 0
+    depth: bool = False
+
+
+DEPTH_MEAN, DEPTH_STD = float(IMAGENET_MEAN.mean()), float(IMAGENET_STD.mean())
+"""Normalisation of the depth channel (8-bit depth scaled to [0, 1]): the ImageNet colour statistics
+averaged over the three channels, the scale the pretrained weights it starts from expect."""
 
 
 def target_scale(y: np.ndarray, names: Sequence[str] = MEASURES) -> tuple[np.ndarray, np.ndarray]:
@@ -135,11 +152,15 @@ def masked_mse(pred, target):
 
 
 def normalise(x):
-    """``(B, 3, H, W)`` floats in [0, 1] to the ImageNet normalisation."""
+    """``(B, 3, H, W)`` floats in [0, 1] to the ImageNet normalisation; a fourth (depth) channel uses
+    :data:`DEPTH_MEAN` and :data:`DEPTH_STD`."""
     import torch
 
-    mean = torch.as_tensor(IMAGENET_MEAN, device=x.device).view(1, 3, 1, 1)
-    std = torch.as_tensor(IMAGENET_STD, device=x.device).view(1, 3, 1, 1)
+    mean, std = list(IMAGENET_MEAN), list(IMAGENET_STD)
+    if x.shape[1] == 4:
+        mean, std = mean + [DEPTH_MEAN], std + [DEPTH_STD]
+    mean = torch.as_tensor(mean, dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
+    std = torch.as_tensor(std, dtype=x.dtype, device=x.device).view(1, -1, 1, 1)
     return (x - mean) / std
 
 
@@ -151,13 +172,14 @@ def augment(x, generator, params: CNNParams = CNNParams(), flip_p: float = 0.5):
     position, with the x axis reversed for a mirror image.
 
     Args:
-        x: ``(B, 3, H, W)`` floats in [0, 1].
+        x: ``(B, 3, H, W)`` floats in [0, 1], or ``(B, 4, H, W)`` with the
+            depth last (cropped and mirrored with the photo, but not jittered).
         generator: A ``torch.Generator`` on ``x``'s device, for repeatable runs.
         params: ``crop`` and ``jitter``.
         flip_p: Chance of the mirror image.
 
     Returns:
-        ``(images, flipped)``: normalised ``(B, 3, H, W)`` images and a
+        ``(images, flipped)``: normalised images of ``x``'s shape and a
         ``(B,)`` bool tensor, True where the mirror image was taken.
     """
     import torch
@@ -178,25 +200,36 @@ def augment(x, generator, params: CNNParams = CNNParams(), flip_p: float = 0.5):
     x = F.grid_sample(x, grid, mode="bilinear", padding_mode="border", align_corners=False)
     j = params.jitter
     if j > 0:
-        x = x * uniform(1 - j, 1 + j).view(b, 1, 1, 1)                         # brightness
-        mean = x.mean(dim=(1, 2, 3), keepdim=True)
-        x = (x - mean) * uniform(1 - j, 1 + j).view(b, 1, 1, 1) + mean          # contrast
-        grey = (0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]).unsqueeze(1)
-        x = grey + (x - grey) * uniform(1 - j, 1 + j).view(b, 1, 1, 1)          # saturation
-        x = x.clamp(0, 1)
+        rgb, rest = x[:, :3], x[:, 3:]                                          # depth is not jittered
+        rgb = rgb * uniform(1 - j, 1 + j).view(b, 1, 1, 1)                     # brightness
+        mean = rgb.mean(dim=(1, 2, 3), keepdim=True)
+        rgb = (rgb - mean) * uniform(1 - j, 1 + j).view(b, 1, 1, 1) + mean      # contrast
+        grey = (0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]).unsqueeze(1)
+        rgb = grey + (rgb - grey) * uniform(1 - j, 1 + j).view(b, 1, 1, 1)      # saturation
+        x = torch.cat([rgb.clamp(0, 1), rest], dim=1)
     return normalise(x), flipped
 
 
-def make_model(n_out: int, pretrained: bool = True):
+def make_model(n_out: int, pretrained: bool = True, channels: int = 3):
     """ResNet-18 with its classifier replaced by a linear layer of ``n_out`` outputs.
 
     The new layer starts with small weights and zero bias, so the first
-    predictions are near the training mean (0 in standardised units).
+    predictions are near the training mean (0 in standardised units). With
+    ``channels=4`` the first convolution takes a depth channel too; its
+    weights for it start as the mean of its (pretrained) colour weights.
     """
     import torch
     from torchvision.models import ResNet18_Weights, resnet18
 
     net = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
+    if channels == 4:
+        old = net.conv1
+        net.conv1 = torch.nn.Conv2d(4, old.out_channels, old.kernel_size, old.stride, old.padding, bias=False)
+        with torch.no_grad():
+            net.conv1.weight[:, :3] = old.weight
+            net.conv1.weight[:, 3] = old.weight.mean(dim=1)
+    elif channels != 3:
+        raise ValueError(f"channels must be 3 or 4, got {channels}")
     net.fc = torch.nn.Linear(net.fc.in_features, n_out)
     torch.nn.init.normal_(net.fc.weight, std=0.01)
     torch.nn.init.zeros_(net.fc.bias)
@@ -315,7 +348,8 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
     """Fine-tune and predict every tree from the fold that holds its row out (see the module docstring).
 
     Args:
-        images: ``(n, H, W, 3)`` uint8 summer photos, already at ``params.size``.
+        images: ``(n, H, W, 3)`` uint8 summer photos, already at ``params.size``
+            (``(n, H, W, 4)`` with the depth last, for ``params.depth``).
         y: ``(n, k)`` winter measures (NaN = unknown).
         rows: ``(n,)`` orchard rows.
         fold_rows: Each fold's held-out rows (``splits.json``).
@@ -332,7 +366,7 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(params.seed)                          # the new output layer's first weights
-    base = make_model(len(names), pretrained).to(device)
+    base = make_model(len(names), pretrained, channels=images.shape[3]).to(device)
     start = copy.deepcopy(base.state_dict())
     src, sign = mirror_columns(names)
     mirror = (torch.as_tensor(src, device=device), torch.as_tensor(sign, dtype=torch.float32, device=device))
@@ -388,17 +422,24 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
     return {"cnn": pred, "mean": mean, "fold": fold, "epochs": chosen, "log": logs, "device": device}
 
 
-def load_photos(records: dict, ids: Sequence[str], size: tuple[int, int], progress: Callable[[str], None] = print) -> np.ndarray:
-    """The summer photos of ``ids``, resized (bilinear) to ``size`` = ``(height, width)``: ``(n, H, W, 3)`` uint8."""
+def load_photos(records: dict, ids: Sequence[str], size: tuple[int, int], progress: Callable[[str], None] = print,
+                depth: bool = False) -> np.ndarray:
+    """The summer photos of ``ids``, resized (bilinear) to ``size`` = ``(height, width)``.
+
+    Returns:
+        ``(n, H, W, 3)`` uint8, or ``(n, H, W, 4)`` with the summer depth last if ``depth``.
+    """
     from PIL import Image
 
     from treeskel.io import load_tree
 
-    out = np.zeros((len(ids), size[0], size[1], 3), np.uint8)
+    out = np.zeros((len(ids), size[0], size[1], 4 if depth else 3), np.uint8)
     step = max(1, len(ids) // 10)
     for i, t in enumerate(ids):
-        rgb = load_tree(records[t], "summer")["rgb"]
-        out[i] = np.asarray(Image.fromarray(rgb).resize(size[::-1], Image.BILINEAR))
+        summer = load_tree(records[t], "summer")
+        out[i, ..., :3] = np.asarray(Image.fromarray(summer["rgb"]).resize(size[::-1], Image.BILINEAR))
+        if depth:
+            out[i, ..., 3] = np.asarray(Image.fromarray(summer["depth"]).resize(size[::-1], Image.BILINEAR))
         if (i + 1) % step == 0 or i + 1 == len(ids):
             progress(f"  {i + 1}/{len(ids)} photos loaded")
     return out
@@ -417,24 +458,184 @@ def _ridge_predictions(path: Path, trees: Sequence[str], names: Sequence[str]) -
     return out if np.isfinite(out).any() else None
 
 
+def variant(params: CNNParams) -> str:
+    """The run's name, which is also its results folder: ``shape_cnn``, ``shape_cnn_depth``, ``shape_cnn_480x640``, ..."""
+    name = "shape_cnn" + ("_depth" if params.depth else "")
+    return name if tuple(params.size) == CNNParams.size else f"{name}_{params.size[0]}x{params.size[1]}"
+
+
+SERIES_STYLE = {"hand masks": ("#2a78d6", "o"), "ridge rgb": ("#eb6834", "s"), "shape_cnn": ("#1baf7a", "^"),
+                "shape_cnn_depth": ("#eda100", "D"), "shape_cnn_480x640": ("#e87ba4", "v")}
+"""Colour and marker of each model in the comparison figure (the project's validated categorical slots
+in order, with a different marker each, so no model is told apart by colour alone)."""
+
+SERIES_NAME = {"hand masks": "Hand masks (a person's reading of the summer photo)",
+               "ridge rgb": "Ridge on fixed ResNet-18 features",
+               "shape_cnn": "ResNet-18 fine-tuned (photo, 240x320)",
+               "shape_cnn_depth": "ResNet-18 fine-tuned (photo and depth)",
+               "shape_cnn_480x640": "ResNet-18 fine-tuned (photo, 480x640)"}
+
+
+def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list[str]) -> None:
+    """Skill over the mean shape per measure, one marker per model, whiskers over the 5 folds.
+
+    Args:
+        series: ``(key, scores)`` pairs in drawing order; ``scores`` is a
+            report's ``{"measure": {model: evaluate(...)}}`` slice for that
+            model (``{measure: evaluate(...)}``).
+        path: Where to save the figure.
+        failed: Collects paths that could not be written.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from treeskel.shape_model import AXIS, GRID, INK, LABELS, MUTED, SECONDARY, SURFACE, _save, _style
+
+    groups = (("No reference", HEADLINE), ("From the trunk", TRUNK_RELATIVE), ("From the vertical", VERTICAL))
+    rows_y, labels, pos = {}, [], 0.0
+    for _, names in groups:
+        for k in names:
+            rows_y[k] = -pos
+            labels.append(LABELS[k])
+            pos += 1.0
+        pos += 0.6
+    fig, ax = plt.subplots(figsize=(7.8, 5.6), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+    _style(ax)
+    n = len(series)
+    for i, (key, scores) in enumerate(series):
+        colour, marker = SERIES_STYLE.get(key, (MUTED, "o"))
+        off = (i - (n - 1) / 2) * 0.16
+        for k, y0 in rows_y.items():
+            sc = scores.get(k, {})
+            if sc.get("n", 0) < 3:
+                continue
+            fs = [v for v in sc.get("fold_skill", []) if v is not None]
+            if fs:
+                ax.plot([min(fs), max(fs)], [y0 - off] * 2, color=colour, lw=0.9, alpha=0.7, zorder=2,
+                        solid_capstyle="round")
+            ax.plot(sc["skill"], y0 - off, marker=marker, ms=5.5, color=colour, mec=SURFACE, mew=0.8, ls="none",
+                    zorder=3, label=SERIES_NAME.get(key, key) if k == HEADLINE[0] else None)
+    ax.axvline(0, color=AXIS, lw=1.0, zorder=1)
+    ax.set_yticks(list(rows_y.values()), labels, fontsize=8, color=SECONDARY)
+    ax.set_xlim(-0.25, 1.0)
+    ax.grid(axis="x", color=GRID, lw=0.5)
+    gy = 0.0
+    for title, names in groups:
+        ax.text(-0.25, gy + 0.55, title, fontsize=7.5, color=MUTED, ha="left", va="bottom", style="italic")
+        gy -= len(names) + 0.6
+    ax.set_xlabel("Skill over the mean shape: 1 − MSE / MSE(mean shape)   (lines: the range over the 5 folds)",
+                  fontsize=8, color=SECONDARY)
+    fig.suptitle("Fine-tuning reads the trunk and some of the V; a person reading the photo still does far better",
+                 x=0.02, ha="left", fontsize=10, color=INK, fontweight="bold")
+    ax.set_title("449 development trees, each predicted by the fold that held its row out", loc="left",
+                 fontsize=8, color=SECONDARY)
+    fig.legend(*ax.get_legend_handles_labels(), loc="lower left", bbox_to_anchor=(0.02, 0.0), ncol=2,
+               frameon=False, fontsize=7.5, labelcolor=SECONDARY)
+    fig.tight_layout(rect=(0, 0.07 + 0.025 * max(0, (n - 1) // 2), 1, 1))
+    _save(fig, path, failed)
+    plt.close(fig)
+
+
+def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str], title: str) -> None:
+    """Loss against epoch for each fold's choice of epochs: the training loss and the held-out rows' loss.
+
+    A falling training loss with a flat held-out loss is the network learning its training photos
+    rather than the trees; the dashed line marks the epochs chosen.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from treeskel.shape_model import GRID, INK, MUTED, SECONDARY, SURFACE, _save, _style
+
+    folds = sorted({int(r["fold"]) for r in log if r["stage"] == "choose"})
+    if not folds:
+        return
+    fig, axes = plt.subplots(1, len(folds), figsize=(2.2 * len(folds) + 0.6, 2.8), dpi=150, sharey=True,
+                             squeeze=False)
+    fig.patch.set_facecolor(SURFACE)
+    best = {int(c["fold"]): c["epochs"] for c in chosen}
+    top = max(float(r["train_loss"]) for r in log if r["stage"] == "choose")
+    top = max(top, max(float(r["val_loss"]) for r in log if r["stage"] == "choose" and r["val_loss"] not in ("", None)))
+    for ax, f in zip(axes[0], folds):
+        _style(ax)
+        rows = [r for r in log if int(r["fold"]) == f and r["stage"] == "choose"]
+        ep = [int(r["epoch"]) for r in rows]
+        ax.plot(ep, [float(r["train_loss"]) for r in rows], color=MUTED, lw=1.2, label="training photos")
+        ax.plot(ep, [float(r["val_loss"]) for r in rows], color="#2a78d6", lw=1.6, label="held-out rows")
+        if f in best:
+            ax.axvline(best[f], color=SECONDARY, lw=0.8, ls=(0, (3, 3)))
+        ax.set_ylim(0, top * 1.05)
+        ax.grid(axis="y", color=GRID, lw=0.5)
+        ax.set_title(f"Fold {f + 1}: {best.get(f, '?')} epochs chosen", loc="left", fontsize=7.5, color=SECONDARY)
+        ax.set_xlabel("Epoch", fontsize=7.5, color=SECONDARY)
+    axes[0][0].set_ylabel("Loss (standardised squared error)", fontsize=7.5, color=SECONDARY)
+    axes[0][0].legend(frameon=False, fontsize=7, labelcolor=SECONDARY, loc="upper right")
+    fig.suptitle(title, x=0.01, ha="left", fontsize=9.5, color=INK, fontweight="bold")
+    fig.tight_layout()
+    _save(fig, path, failed)
+    plt.close(fig)
+
+
+def replot(dirs: Sequence[Path], figures: Path) -> list[str]:
+    """The figures from saved results: a comparison of every run in ``dirs`` and each run's learning curves.
+
+    Returns:
+        Paths that could not be written.
+    """
+    failed: list[str] = []
+    figures.mkdir(parents=True, exist_ok=True)
+    reports = {Path(d).name: json.loads((Path(d) / "report.json").read_text()) for d in dirs}
+    first = next(iter(reports.values()))
+    series = [("hand masks", {k: v["hand masks"] for k, v in first["scores"].items()})]
+    series += [(name, {k: v["cnn fine-tuned"] for k, v in rep["scores"].items()}) for name, rep in reports.items()]
+    if all("ridge rgb" in v for v in first["scores"].values()):
+        series.append(("ridge rgb", {k: v["ridge rgb"] for k, v in first["scores"].items()}))
+    plot_comparison(series, figures / "shape_cnn_skill.png", failed)
+    for d in dirs:
+        with open(Path(d) / "training_log.csv", newline="") as f:
+            log = list(csv.DictReader(f))
+        name = Path(d).name
+        plot_training(log, reports[name]["epochs"], figures / f"{name}_training.png", failed,
+                      f"{SERIES_NAME.get(name, name)}: loss while choosing the epochs")
+    return failed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Fine-tune on the development rows, fold by fold, and save the scores."""
+    """Fine-tune on the development rows, fold by fold, and save the scores (or, with ``--replot``, only redraw
+    the figures from saved results)."""
     ap = argparse.ArgumentParser(prog="python -m treeskel.shape_cnn", description=__doc__.splitlines()[0])
-    ap.add_argument("data_dirs", nargs="+", help="dataset folder(s) with the summer photos")
+    ap.add_argument("data_dirs", nargs="*", help="dataset folder(s) with the summer photos")
     ap.add_argument("--table", default="data/shape/shape_measures.csv", help="winter measures (treeskel.shape)")
     ap.add_argument("--split", default="splits.json")
-    ap.add_argument("--out", default="docs/results/shape_cnn")
+    ap.add_argument("--out", help="results folder (default: docs/results/<the run's name, e.g. shape_cnn_depth>)")
+    ap.add_argument("--figures", default="docs/figures", help="folder for the figures")
     ap.add_argument("--ridge", default="docs/results/shape/predictions.csv", help="ridge predictions, for comparison")
     ap.add_argument("--device", help="cuda or cpu (default: the GPU if there is one)")
     ap.add_argument("--epochs", type=int, default=CNNParams.epochs, help="most epochs tried")
     ap.add_argument("--size", type=int, nargs=2, default=list(CNNParams.size), metavar=("H", "W"))
+    ap.add_argument("--depth", action="store_true", help="also give the network the summer depth")
     ap.add_argument("--seed", type=int, default=CNNParams.seed)
+    ap.add_argument("--replot", nargs="+", metavar="DIR", help="only redraw the figures from these results folders")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
     args = ap.parse_args(argv)
 
+    if args.replot:
+        failed = replot([Path(d) for d in args.replot], Path(args.figures))
+        print(f"Saved the figures in {args.figures}")
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
+    if not args.data_dirs:
+        ap.error("give the dataset folder(s), or --replot")
+
     from treeskel.io import index_dataset
 
-    params = CNNParams(size=tuple(args.size), epochs=args.epochs, seed=args.seed)
+    params = CNNParams(size=tuple(args.size), epochs=args.epochs, seed=args.seed, depth=args.depth)
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
     table = load_table(args.table)
@@ -453,9 +654,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ImportError as e:
         print(f"PyTorch and torchvision are needed: {e}")
         return 1
-    print(f"{len(trees)} development trees; loading the summer photos at {params.size[0]}x{params.size[1]}...",
+    what = "photos and depth" if params.depth else "photos"
+    print(f"{len(trees)} development trees; loading the summer {what} at {params.size[0]}x{params.size[1]}...",
           flush=True)
-    images = load_photos(records, trees, params.size, lambda m: print(m, flush=True))
+    images = load_photos(records, trees, params.size, lambda m: print(m, flush=True), depth=params.depth)
     rows = np.array([by_id[t]["row"] for t in trees])
     y = np.array([[by_id[t][f"winter_{k}"] for k in MEASURES] for t in trees], float)
     hand = np.array([[by_id[t][f"hand_{k}"] for k in MEASURES] for t in trees], float)
@@ -465,10 +667,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                                 pretrained=not args.random_weights, progress=lambda m: print(m, flush=True))
     except (OSError, RuntimeError) as e:                   # a failed weights download, or out of GPU memory
         print(f"Training stopped: {type(e).__name__}: {e}\nIf the weights could not be downloaded, see the note "
-              "printed by python -m treeskel.shape when that happens (the file resnet18-f37072fd.pth).")
+              "printed by python -m treeskel.shape when that happens (the file resnet18-f37072fd.pth). If the GPU ran "
+              "out of memory (at 480x640), close other programs using it and try again.")
         return 1
     ridge = _ridge_predictions(Path(args.ridge), trees, MEASURES)
-    report = {"n_trees": len(trees), "params": asdict(params), "device": cv["device"],
+    report = {"n_trees": len(trees), "variant": variant(params), "params": asdict(params), "device": cv["device"],
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "epochs": cv["epochs"],
               "minutes": round((time.time() - t0) / 60, 1), "scores": {}}
     for j, k in enumerate(MEASURES):
@@ -484,7 +687,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                          ("From the photo's vertical (camera roll adds to these)", VERTICAL)):
         print(f"\n{title}:")
         print_scores(report, names)
-    out = Path(args.out)
+    out = Path(args.out or f"docs/results/{variant(params)}")
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(report, indent=2))
     with open(out / "predictions.csv", "w", newline="") as f:

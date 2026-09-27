@@ -67,7 +67,7 @@ than the winter ones. How much a tighter top edge would change the measures
 
 **Its length in pixels, not in each tree's own trunk radius.** The stretch
 was first 1.5–16 trunk radii, so that it would scale with the photo. The
-student's check of the trees where the hand masks disagreed most (section 6)
+student's check of the trees where the hand masks disagreed most (section 7)
 led to a second look, which found three problems:
 
 - **The trunk radius varies a lot.** The winter trunk radius at the fork
@@ -251,24 +251,79 @@ No model does better than about +0.1, so the limit is in the features.
   which is the mean shape), so the predictions stay within a few degrees of
   the mean shape (see the scatter figure).
 
-## 5. What this means
+## 5. Fine-tuning the network (the student's GPU)
+
+The student chose to train the network itself on the winter measures, keeping
+the hand masks for validation only (`treeskel.shape_cnn`, recipe fixed before
+any result):
+
+- **The network:** ResNet-18 from its ImageNet weights, with a linear output
+  for all ten measures. It is trained on the summer photo (240x320) against
+  the standardised winter measures, and the loss skips a tree's unknown
+  measures.
+- **Augmentation:** random crops of 80–100% of the photo (no angle changes),
+  colour jitter, and the mirror image with the mirrored measures. A
+  prediction averages the photo's and its mirror image's.
+- **Validation:** the same 5 row-grouped folds. Within each fold's training
+  rows, the next fold's rows chose the number of epochs (19, 32, 34, 25 and
+  30); the network was then trained again on all the training rows. 6.2
+  minutes on the student's GPU.
+
+| Measure | Mean shape (MAE) | Ridge, fixed features | **CNN fine-tuned** | Hand masks |
+|---|---|---|---|---|
+| V opening | 9.8° | 9.2° / +0.10 | **8.9° / +0.16** | 3.3° / +0.87 |
+| Left bend | 9.5° | 9.4° / +0.03 | **9.1° / +0.07** | 5.1° / +0.70 |
+| Right bend | 8.8° | 8.8° / −0.01 | **8.6° / +0.05** | 5.2° / +0.61 |
+| Left leader from trunk | 13.0° | 13.0° / 0.00 | **11.8° / +0.15** | 6.3° / +0.75 |
+| Right leader from trunk | 13.8° | 13.7° / +0.03 | **11.3° / +0.28** | 6.4° / +0.75 |
+| V's lean from trunk | 12.3° | 12.4° / 0.00 | **10.6° / +0.22** | 6.1° / +0.73 |
+| Trunk from vertical | 10.9° | 10.8° / +0.03 | **8.8° / +0.30** | 5.7° / +0.70 |
+| Left leader from vertical | 7.1° | 6.7° / +0.09 | **6.3° / +0.18** | 3.1° / +0.80 |
+| Right leader from vertical | 6.9° | 6.7° / +0.05 | **6.4° / +0.13** | 3.1° / +0.73 |
+| V's lean from vertical | 4.8° | 4.8° / +0.03 | **4.5° / +0.14** | 2.7° / +0.66 |
+
+(MAE / skill over the mean shape; `docs/results/shape_cnn/`.)
+
+- **Fine-tuning beats the fixed features on every measure,** and the mean
+  shape significantly on eight of ten (Wilcoxon p from 2.5×10⁻¹² to 0.003),
+  all but the bends (p = 0.11 and 0.34).
+- **It reads the trunk best.** The trunk's tilt reaches +0.30 (r = 0.54,
+  every fold +0.18 to +0.37), and the angles measured from the trunk +0.15 to
+  +0.28. The trunk shows at the bottom of the summer photos, and the angles
+  from it are mostly its own lean (section 1).
+- **The V itself improves less:** the V opening +0.16 (r = 0.40; folds +0.08,
+  +0.21, 0.00, +0.14, +0.33), the leaders' tilts +0.13 and +0.18, the bends
+  +0.07 and +0.05.
+- **It fits its training photos far better than new rows**
+  (`docs/figures/shape_cnn_training.png`). The training loss falls from about
+  1.0 to 0.12, while the held-out rows' loss falls a little (e.g. 1.13 to
+  0.82) and then stays flat. It does not rise, so choosing the epochs works,
+  but the gap stays. One row group is much harder: rows 1, 8 and 15, held out
+  within fold 5, stay at 1.3 against 0.7–0.8.
+
+`docs/figures/shape_cnn_skill.png` compares the three with the range over the
+folds.
+
+## 6. What this means
 
 - **The information is in the summer photo.** A person's reading of it (the
   hand masks) predicts the winter V opening to 3.3° (MAE) against 9.8° for
   the mean shape (skill +0.87), and the other measures with skill 0.61–0.80.
 - **Fixed ImageNet features do not capture it,** whatever the regression on
   top: skill at most about 0.1.
-- **The next model has to see where the branches are.** Two ways:
-  1. Train the network itself on the winter measures (fine-tuning on the
-     student's GPU): it keeps the winter traces as the only labels.
-  2. Train a segmentation network on the hand masks, which session 10 showed
+- **Fine-tuning the network on the winter measures captures some of it:**
+  the trunk well (+0.30), the V less (V opening +0.16), the bends hardly. It
+  fits its 270–360 training photos far better than new rows.
+- **Still open:**
+  1. more input for the same network: the summer depth, or the photo at full
+     size (the student's next choice);
+  2. a segmentation network trained on the hand masks, which session 10 showed
      are drawn in the summer view and have the winter shape (448 of 448 laid
-     onto the winter traces within 8 px). Then measure its predicted masks
-     with the same code and score them against the winter traces. This would
-     change "hand masks are for validation only", so it is the student's
-     decision.
+     onto the winter traces within 8 px). Its predicted masks would be measured
+     with the same code and scored against the winter traces. This would change
+     "hand masks are for validation only", so it is the student's decision.
 
-## 6. The trees where the hand masks and the winter traces disagree most
+## 7. The trees where the hand masks and the winter traces disagree most
 
 The 14 trees with the largest disagreements (the four largest in each of the
 V opening, the bends and the leaders' tilts, with the stretch then in trunk
@@ -295,12 +350,14 @@ one, which made the stretch in the hand mask up to three times too long
 (R01N40, R15N24) or a quarter too short (R17N02). That led to the switch to
 pixels (section 1).
 
-## 7. Reproduce
+## 8. Reproduce
 
 ```bat
 python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   & rem the student's PC: 2.5 min + 20 s (GPU)
 python -m treeskel.shape_model --plots docs/figures                      & rem anywhere: 3 min
 python docs/results/shape/robustness.py                                  & rem anywhere: 5 min
+python -m treeskel.shape_cnn data/raw                                    & rem the student's GPU: 6 min
+python -m treeskel.shape_cnn --replot docs/results/shape_cnn             & rem the figures, anywhere
 ```
 
 - The first command writes `data/shape/`: the table of measures, the summer
