@@ -17,6 +17,7 @@ from treeskel.shape_cnn import (  # noqa: E402
     main,
     make_model,
     masked_mse,
+    compare_runs,
     mirror_columns,
     normalise,
     predict,
@@ -193,3 +194,23 @@ def test_cli_with_depth_and_the_figures(tmp_path, capsys):
     assert replot([out], figures) == []
     assert (figures / "shape_cnn_skill.png").exists() and (figures / "shape_cnn_depth_training.png").exists()
     assert main(["--replot", str(out), "--figures", str(figures)]) == 0
+
+
+def test_compare_runs_tree_by_tree(tmp_path):
+    import csv as _csv
+
+    def write(d, preds, fold_skill):
+        d.mkdir()
+        with open(d / "predictions.csv", "w", newline="") as f:
+            w = _csv.writer(f)
+            w.writerow(["tree", "row", "fold", "measure", "winter", "mean shape", "hand masks", "cnn fine-tuned"])
+            for i, p in enumerate(preds):
+                w.writerow([f"R01N{i:02d}", 1, i % 2, "v_opening", 50.0, 50.0, 50.0, p])
+        (d / "report.json").write_text(json.dumps(
+            {"scores": {"v_opening": {"cnn fine-tuned": {"skill": fold_skill[0], "fold_skill": fold_skill}}}}))
+
+    write(tmp_path / "a", [55.0, 45.0, 56.0, 44.0, 53.0, 47.0], [0.1, 0.2])
+    write(tmp_path / "b", [52.0, 48.0, 51.0, 49.0, 53.0, 46.0], [0.3, 0.1])      # closer on 4 of 6, worse on 1
+    c = compare_runs([tmp_path / "a", tmp_path / "b"], ("v_opening",))["b"]["v_opening"]
+    assert c["closer"] == pytest.approx(4 / 6) and c["folds_better"] == 1 and c["n_folds"] == 2
+    assert 0 < c["wilcoxon_p"] <= 1

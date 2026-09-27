@@ -581,6 +581,68 @@ def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
     plt.close(fig)
 
 
+def compare_runs(dirs: Sequence[Path], names: Sequence[str] = MEASURES) -> dict:
+    """Each run against the first, tree by tree, on the same trees and folds.
+
+    The folds' skills swing a lot (the V opening's from −0.15 to +0.44 in one
+    run), so differences between runs are judged tree by tree: the fraction
+    of trees a run predicts more closely than the first, a Wilcoxon
+    signed-rank test on the paired absolute errors, and the number of folds
+    whose skill rose.
+
+    Args:
+        dirs: Results folders (``predictions.csv`` and ``report.json`` each);
+            the first is the reference.
+        names: The measures.
+
+    Returns:
+        ``{run: {measure: {"skill", "reference_skill", "closer", "wilcoxon_p",
+        "folds_better", "n_folds"}}}`` for every run after the first.
+    """
+    from scipy import stats
+
+    def load(d):
+        rows = {}
+        with open(Path(d) / "predictions.csv", newline="") as f:
+            for r in csv.DictReader(f):
+                if r["winter"] and r["cnn fine-tuned"]:
+                    rows[(r["tree"], r["measure"])] = (float(r["winter"]), float(r["cnn fine-tuned"]))
+        return rows, json.loads((Path(d) / "report.json").read_text())
+
+    ref, ref_report = load(dirs[0])
+    out = {}
+    for d in dirs[1:]:
+        run, report = load(d)
+        out[Path(d).name] = {}
+        for k in names:
+            keys = [key for key in ref if key[1] == k and key in run]
+            if len(keys) < 3:
+                continue
+            e0 = np.array([abs(ref[key][1] - ref[key][0]) for key in keys])
+            e1 = np.array([abs(run[key][1] - run[key][0]) for key in keys])
+            diff = e0 - e1
+            f0 = ref_report["scores"][k]["cnn fine-tuned"].get("fold_skill", [])
+            f1 = report["scores"][k]["cnn fine-tuned"].get("fold_skill", [])
+            pairs = [(a, b) for a, b in zip(f0, f1) if a is not None and b is not None]
+            out[Path(d).name][k] = {
+                "skill": report["scores"][k]["cnn fine-tuned"]["skill"],
+                "reference_skill": ref_report["scores"][k]["cnn fine-tuned"]["skill"],
+                "closer": float(np.mean(diff > 0)),
+                "wilcoxon_p": float(stats.wilcoxon(diff).pvalue) if np.any(diff != 0) else 1.0,
+                "folds_better": int(sum(b > a for a, b in pairs)), "n_folds": len(pairs)}
+    return out
+
+
+def print_comparison(comparison: dict, reference: str) -> None:
+    """Print :func:`compare_runs`'s result."""
+    for run, measures in comparison.items():
+        print(f"\n{run} against {reference} (skill: reference -> run; trees predicted more closely; "
+              "Wilcoxon p; folds whose skill rose):")
+        for k, c in measures.items():
+            print(f"  {k:12s} {c['reference_skill']:+.2f} -> {c['skill']:+.2f}   {c['closer']:4.0%}   "
+                  f"p {c['wilcoxon_p']:.1e}   {c['folds_better']}/{c['n_folds']}")
+
+
 def replot(dirs: Sequence[Path], figures: Path) -> list[str]:
     """The figures from saved results: a comparison of every run in ``dirs`` and each run's learning curves.
 
@@ -622,13 +684,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--batch", type=int, default=CNNParams.batch,
                     help="photos per training step (smaller if the GPU runs out of memory; recorded in the report)")
     ap.add_argument("--seed", type=int, default=CNNParams.seed)
-    ap.add_argument("--replot", nargs="+", metavar="DIR", help="only redraw the figures from these results folders")
+    ap.add_argument("--replot", nargs="+", metavar="DIR",
+                    help="only redraw the figures from these results folders (and compare them with the first)")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
     args = ap.parse_args(argv)
 
     if args.replot:
-        failed = replot([Path(d) for d in args.replot], Path(args.figures))
+        dirs = [Path(d) for d in args.replot]
+        failed = replot(dirs, Path(args.figures))
         print(f"Saved the figures in {args.figures}")
+        if len(dirs) > 1:
+            comparison = compare_runs(dirs)
+            print_comparison(comparison, dirs[0].name)
+            path = dirs[0].parent / "shape_cnn_runs.json"
+            path.write_text(json.dumps(comparison, indent=2))
+            print(f"Saved {path}")
         for f in failed:
             print(f"Could not write {f}")
         return 1 if failed else 0
