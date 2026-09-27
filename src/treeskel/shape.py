@@ -943,7 +943,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         sheet = Image.new("RGB", (tiles[0].width, tiles[0].height * len(tiles)))
         for i, t in enumerate(tiles):
             sheet.paste(t, (0, i * t.height))
-        save_image(sheet.resize((sheet.width // 2, sheet.height // 2)), Path(args.figure), failed, quality=85)
+        if not args.trees:                                   # a few chosen trees keep full size, to judge the fork
+            sheet = sheet.resize((sheet.width // 2, sheet.height // 2))
+        save_image(sheet, Path(args.figure), failed, quality=85)
 
     if args.features != "none":
         print(f"\nComputing summer features ({args.features}) for {len(ids)} trees...", flush=True)
