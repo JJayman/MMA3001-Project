@@ -309,6 +309,26 @@ overlap at IoU 0.86 (lowest 0.76); the widths do not change (−0.05 px).
 `docs/figures/depth_registration_masks_before_after.jpg` shows six trees
 (outlines traced with the depth as stored in orange, corrected in blue).
 
+**Re-checks previewed on the 21 local trees** (`recheck_fork_21_dev_trees.txt`
+and `recheck_width_21_dev_trees.txt`, against session 8's outputs on the same
+trees); the runs on all 449 are to come:
+
+- *At the fork*, the masks agree better with depth: precision around the fork
+  0.930 → 0.949, IoU 0.830 → 0.842. Depth's crotch moves up from 0.77 to
+  1.11 trunk radii above the fork (0.34 R, as 5 px should). The junction
+  reach whose joins cover the shoulder as much as depth does falls from
+  0.98 / 1.30 to 0.83 / 1.02 (shoulders reaching 1.5 / 2 R), so the chosen
+  1.0 now sits at the generous end; and the crotch now favours the round top
+  (1.01 R, against depth's 1.11 and 0.99 shrunk) over the leaders' V (0.93).
+- *The leaders' widths* barely change (6.7 → 6.8 px at 8 trunk radii or more
+  from the fork). The mask's crotch pixels off depth halve (18% → 10%).
+  Depth reaches further past clear bark edges: median 2.0 → 3.0 px, mean
+  1.79 → 2.19, probably because many lower-edge gaps were beyond the 6 px
+  cut-off while the depth sat low, which held session 8's figure down. The
+  shared widening (0.35, 12) now costs slightly more than a constant width
+  on these trees; they are 17 problem trees and 4 others, and the 21-tree
+  choice was overturned on 449 in session 8.
+
 ## Next (session 8's list)
 
 1. Turn `reproduce.py`'s measurement into a package module and run it on all
