@@ -50,11 +50,11 @@ Depth images are stored as 8-bit greyscale (three identical channels). They are
 a scaled visualisation of depth, not metric distance: brighter pixels are closer
 to the camera and 0 means "no reading" (out of range or sensor dropout).
 
-**The depth does not line up exactly with the colour image.** Session 8 found
-the winter depth about 4 px below the colour image and about 0.6 px to its
-left (``docs/results/depth_registration/``). :func:`load_tree` moves the depth
-by :data:`DEPTH_SHIFT` to correct this; the shift is measured by
-:mod:`treeskel.measure_registration`.
+**The depth does not line up exactly with the colour image.** The winter
+depth sits about 5 px below the colour image and about 1 px to its left
+(``docs/results/depth_registration/``). :func:`load_tree` moves it by
+:data:`DEPTH_SHIFT` to correct this (``register=False`` loads it as stored);
+the shift is measured by :mod:`treeskel.measure_registration`.
 """
 
 from __future__ import annotations
@@ -81,14 +81,26 @@ MASK_SHAPE = (256, 256)
 CROP_COLS = (80, 560)
 """Columns of the 640-wide photo covered by a mask (the centre 480x480)."""
 
-DEPTH_SHIFT: dict[str, tuple[int, int]] = {"summer": (0, 0), "winter": (0, 0)}
+DEPTH_SHIFT: dict[str, tuple[int, int]] = {"summer": (0, 0), "winter": (-5, 1)}
 """Whole pixels ``(rows, cols)`` each season's depth image is moved by on loading
 (:func:`load_tree`), so that it lines up with the colour image; negative rows
 move it up.
 
-Both are zero until the shift has been measured on all development trees
-(:mod:`treeskel.measure_registration`); session 8 estimated the winter depth
-to be about 4 rows too low (``docs/results/depth_registration/``).
+**Winter: 5 rows up, 1 column right** (the student's decision, session 9),
+measured on all 449 development trees with :mod:`treeskel.measure_registration`
+(``docs/results/depth_registration/``). The shift is the same for every tree
+(its real spread is about 0.4 px) and does not depend on distance. How far is
+less certain: session 8's measure gives 3.1 rows, but the bark's centre found
+in colour follows the window it is measured in, and the windows sat on paths
+traced along the misplaced depth. The two estimates that take that out give
+5.06 and 5.09 rows (above session 8's in all 16 rows), and with the depth
+moved 5 rows up and the trees traced again, session 8's measure leaves
++0.04 px. Columns: +0.8 to +0.9 by every estimate on all cross-sections.
+
+**Summer: not moved.** Mutual information, the only check that needs no
+traced branches, puts the summer depth about 2.3 px low, but in winter it was
+too unreliable (biased by band, and at the edge of its search on 184 of 449
+trees) to set a correction on its own.
 """
 
 EXCLUDED_ROWS: dict[int, str] = {

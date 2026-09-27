@@ -269,6 +269,46 @@ to 113 px, which is now kept within the search).
   captured after 12:55). In summer it reads 2.28 px down (CI 2.13–2.41),
   0.67 px left; by bands of rows 2.09, 2.22 and 3.15; 28 trees at the edge.
 
+### Decision: the winter depth moves 5 rows up and 1 column right (the student's)
+
+`treeskel.io.DEPTH_SHIFT = {"summer": (0, 0), "winter": (-5, 1)}`, applied by
+`load_tree` (`register=False` loads the depth as stored). The student chose
+it from three options (5 up; 4 up, midway between 3.1 and 5.1; or a hand
+check first), on these grounds:
+
+- the colour pull was measured directly, and the two estimates that take it
+  out agree (5.06 and 5.09 rows), above session 8's measure in every row;
+- at 5 rows up, the trees traced again and the depth line up by session 8's
+  own measure (+0.04 px left), and that is the state the ground truth is now
+  in;
+- mutual information, which fits no colour edges, gives 4.75.
+
+The risk: a bias of the colour-edge fit of its own, which those estimates
+would magnify; the lower estimates (2.5–3.1) cannot be ruled out entirely.
+
+**Summer is not moved.** Mutual information puts it about 2.3 px low, but in
+winter it was too unreliable to set a correction on its own.
+
+**Checks on the 21 local trees**, with the correction loaded
+(`--registered`): session 8's measure now reads +0.18 px, and the moves that
+would leave no shift are −0.21 rows (session 8's measure) and −0.04 rows
+(colour on the depth run): both near zero, where before they differed by
+2 rows. Mutual information reads +0.96 rows (it gave 4.04 on these trees).
+The student's correction clicks were tried as a human check: the 24 near a
+leader's trace (traced through the main clicks only) sit 4.4 px above the
+traces made with the depth as stored (fitted as an image shift), falling to
+1.4 px at 5 rows up, the smallest of the moves tried (0 to 7 rows up); but
+they stay 1.5–2 px above at every move from 4 rows up, likely because they
+were placed where traces cut the inside of curves. Too few, and biased, to
+decide.
+
+**What changes in the masks** (21 local trees, the same clicks): the leaders
+move a median 0.9 px across themselves, all upwards along their normals
+(more than 1 px on a third of their points), and the masks before and after
+overlap at IoU 0.86 (lowest 0.76); the widths do not change (−0.05 px).
+`docs/figures/depth_registration_masks_before_after.jpg` shows six trees
+(outlines traced with the depth as stored in orange, corrected in blue).
+
 ## Next (session 8's list)
 
 1. Turn `reproduce.py`'s measurement into a package module and run it on all

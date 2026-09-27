@@ -180,6 +180,16 @@ class TestLoaders:
                                       load_tree(tree, "summer", register=False)["depth"])
 
 
+def test_winter_depth_is_corrected_by_default(sample_dir):
+    # The session-9 decision: the winter depth moves 5 rows up and 1 column right; summer stays as stored.
+    assert io.DEPTH_SHIFT == {"summer": (0, 0), "winter": (-5, 1)}
+    tree = index_dataset(sample_dir).trees[0]
+    raw = load_tree(tree, "winter", register=False)["depth"]
+    np.testing.assert_array_equal(load_tree(tree, "winter")["depth"], shift_image(raw, (-5, 1)))
+    np.testing.assert_array_equal(load_tree(tree, "summer")["depth"],
+                                  load_tree(tree, "summer", register=False)["depth"])
+
+
 class TestShiftImage:
     def test_moves_content_and_fills_the_uncovered_edge(self):
         a = np.arange(1, 13).reshape(3, 4)

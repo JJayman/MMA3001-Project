@@ -75,7 +75,9 @@ pdoc -o docs/_build src/treeskel           # build HTML documentation
 Each tree (e.g. `R20N03` = row 20, tree 3 on the orchard map) has a summer
 and a winter RGB image and depth image (640x480 PNG), plus a hand-labelled
 256x256 summer mask of the main branches, used for validation only. Depth is 8-bit relative depth (brighter = closer,
-0 = no reading), not metric. See [`data/sample/README.md`](data/sample/README.md).
+0 = no reading), not metric. The winter depth sits about 5 px below the colour image, so it is moved 5 rows
+up and 1 column right when loaded ([`docs/results/depth_registration`](docs/results/depth_registration/)).
+See [`data/sample/README.md`](data/sample/README.md).
 
 The full dataset ("Dataset (With Summer GT)", 562 trees in 20 rows) comes from the MMA3001 teaching team
 and is not redistributed here. Put it in `data/raw/`, which is git-ignored.
