@@ -324,16 +324,21 @@ unchanged (checked on the 21 trees).
 
 - **The traced path is off the bark's centre** by a median 2.5 px (14,640
   cross-sections; 39% more than 3 px; per leader 1.0–4.0 px), measured from
-  the cross-sections' two edges. The mask is centred on the path, so its edges
-  are shifted by that much. Re-centring the leaders on the measured bark
-  centre (smoothed along the leader) would change the centre lines, a fixed
-  decision.
+  the cross-sections' two edges. *Looked into at the end of session 8
+  (`docs/results/depth_registration/`):* this is mostly noise in the colour
+  centre of single cross-sections. The systematic part (about 1.3 px on
+  sloping leaders) comes from the winter depth sitting about 4 px below the
+  colour image, which the tracing follows. Re-centring on the colour centre
+  was tried and rejected; correcting the depth is planned for session 9.
 - **Trunk widths.** The trunk still comes from depth. Its median half-width
   agrees with the cross-sections (15.5 against 15.0 px on the 21 trees), but
   some trees differ a lot: R01N25 (21.9 against 13.5 px: a swelling low on the
   trunk, drawn along its whole length because the taper fit falls back to a
   constant), R01N05 (17.3 against 11.2: depth includes what looks like a tree
-  guard), R20N06 (12.0 against 19.0), R09N32 and R09N34.
+  guard), R20N06 (12.0 against 19.0), R09N32 and R09N34. *Looked into at the
+  end of session 8:* colour is not reliably better (it catches only the
+  sunlit stripe of R01N18's trunk and takes in a white object beside R09N34's),
+  so the trunk was left as it is (`docs/results/depth_registration/`).
 
 ## Caveats
 
