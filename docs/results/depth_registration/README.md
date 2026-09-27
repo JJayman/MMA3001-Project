@@ -226,6 +226,49 @@ at the low end.
   the leader with a branch beside it, the eye cannot place the edge to 1 px
   either.
 
+### All 449 development trees (session 9, the student's PC)
+
+Console output in `all_dev_rows_output.txt`, the numbers in `report.json` and
+`trees.csv`, and `depth_registration_rows.png` (redrawn from `report.json`
+after the run; the first chart plotted a mutual-information peak extrapolated
+to 113 px, which is now kept within the search).
+
+- **The depth sits lower than the colour** on 431 of 447 trees.
+- **One shift for every tree.** The halves of the leaders near and far from
+  the fork do not agree tree by tree (r = +0.03): the real spread across
+  trees is about 0.4 px, against 2.8 px of noise in each half. The shift does
+  not depend on the tree's distance either (Spearman −0.03): a fixed offset
+  of the camera, not parallax.
+- **Steady across the image and the capture.** By bands of rows (session 8's
+  measure, cross-sections usable at every move): +2.60, +3.13, +3.01, +2.80
+  px. By orchard row, in capture order from 11:23 to 13:26: 2.1 to 3.9 rows
+  (mean 3.11 ± 0.25). The bands of columns and the affine fit's sideways
+  terms are not reliable: the leaders' normals come in two families, one per
+  leader, and a band of columns holds mostly one leader, which cannot tell
+  dy from dx.
+
+| Estimate of the correction (449 trees) | Rows | Cols | Mean of the 16 rows ± 2 SE |
+|---|---|---|---|
+| Session 8's measure: colour on the kept paths | −3.10 | +0.81 | −3.11 ± 0.25 |
+| The same: equal overshoot past both edges | −2.80 | | |
+| Colour measured on the depth run | **−5.06** | +0.87 | −5.35 ± 0.61 |
+| Traced again (left: +0.56 px at 4 rows up, +0.04 at 5) | **−5.09** | | −5.31 ± 0.48 |
+| Mutual information, winter | −4.75 (CI −5.12 to −4.38) | +0.89 | not usable by row |
+| Both edges clear: kept paths / depth run / traced again | −2.46 / −3.54 / −3.29 | +2.63 / +2.55 | |
+
+- **The two estimates that take the pull out agree** (5.06 and 5.09 rows),
+  and lie above session 8's measure in all 16 rows, by about 2 rows
+  (`depth_registration_rows.png`).
+- **The clear-edge subset is not the best-behaved after all.** On 21 trees it
+  looked best; on 449 its sideways estimate is +2.6 columns where every
+  other estimate gives +0.8 to +0.9. Which cross-sections have both edges
+  clear depends on the light (from the right), so the subset is biased;
+  traced again, it reads −0.47 and −1.12 px (dy) with −1.5 px (dx).
+- **Mutual information** is not reliable in winter: 184 of 449 trees' surfaces
+  peak at the edge of the search, and so do 7 of the 16 rows (all those
+  captured after 12:55). In summer it reads 2.28 px down (CI 2.13–2.41),
+  0.67 px left; by bands of rows 2.09, 2.22 and 3.15; 28 trees at the edge.
+
 ## Next (session 8's list)
 
 1. Turn `reproduce.py`'s measurement into a package module and run it on all

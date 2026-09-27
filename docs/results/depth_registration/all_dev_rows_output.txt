@@ -1,0 +1,92 @@
+Measuring 449 development-row trees (92 test-row trees left out), depth as stored...
+  25/449 trees, 131 s elapsed, about 2228 s left
+  50/449 trees, 249 s elapsed, about 1984 s left
+  75/449 trees, 322 s elapsed, about 1606 s left
+  100/449 trees, 428 s elapsed, about 1495 s left
+  125/449 trees, 509 s elapsed, about 1321 s left
+  150/449 trees, 641 s elapsed, about 1277 s left
+  175/449 trees, 715 s elapsed, about 1119 s left
+  200/449 trees, 830 s elapsed, about 1033 s left
+  225/449 trees, 935 s elapsed, about 931 s left
+  250/449 trees, 1016 s elapsed, about 809 s left
+  275/449 trees, 1128 s elapsed, about 714 s left
+  300/449 trees, 1215 s elapsed, about 603 s left
+  325/449 trees, 1310 s elapsed, about 500 s left
+  350/449 trees, 1398 s elapsed, about 395 s left
+  375/449 trees, 1501 s elapsed, about 296 s left
+  400/449 trees, 1599 s elapsed, about 196 s left
+  425/449 trees, 1705 s elapsed, about 96 s left
+  449/449 trees, 1777 s elapsed, about 0 s left
+Pooling (with a bootstrap over trees)...
+
+449 trees. Shifts are where the depth sits relative to the colour (dy > 0: lower); the correction moves the depth the other way.
+Estimates of the correction (rows and cols to move the winter depth; negative rows: up). Last column: mean of the 16 rows with 3+ trees, +- 2 standard errors:
+   Paths kept, all cross-sections: the move that leaves no shift      rows -3.10, cols +0.81   rows by row -3.11 +- 0.25  (232226)
+   Paths kept, both edges clear: the move that leaves no shift        rows -2.46, cols +2.63   rows by row -2.28 +- 0.60  (23113)
+   Colour measured on the depth run: the move that leaves no shift    rows -5.06, cols +0.87   rows by row -5.35 +- 0.61  (232226)
+   Colour measured on the depth run, both edges clear                 rows -3.54, cols +2.55   rows by row -3.38 +- 0.94  (23113)
+   Traced again with the moved depth, all cross-sections (rows only)  rows -5.09, cols   -     rows by row -5.31 +- 0.48  (232058)
+   Traced again with the moved depth, both edges clear (rows only)    rows -3.29, cols   -     rows by row -5.48 +- 2.12  (25405)
+   left after tracing again (all): moved (-4, 1): dy +0.56, dx -0.09, moved (-5, 1): dy +0.04, dx -0.06
+   left after tracing again (clear): moved (-4, 1): dy -0.47, dx -1.54, moved (-5, 1): dy -1.12, dx -1.44
+   Mutual information, winter (whole image)                           rows -4.75, cols +0.89
+1. Across the leaders (winter)
+   depth as loaded, 232226 cross-sections: dy +2.79, dx -0.73 px
+   the 180842 cross-sections usable at every move: dy +2.97, dx -0.73 px (95% CI over trees +2.85 to +3.10; dx -0.79 to -0.67)
+   the move that leaves no fitted shift: rows -3.10, cols +0.81 (the fit follows a move by 0.90 rows per row and 0.90 cols per col)
+   depth past the upper and lower edges equal (sloping cross-sections, cols moved +1): rows moved -2.80
+   remaining shift, and depth past the upper / lower edge on sloping cross-sections (means), by move:
+     rows +2, cols +0: dy +4.59, dx -0.72; upper -0.98, lower +3.71  (230116 cross-sections)
+     rows +2, cols +1: dy +4.60, dx +0.18; upper -0.98, lower +3.78  (231914 cross-sections)
+     rows +1, cols +0: dy +3.68, dx -0.72; upper -0.49, lower +3.21  (231255 cross-sections)
+     rows +1, cols +1: dy +3.71, dx +0.18; upper -0.50, lower +3.29  (232957 cross-sections)
+     rows +0, cols +0: dy +2.79, dx -0.73; upper +0.01, lower +2.73  (232226 cross-sections)
+     rows +0, cols +1: dy +2.80, dx +0.17; upper +0.01, lower +2.78  (233758 cross-sections)
+     rows -1, cols +0: dy +1.88, dx -0.73; upper +0.52, lower +2.24  (232735 cross-sections)
+     rows -1, cols +1: dy +1.90, dx +0.17; upper +0.51, lower +2.30  (234385 cross-sections)
+     rows -2, cols +0: dy +0.99, dx -0.73; upper +1.01, lower +1.77  (232829 cross-sections)
+     rows -2, cols +1: dy +0.99, dx +0.17; upper +1.01, lower +1.80  (234467 cross-sections)
+     rows -3, cols +0: dy +0.07, dx -0.74; upper +1.52, lower +1.28  (232582 cross-sections)
+     rows -3, cols +1: dy +0.08, dx +0.17; upper +1.51, lower +1.31  (234283 cross-sections)
+     rows -4, cols +0: dy -0.83, dx -0.74; upper +2.03, lower +0.80  (232085 cross-sections)
+     rows -4, cols +1: dy -0.83, dx +0.16; upper +2.02, lower +0.83  (233703 cross-sections)
+     rows -5, cols +0: dy -1.74, dx -0.74; upper +2.54, lower +0.33  (231077 cross-sections)
+     rows -5, cols +1: dy -1.73, dx +0.16; upper +2.52, lower +0.35  (232835 cross-sections)
+     rows -6, cols +0: dy -2.63, dx -0.74; upper +3.03, lower -0.13  (229483 cross-sections)
+     rows -6, cols +1: dy -2.62, dx +0.15; upper +3.03, lower -0.10  (231395 cross-sections)
+   across the image (cross-sections usable at every move):
+     rows   0-120: dy +2.60, dx -0.64 (55426)
+     rows 120-240: dy +3.13, dx -0.90 (58206)
+     rows 240-360: dy +3.01, dx -0.71 (59536)
+     rows 360-480: dy +2.80, dx -0.23 (7674)
+     cols   0-160: dy +2.36, dx -1.22 (12729)
+     cols 160-320: dy +2.27, dx -1.13 (76874)
+     cols 320-480: dy +2.37, dx -0.30 (72851)
+     cols 480-640: dy +0.64, dx -0.04 (18388)
+     affine: dy +2.29 at the centre, changing by +1.39 to the bottom edge and -0.86 to the right edge; dx -0.65, +0.07 and +1.35
+   per tree: dy median +2.96 (IQR +1.99 to +4.06), lower than the colour on 431 of 447 trees; dx median -0.72
+   near and far halves of the leaders, tree by tree (447 trees): r +0.03; spread of the real shift across trees 0.44 px, noise of one half 2.80 px
+   against the tree's depth level (median 141): Spearman -0.03, -0.04 px per 10 levels nearer
+2. Mutual information (whole image; then bands of rows 0-120, 120-240, 240-360, 360-480)
+   winter: dy +4.75 (95% CI +4.38 to +5.12), dx -0.89; by band dy +1.91, +2.39, +3.97, -0.09 (! = at the edge of the search); per tree dy median +5.38 (IQR +3.25 to +10.00), 184 at the edge of the search
+     tree by tree against the leaders' dy (265 trees): r +0.23, Spearman +0.19
+   summer: dy +2.28 (95% CI +2.13 to +2.41), dx -0.67; by band dy +2.09, +2.22, +3.15, -2.27 (! = at the edge of the search); per tree dy median +2.30 (IQR +1.20 to +3.42), 28 at the edge of the search
+     tree by tree against the leaders' dy (420 trees): r +0.06, Spearman +0.00
+3. By orchard row (capture order): dy, dx across the leaders (usable at every move); the rows to move by each estimate (path all, path clear, anchored all, anchored clear, traced again all, traced again clear); mutual information dy, dx winter / summer (! = at the edge of the search)
+   row  1 (44 trees, from 11:23:49): +3.23, -0.89; move -3.36 -2.58 -4.34 -3.11 -3.96 -2.87; MI +2.94, -1.16 / +2.00, -0.82
+   row  2 (43 trees, from 11:30:22): +3.10, -0.92; move -3.19 -3.91 -5.82 -4.42 -5.62 -5.29; MI +4.00, -1.70 / +1.91, -0.59
+   row  5 (34 trees, from 11:46:47): +2.83, -0.83; move -2.82 -3.33 -4.36 -3.11 -5.15 -11.61; MI +2.18, -0.51 / +2.83, -0.31
+   row  6 (32 trees, from 11:51:31): +2.42, -0.60; move -2.27 -3.43 -4.10 -5.65 -4.75 -7.41; MI +3.52, -0.99 / +2.03, -0.42
+   row  7 (32 trees, from 11:56:58): +2.79, -0.71; move -3.00 -2.09 -4.62 -4.69 -5.34 -5.50; MI +5.45, -0.75 / +3.00, -0.93
+   row  8 (22 trees, from 12:01:11): +3.01, -0.59; move -3.40 -3.81 -5.43 -5.87 -6.74 -7.45; MI +6.28, -0.56 / +3.53, -1.15
+   row  9 (34 trees, from 12:05:24): +2.82, -0.35; move -2.93 -2.95 -5.18 -5.36 -4.86 -8.43; MI +4.74, -0.18 / +2.08, -0.75
+   row 10 (29 trees, from 12:09:52): +2.40, -0.85; move -2.43 -0.46 -4.47 +0.50 -4.50 -2.32; MI +6.45, -1.24 / +2.28, -0.86
+   row 11 (22 trees, from 12:14:17): +2.24, -0.65; move -2.13 -0.34 -3.52 -0.93 -3.46 +1.20; MI +4.00, -0.61 / +0.51, -0.38
+   row 13 (33 trees, from 12:55:09): +3.03, -0.57; move -3.16 -1.44 -5.39 -2.13 -4.71 -2.19; MI +9.85, -1.14! / +2.47, -0.09
+   row 14 (30 trees, from 12:59:43): +3.14, -0.71; move -3.31 -3.06 -5.49 -4.55 -5.48 -3.89; MI +10.85, -1.08! / +4.27, -1.36
+   row 15 (28 trees, from 13:04:07): +3.65, -0.62; move -3.87 -2.48 -6.47 -3.64 -6.17 -3.50; MI +113.24, -8.29! / +1.37, -0.92
+   row 17 (23 trees, from 13:14:48): +3.28, -0.74; move -3.82 -2.87 -6.08 -3.78 -5.84 -3.27; MI +8.14, -0.83! / +2.11, -0.64
+   row 18 (26 trees, from 13:18:56): +3.37, -1.09; move -3.61 -2.01 -6.46 -1.66 -5.63 -2.88; MI +9.39, -1.15! / +2.90, -0.40
+   row 19 (11 trees, from 13:22:39): +3.38, -0.87; move -3.38 -0.31 -5.32 -0.90 -5.51 -16.63; MI +9.70, -0.29! / +2.92, -0.97
+   row 20 ( 6 trees, from 13:26:31): +3.09, -0.61; move -3.04 -1.43 -8.61 -4.77 -7.20 -5.65; MI +10.00, +0.00! / -0.05, -0.71
+Saved outputs\measure_registration\report.json, outputs\measure_registration\trees.csv, outputs/depth_registration_rows.png

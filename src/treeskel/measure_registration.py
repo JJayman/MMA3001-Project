@@ -524,7 +524,9 @@ def mi_peak(surface: np.ndarray, window: int = PEAK_WINDOW, iters: int = 5) -> t
         ``(dy, dx, at_edge)``; ``at_edge`` is True if the window could not be
         centred on the peak (it lies within ``window`` of the edge of the
         search, or beyond it) or the fit has no maximum, when the peak may lie
-        further out than was searched.
+        further out than was searched. The shift is kept within the search
+        (on all 449 development trees, one row's winter surface extrapolated
+        to 113 px).
     """
     size = surface.shape[0]
     reach = size // 2
@@ -549,6 +551,8 @@ def mi_peak(surface: np.ndarray, window: int = PEAK_WINDOW, iters: int = 5) -> t
             break
         peak = new
     edge = not ok or bool(np.any(np.abs(peak - reach) > reach - w))
+    # A vertex far outside the fitted window means nothing: report at most the edge of the search.
+    peak = np.clip(peak, 0, size - 1)
     return float(peak[0] - reach), float(peak[1] - reach), edge
 
 
@@ -1070,13 +1074,13 @@ def _write_trees(f, rows: list[dict]) -> None:
 
 
 def plot_rows(report: dict, path: Path, failed: list[str]) -> None:
-    """Dot chart of the shift by orchard row, in capture order, with 95% bootstrap intervals over trees.
+    """Dot chart of the rows to move the winter depth up, by orchard row in capture order.
 
-    Two panels share the rows: the vertical part of the shift (the story) and
-    the sideways part. Three series, dodged within each row: across the
-    winter leaders (the reference), and mutual information on winter and on
-    summer. A hollow dot is at the edge of the search (the peak may lie
-    beyond it). A line marks the pooled estimate across the leaders.
+    Three estimates made on all cross-sections (:func:`correction_estimates`):
+    session 8's (the colour measured on the kept paths), the colour measured
+    on the depth run, and the trees traced again with the moved depth. Dots
+    are each orchard row's estimate, dodged within the row; a line of the
+    same colour marks the estimate from all trees, which the legend gives.
     """
     import matplotlib
 
@@ -1084,53 +1088,42 @@ def plot_rows(report: dict, path: Path, failed: list[str]) -> None:
     import matplotlib.pyplot as plt
 
     ink, secondary, muted, grid, axis, surface = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7", "#fcfcfb"
-    series = [("leaders", "Across the winter leaders", "#2a78d6"),
-              ("mi_winter", "Mutual information, winter", "#eb6834"),
-              ("mi_summer", "Mutual information, summer", "#1baf7a")]
+    series = [("path_all", "Session 8's measure (colour on the kept paths)", "#2a78d6"),
+              ("anchored_all", "Colour measured on the depth run", "#eb6834"),
+              ("retraced_all", "Traced again with the moved depth", "#1baf7a")]
     rows = sorted(report["by_row"], key=lambda r: r["time"])
     x = np.arange(len(rows))
-    fig, axes = plt.subplots(2, 1, figsize=(8.2, 5.6), dpi=150, sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
+    fig, ax = plt.subplots(figsize=(8.2, 4.6), dpi=150)
     fig.patch.set_facecolor(surface)
-    pooled = report["fixed_set"]
-    for ax, part in zip(axes, ("dy", "dx")):
-        ax.set_facecolor(surface)
-        ax.axhline(0, color=axis, lw=0.8, zorder=1)
-        ax.axhline(pooled[part], color=secondary, lw=0.8, zorder=1,
-                   label=f"All rows across the leaders ({pooled['dy']:+.1f} px lower, {pooled['dx']:+.1f} px right)")
-        for k, (key, name, colour) in enumerate(series):
-            labelled = False
-            for xi, r in zip(x + (k - 1) * 0.22, rows):
-                e = r if key == "leaders" else r[key]
-                v, ci = e[part], e[f"ci_{part}"]
-                if v is None or not np.isfinite(v):
-                    continue
-                if ci:
-                    ax.plot([xi, xi], ci, color=colour, lw=1.2, solid_capstyle="round", zorder=2)
-                hollow = key != "leaders" and e.get("at_edge")
-                ax.plot(xi, v, "o", ms=6, color=colour, mfc=surface if hollow else colour, mec=colour if hollow
-                        else surface, mew=1.4 if hollow else 1.2, zorder=3, label=None if labelled else name)
-                labelled = True
-        ax.grid(axis="y", color=grid, lw=0.5)
-        ax.set_axisbelow(True)
-        for side in ("top", "right", "left"):
-            ax.spines[side].set_visible(False)
-        ax.spines["bottom"].set_color(axis)
-        ax.tick_params(colors=muted, labelsize=8, length=0)
-    axes[0].set_ylabel("Depth lower than colour (px)", fontsize=8.5, color=secondary)
-    axes[1].set_ylabel("Depth right of colour (px)", fontsize=8.5, color=secondary)
-    axes[1].set_xticks(x, [f"{r['row']}\n{r['n_trees']}" for r in rows])
-    axes[1].set_xlabel("Orchard row, in winter capture order (number of trees below)", fontsize=8.5, color=secondary)
-    fig.suptitle("Where the depth image sits relative to the colour image, by orchard row", x=0.07, ha="left",
+    ax.set_facecolor(surface)
+    ax.axhline(0, color=axis, lw=0.8, zorder=1)
+    for k, (key, name, colour) in enumerate(series):
+        pooled = (report["estimates"][key]["move"] or [None])[0]
+        if pooled is not None:
+            ax.axhline(-pooled, color=colour, lw=1.0, alpha=0.55, zorder=1,
+                       label=f"{name}: {-pooled:.1f} rows (all trees)")
+        values = [(xi + (k - 1) * 0.22, -r["estimates"][key][0]) for xi, r in zip(x, rows)
+                  if r["estimates"].get(key) and r["estimates"][key][0] is not None]
+        if values:
+            ax.plot(*zip(*values), "o", ms=6, color=colour, mec=surface, mew=1.2, zorder=3)
+    ax.set_xlim(-0.5, len(rows) - 0.5)
+    ax.set_xticks(x, [f"{r['row']}\n{r['n_trees']}" for r in rows])
+    ax.set_xlabel("Orchard row, in winter capture order (number of trees below)", fontsize=8.5, color=secondary)
+    ax.set_ylabel("Rows to move the winter depth up", fontsize=8.5, color=secondary)
+    ax.grid(axis="y", color=grid, lw=0.5)
+    ax.set_axisbelow(True)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(axis)
+    ax.tick_params(colors=muted, labelsize=8, length=0)
+    fig.suptitle("How far to move the winter depth up: three estimates, by orchard row", x=0.07, ha="left",
                  fontsize=11, color=ink, fontweight="bold")
-    axes[0].set_title(f"{report['n_trees']} development-row trees; dots are row estimates, bars 95% bootstrap "
-                      "intervals over trees; hollow: at the edge of the search", loc="left", fontsize=7.5,
-                      color=secondary)
-    axes[0].set_xlim(-0.5, len(rows) - 0.5)
-    handles, labels = axes[0].get_legend_handles_labels()
-    order = [labels.index(name) for _, name, _ in series if name in labels] + [0]     # the line was added first
-    fig.legend([handles[i] for i in order], [labels[i] for i in order], loc="lower center", bbox_to_anchor=(0.5, 0.0),
-               frameon=False, fontsize=7.5, labelcolor=secondary, ncol=2, handletextpad=0.4, columnspacing=1.6)
-    fig.tight_layout(rect=(0, 0.08, 1, 1))
+    ax.set_title(f"{report['n_trees']} development-row trees; dots: each row's estimate; lines: all trees together",
+                 loc="left", fontsize=7.5, color=secondary)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.0), frameon=False, fontsize=7.5,
+               labelcolor=secondary, ncol=1, handletextpad=0.5)
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
     try:
         fig.savefig(path, facecolor=surface)
     except OSError as e:

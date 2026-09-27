@@ -212,8 +212,8 @@ def test_mi_peak_refines_between_pixels_and_flags_the_edge():
     y, x = np.mgrid[-8:9, -8:9]
     tilted = -((y - 1.3) ** 2) - (x + 0.6) ** 2 - 0.3 * (y - 1.3) * (x + 0.6)      # vertex (1.3, -0.6)
     assert mi_peak(tilted) == pytest.approx((1.3, -0.6, False), abs=1e-6)
-    dy, dx, edge = mi_peak(-((y - 9) ** 2) - x ** 2)                  # beyond the search
-    assert edge and dy > 5
+    dy, dx, edge = mi_peak(-((y - 9) ** 2) - x ** 2)                  # beyond the search: at its edge
+    assert edge and dy == 8.0
     assert mi_peak(-(np.abs(y - 6.0)) - np.abs(x))[2]                   # within the window of the edge
     assert mi_peak(y * 0.0 + x)[2]                                      # no maximum at all
 
