@@ -1,0 +1,53 @@
+21 development-row trees: R01N01 R01N02 R01N04 R01N05 R01N08 R01N13 R01N18 R01N25 R01N32 R07N09 R07N17 R07N25 R07N26 R07N29 R07N32 R09N12 R09N18 R09N32 R09N34 R15N05 R20N06
+
+1. Depth centre minus colour centre across the leaders, as a fixed image shift
+   9988 cross-sections clear of the other leader and closed in depth: dy +3.19 px (depth lower), dx -0.63 px
+   with a lighting term (which side of the bark is brighter): dy +3.09, dx -0.44, lighting -0.35 px
+   mean direction of the lit side (row, col): (-0.03, +0.39); negative row = from above, positive col = from the right
+   sloping cross-sections (|n_row| > 0.4, 3885): depth reaches past the upper colour edge by +0.0 px and past the lower edge by +4.0 px (medians)
+   upper half of the image  dy +3.16, dx -0.72 (6233 cross-sections)
+   lower half               dy +3.21, dx -0.45 (3755 cross-sections)
+   left half                dy +2.89, dx -0.87 (4359 cross-sections)
+   right half               dy +2.69, dx -0.36 (5629 cross-sections)
+   per tree (sloping cross-sections, 21 trees): dy median +3.30 (IQR +1.97 to +4.30), 19 positive
+
+2. The same traced paths, with the depth moved up (and 1 column right)
+   depth moved (0, 0): remaining shift dy +3.19, dx -0.63; sloping cross-sections: past the upper edge +0.54, past the lower edge +3.60 px (means)
+   depth moved (-2, 1): remaining shift dy +1.53, dx +0.26; sloping cross-sections: past the upper edge +1.46, past the lower edge +2.80 px (means)
+   depth moved (-3, 1): remaining shift dy +0.62, dx +0.23; sloping cross-sections: past the upper edge +1.99, past the lower edge +2.35 px (means)
+   depth moved (-4, 1): remaining shift dy -0.20, dx +0.22; sloping cross-sections: past the upper edge +2.50, past the lower edge +1.93 px (means)
+   depth moved (-5, 1): remaining shift dy -1.06, dx +0.21; sloping cross-sections: past the upper edge +2.98, past the lower edge +1.45 px (means)
+
+3. Does the traced path follow the depth? Re-traced with the depth moved by (-4, 1)
+   depth moved (0, 0): colour bark centre minus path = -1.32*n_row -0.52*n_col; |colour centre - path| median 2.50 px over 14640 cross-sections
+   depth moved (-4, 1): colour bark centre minus path = +0.17*n_row -0.86*n_col; |colour centre - path| median 2.50 px over 14557 cross-sections
+   drawn radii after re-tracing: trunk at the fork +0.04 px (median; range -3.3 to +1.8), leaders +0.02 px (range -0.3 to +0.4)
+
+4. Rejected: re-centring the leaders on the colour bark centre (depth as loaded)
+   colour centre vs depth centre, relative to the path: Pearson r +0.03; median |colour - depth| 3.00 px
+   after re-centring, the path is nearer the depth centre on 2 leaders and further on 28 (of 42); the shift reached its 6 px cap on 10 leaders
+
+5. Rejected: trunk widths from colour. Trunk half-width over the upper 70% of the trunk (px)
+   tree    drawn (depth EDT, taper)  colour  depth run - 2
+   R01N01     13.9                     13.5     17.0
+   R01N02     18.9                     16.5     20.0
+   R01N04     14.1                     12.5     15.5
+   R01N05     17.3                     11.2     23.5
+   R01N08     13.3                     13.8     22.2
+   R01N13     19.2                     17.2     23.5
+   R01N18     17.1                     13.5     18.5
+   R01N25     21.9                     16.0     30.8
+   R01N32     20.5                     18.5     19.0
+   R07N09     16.5                     18.2     21.8
+   R07N17     15.5                     16.0     14.5
+   R07N25     15.5                     14.2     16.8
+   R07N26     14.7                     18.0     16.5
+   R07N29     20.0                     28.0     25.5
+   R07N32     19.0                     19.0     23.0
+   R09N12     15.6                     17.5     19.0
+   R09N18     15.9                     15.0     18.0
+   R09N32     17.6                     27.2     23.2
+   R09N34     12.8                     20.5      nan
+   R15N05     15.1                     20.0     20.0
+   R20N06     12.0                     19.0     19.5
+   medians: drawn 15.9, colour 17.2, depth run - 2 19.8; drawn - colour per tree: median +0.0 (IQR -3.3 to +2.0)
