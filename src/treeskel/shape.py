@@ -13,18 +13,30 @@ Each part is summarised by straight lines fitted by total least squares
 (:func:`line_direction`), in an ``(x, y)`` frame with ``y`` pointing up:
 
 - **Trunk axis:** the top of the trunk, from the fork down to
-  ``trunk_reach`` trunk radii (all of the trunk if it is shorter). The top
-  is used because that is what the leaders grow from, and because the
-  trunk's base is often out of frame.
-- **Leader line:** each leader from ``start`` to ``reach`` trunk radii from
-  the fork (1.5 to 16). Nearer the fork, the traced path is still inside the
-  top of the trunk. A fixed stretch, rather than all of the leader in view,
-  is the student's choice (session 10): the leaders curve, so a line through
-  everything in view depends on where the photo's top edge cuts them, and the
-  summer photos are framed tighter than the winter ones. Trunk radii scale
-  with the photo, so the same stretch of tree is measured in both seasons
-  (:func:`framing_change`).
+  ``trunk_reach`` units (all of the trunk if it is shorter). The top is used
+  because that is what the leaders grow from, and because the trunk's base
+  is often out of frame.
+- **Leader line:** each leader from ``start`` to ``reach`` units from the
+  fork. Nearer the fork, the traced path is still inside the top of the
+  trunk.
 - **Halves:** the same stretch of each leader, split in two by length.
+
+The unit is **16.5 px of the winter photo** (:data:`UNIT_PX`, the median
+trunk radius at the fork), so the leader lines run from 25 to 264 px up each
+leader. Both choices are the student's (session 10):
+
+- *A fixed stretch, not all of the leader in view.* The leaders curve, so a
+  line through everything in view depends on where the photo's top edge cuts
+  them, and the summer photos are framed tighter than the winter ones
+  (:func:`framing_change`).
+- *Pixels, not each tree's own trunk radius* (the unit until the 449-tree
+  check). The trunk radius varies by a factor of 2.2 between trees (5th to
+  95th percentile), so a stretch in trunk radii covered very different
+  lengths of leader; and in the hand masks it is however wide the trunk was
+  drawn. On curved leaders a stretch 25% longer or shorter moves the angles
+  by 2–5°. A length in pixels varies only with the camera's distance (about
+  ±10%). A summer photo shows the tree larger, by :data:`SUMMER_SCALE`, so a
+  hand mask is measured over the same length times that scale (``zoom``).
 
 The measures (:func:`shape_measures`), all in degrees:
 
@@ -93,26 +105,45 @@ measures; a leading ``-`` negates. Used to check :func:`shape_measures` and to a
 data with flipped photos."""
 
 
+UNIT_PX = 16.5
+"""The length unit of :class:`ShapeParams`, in pixels of the winter photo: the median trunk radius at
+the fork over the 449 development trees, so that the stretch of leader matches the earlier one in
+trunk radii on a typical tree."""
+
+SUMMER_SCALE = 1.12
+"""How much larger a tree appears in the summer photos than in the winter ones. The scale between
+the seasons is not pinned down (session 7), but two estimates agree: the hand masks' trunks are drawn
+a median 1.12 times as wide as the winter trunks (449 trees), and the student's two overlays of
+session 7 gave 1.12 and 1.15. An error of 10% here moves a hand mask's stretch by 10%."""
+
+MASK_ZOOM = SUMMER_SCALE * 256 / 480
+"""Pixels of a hand mask per pixel of the winter photo: the summer scale, and the masks' resize of
+the photo's centre 480x480 to 256x256."""
+
+
 @dataclass(frozen=True)
 class ShapeParams:
     """Where on the trunk and leaders the lines are fitted.
 
     Attributes:
-        start: Leader lines start this many trunk radii (at the fork) from
-            the fork, the distance :mod:`treeskel.guided_gt` also skips when
-            fitting leader widths (``leader_fit_start``).
-        reach: Leader lines end this many trunk radii from the fork (along
-            the leader), or at the tip if that is nearer; ``inf`` uses the
-            whole leader in view. On the 21 development trees in the
-            repository, the leaders are 18.8-43 trunk radii long in the
-            winter photos and 16.7-32.7 in the hand masks, so 16 is in view
-            in both.
+        start: Leader lines start this many units from the fork, past the
+            top of the trunk (about the distance :mod:`treeskel.guided_gt`
+            skips when fitting leader widths).
+        reach: Leader lines end this many units from the fork (along the
+            leader), or at the tip if that is nearer; ``inf`` uses the whole
+            leader in view. The winter leaders are at least 362 px long in
+            view (1st percentile, 449 trees), so 16 units (264 px) is in view
+            on every tree.
         trunk_reach: The trunk axis is fitted from the fork down to this many
-            trunk radii.
+            units.
         min_trunk: Shortest trunk (px of path) that gives an axis; trees that
             split at the ground have none, and their trunk-relative measures
             are NaN.
         min_points: Fewest path points a leader line or half-line needs.
+        unit: The unit, in pixels of the winter photo (times ``zoom`` in
+            :func:`shape_measures` for other photos); None uses each tree's
+            own trunk radius at the fork (the unit until session 10's
+            449-tree check).
     """
 
     start: float = 1.5
@@ -120,6 +151,7 @@ class ShapeParams:
     trunk_reach: float = 4.0
     min_trunk: float = 10.0
     min_points: int = 10
+    unit: float | None = UNIT_PX
 
 
 def to_xy(path: np.ndarray) -> np.ndarray:
@@ -168,31 +200,48 @@ def wrap(angle: float) -> float:
     return 180.0 if a == -180.0 else float(a)
 
 
-def trunk_top(trunk: np.ndarray, fork_radius: float, params: ShapeParams = ShapeParams()) -> np.ndarray | None:
+def unit_px(fork_radius: float, params: ShapeParams = ShapeParams(), zoom: float = 1.0) -> float:
+    """The unit of ``params`` in a path's own pixels.
+
+    Args:
+        fork_radius: The tree's trunk radius at the fork, in the path's pixels
+            (the unit if ``params.unit`` is None).
+        params: Its ``unit``.
+        zoom: The path's pixels per pixel of the winter photo (1 for a winter
+            trace; :data:`MASK_ZOOM` for a hand mask).
+
+    Example:
+        >>> unit_px(20.0), unit_px(20.0, ShapeParams(unit=None)), round(unit_px(20.0, zoom=2.0), 1)
+        (16.5, 20.0, 33.0)
+    """
+    return float(fork_radius) if params.unit is None else params.unit * zoom
+
+
+def trunk_top(trunk: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray | None:
     """The ``(row, col)`` points of the trunk's top used for its axis, from the fork down, or None if too short.
 
     Args:
         trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
-        fork_radius: The trunk's radius at the fork (px).
+        unit: The length unit in the path's pixels (:func:`unit_px`).
         params: ``trunk_reach`` and ``min_trunk``.
     """
     p = np.asarray(trunk)[::-1]                          # from the fork down
     if len(p) < 2 or arc_length(p)[-1] < params.min_trunk:
         return None
-    return p[arc_length(p) <= max(params.trunk_reach * fork_radius, params.min_trunk)]
+    return p[arc_length(p) <= max(params.trunk_reach * unit, params.min_trunk)]
 
 
-def trunk_axis(trunk: np.ndarray, fork_radius: float, params: ShapeParams = ShapeParams()) -> np.ndarray | None:
+def trunk_axis(trunk: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray | None:
     """Direction of the top of the trunk (:func:`trunk_top`), pointing up towards the fork, or None if too short."""
-    top = trunk_top(trunk, fork_radius, params)
+    top = trunk_top(trunk, unit, params)
     return None if top is None else -line_direction(to_xy(top))     # fitted fork -> down; flip to point up
 
 
-def leader_part(leader: np.ndarray, fork_radius: float, params: ShapeParams = ShapeParams()) -> np.ndarray:
-    """The ``(row, col)`` points of a leader (fork to tip) used for its line: ``start`` to ``reach`` trunk radii."""
+def leader_part(leader: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray:
+    """The ``(row, col)`` points of a leader (fork to tip) used for its line: ``start`` to ``reach`` units."""
     p = np.asarray(leader)
     s = arc_length(p)
-    return p[(s >= params.start * fork_radius) & (s <= params.reach * fork_radius)]
+    return p[(s >= params.start * unit) & (s <= params.reach * unit)]
 
 
 def halves(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -203,30 +252,33 @@ def halves(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def shape_measures(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_radius: float,
-                   params: ShapeParams = ShapeParams()) -> dict[str, float]:
+                   params: ShapeParams = ShapeParams(), zoom: float = 1.0) -> dict[str, float]:
     """The shape measures of one tree (see the module docstring).
 
     Args:
         trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
         left, right: Paths from the fork to each leader's tip; "left" is the
             leader whose tip is further left.
-        fork_radius: The trunk's radius at the fork (px), the unit of
-            ``start``, ``reach`` and ``trunk_reach``.
+        fork_radius: The trunk's radius at the fork (px of the path), the
+            unit only if ``params.unit`` is None.
         params: Where the lines are fitted.
+        zoom: The paths' pixels per pixel of the winter photo
+            (:data:`MASK_ZOOM` for a hand mask).
 
     Returns:
         ``{measure: degrees}`` for every name in :data:`MEASURES`, NaN where
         a part is too short to fit (e.g. no trunk axis when the tree splits
         at the ground), plus ``fork_radius`` and each leader's whole length
-        in view in trunk radii (``left_length``, ``right_length``); a leader
+        in view in units (``left_length``, ``right_length``); a leader
         shorter than ``reach`` is measured over less than the fixed stretch.
     """
     out = dict.fromkeys(MEASURES, float("nan"))
     r = float(fork_radius)
+    unit = unit_px(r, params, zoom)
     tilts, bends, lengths = {}, {}, {}
     for side, path in (("left", left), ("right", right)):
-        part = leader_part(path, r, params)
-        lengths[side] = float(arc_length(path)[-1] / r) if len(path) > 1 else 0.0
+        part = leader_part(path, unit, params)
+        lengths[side] = float(arc_length(path)[-1] / unit) if len(path) > 1 else 0.0
         if len(part) < params.min_points:
             continue
         tilts[side] = tilt(line_direction(to_xy(part)))
@@ -234,7 +286,7 @@ def shape_measures(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
         if min(len(low), len(up)) >= params.min_points:
             turn = wrap(tilt(line_direction(to_xy(up))) - tilt(line_direction(to_xy(low))))
             bends[side] = turn if side == "right" else -turn       # outwards is positive
-    axis = trunk_axis(trunk, r, params)
+    axis = trunk_axis(trunk, unit, params)
     if axis is not None:
         out["trunk_tilt"] = tilt(axis)
     if "left" in tilts:
@@ -344,7 +396,7 @@ def crop_top(path: np.ndarray, top_row: float) -> np.ndarray:
 
 
 def framing_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_radius: float,
-                   keep: float, params: ShapeParams = ShapeParams()) -> dict[str, float]:
+                   keep: float, params: ShapeParams = ShapeParams(), zoom: float = 1.0) -> dict[str, float]:
     """How much each measure changes if the photo's top edge were lower.
 
     The top edge is moved down so that only ``keep`` of the height between
@@ -358,8 +410,8 @@ def framing_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
     """
     fork_row = float(np.asarray(trunk)[-1][0])
     cut = fork_row * (1.0 - keep)
-    full = shape_measures(trunk, left, right, fork_radius, params)
-    crop = shape_measures(trunk, crop_top(left, cut), crop_top(right, cut), fork_radius, params)
+    full = shape_measures(trunk, left, right, fork_radius, params, zoom)
+    crop = shape_measures(trunk, crop_top(left, cut), crop_top(right, cut), fork_radius, params, zoom)
     return {k: crop[k] - full[k] for k in MEASURES}
 
 
@@ -386,7 +438,8 @@ def perspective_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, f
 
     m = Overlay(pitch=pitch, yaw=yaw, roll=roll, scale=scale).matrix()
     full = shape_measures(trunk, left, right, fork_radius, params)
-    moved = shape_measures(*(transform_path(p, m) for p in (trunk, left, right)), fork_radius * scale, params)
+    moved = shape_measures(*(transform_path(p, m) for p in (trunk, left, right)), fork_radius * scale, params,
+                           zoom=scale)                    # a closer camera shows the same stretch larger
     return {k: wrap(moved[k] - full[k]) for k in MEASURES}
 
 
@@ -471,7 +524,7 @@ def _segment(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def fitted_lines(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_radius: float,
-                 params: ShapeParams = ShapeParams()) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+                 params: ShapeParams = ShapeParams(), zoom: float = 1.0) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """The lines :func:`shape_measures` fits, as ``(start, end)`` ``(row, col)`` points, for drawing.
 
     Returns:
@@ -479,11 +532,12 @@ def fitted_lines(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_ra
         ``"right_lower"`` and ``"right_upper"`` (a part too short to fit is left out).
     """
     out = {}
-    top = trunk_top(trunk, fork_radius, params)
+    unit = unit_px(fork_radius, params, zoom)
+    top = trunk_top(trunk, unit, params)
     if top is not None and len(top) >= 2:
         out["trunk"] = _segment(top)
     for side, path in (("left", left), ("right", right)):
-        part = leader_part(path, fork_radius, params)
+        part = leader_part(path, unit, params)
         if len(part) < params.min_points:
             continue
         out[side] = _segment(part)
@@ -659,6 +713,13 @@ SOURCES = ("winter", "clicks", "hand")
 """Where the measures come from: the winter trace (the truth), straight lines through the clicks (a
 check on the trace), and the provided hand masks (drawn on the summer view: a baseline)."""
 
+RADII_SOURCES = ("winter_radii", "hand_radii")
+"""The winter traces and hand masks measured with each tree's own trunk radius as the unit (as before
+session 10's switch to pixels), for the comparison in ``docs/results/shape/``."""
+
+ZOOM = {"winter": 1.0, "clicks": 1.0, "hand": MASK_ZOOM}
+"""Pixels of each source per pixel of the winter photo."""
+
 COLUMNS = MEASURES + ("fork_radius", "left_length", "right_length")
 """Values recorded per source in the table."""
 
@@ -673,15 +734,17 @@ GOOD_FIT_PX = 8.0
 median distance (px); on the 21 development trees in the repository, all fitted within 1.4-4.7 px."""
 
 
-def measure_tree(job: tuple) -> tuple[dict, object]:
+def measure_tree(job: tuple) -> tuple[dict, object, dict]:
     """Measure one tree from its winter trace, its clicks and its hand mask.
 
     Args:
         job: ``(tree_record, clicks, params, want_tile)``.
 
     Returns:
-        ``(row, tile)``: the table row (``{source}_{value}`` columns) and, if
-        ``want_tile``, a figure tile (winter trace | hand mask on summer), else None.
+        ``(row, tile, trace)``: the table row (``{source}_{value}`` columns);
+        if ``want_tile``, a figure tile (winter trace | hand mask on summer),
+        else None; and the winter trace (``"trunk"``, ``"left"``, ``"right"``
+        paths and ``"fork_radius"``), to save.
     """
     from PIL import Image
 
@@ -699,8 +762,12 @@ def measure_tree(job: tuple) -> tuple[dict, object]:
     if mb is not None:
         sources["hand"] = (mb["trunk"], mb["left"], mb["right"], mb["fork_radius"])
     row = {"tree": rec.tree_id, "row": rec.row, "note": clicks.note}
-    for name in SOURCES:
-        m = shape_measures(*sources[name], params) if name in sources else dict.fromkeys(COLUMNS, float("nan"))
+    radii = replace(params, unit=None)
+    for name in SOURCES + RADII_SOURCES:
+        base = name.removesuffix("_radii")
+        p, zoom = (radii, 1.0) if name in RADII_SOURCES else (params, ZOOM[base])
+        m = (shape_measures(*sources[base], p, zoom) if base in sources
+             else dict.fromkeys(COLUMNS, float("nan")))
         row.update({f"{name}_{k}": float(m[k]) for k in COLUMNS})
     # How much a tighter framing of the winter photo would change the headline measures, with the
     # fixed stretch of each leader and with all of it in view.
@@ -717,7 +784,8 @@ def measure_tree(job: tuple) -> tuple[dict, object]:
         a = draw_shape(w["rgb"], (gt.trunk, gt.left, gt.right), wl, f"{rec.tree_id} winter trace")
         s = load_tree(rec, "summer")
         if mb is not None:
-            hl = {k: tuple(mask_to_image(np.array(v))) for k, v in fitted_lines(*sources["hand"], params).items()}
+            hl = {k: tuple(mask_to_image(np.array(v)))
+                  for k, v in fitted_lines(*sources["hand"], params, MASK_ZOOM).items()}
             paths = [mask_to_image(mb[k]) for k in ("trunk", "left", "right")]
             b = draw_shape(s["rgb"], paths, hl, "hand mask, summer", path_colour=(255, 0, 255))
         else:
@@ -725,7 +793,32 @@ def measure_tree(job: tuple) -> tuple[dict, object]:
         tile = Image.new("RGB", (a.width + b.width, a.height))
         tile.paste(a, (0, 0))
         tile.paste(b, (a.width, 0))
-    return row, tile
+    return row, tile, {"trunk": gt.trunk, "left": gt.left, "right": gt.right, "fork_radius": r}
+
+
+def save_traces(path: str | Path, ids: Sequence[str], traces: Sequence[dict]) -> None:
+    """Write the winter traces of many trees to one ``.npz``: each part's points end to end, with offsets.
+
+    The traces are the project's own ground truth (clicks traced on the winter photos), a few kB per
+    tree; with them, other shape measures can be tried without the photos.
+    """
+    arrays = {"ids": np.array(ids), "fork_radius": np.array([t["fork_radius"] for t in traces], np.float32)}
+    for part in ("trunk", "left", "right"):
+        paths = [np.asarray(t[part], np.int16).reshape(-1, 2) for t in traces]
+        arrays[f"{part}_points"] = np.concatenate(paths)
+        arrays[f"{part}_offsets"] = np.concatenate([[0], np.cumsum([len(q) for q in paths])]).astype(np.int32)
+    np.savez_compressed(path, **arrays)
+
+
+def load_traces(path: str | Path) -> dict[str, dict]:
+    """Inverse of :func:`save_traces`: ``{tree: {"trunk", "left", "right", "fork_radius"}}``."""
+    with np.load(path) as z:
+        out = {}
+        for i, t in enumerate(str(v) for v in z["ids"]):
+            out[t] = {part: z[f"{part}_points"][z[f"{part}_offsets"][i]:z[f"{part}_offsets"][i + 1]].astype(int)
+                      for part in ("trunk", "left", "right")}
+            out[t]["fork_radius"] = float(z["fork_radius"][i])
+    return out
 
 
 def _stats(v: np.ndarray) -> tuple[float, float, int]:
@@ -765,6 +858,16 @@ def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict
                       "n_leaders": int(len(lengths)),
                       "median_length": float(np.median(lengths)) if len(lengths) else None}
     out["short_leaders"] = short
+    if rows and "winter_radii_v_opening" in rows[0]:
+        # The same agreement with each tree's own trunk radius as the unit (the hand masks' drawn one).
+        out["radii_unit"] = {}
+        for k in MEASURES:
+            w, h = col(f"winter_radii_{k}"), col(f"hand_radii_{k}")
+            ok = np.isfinite(w) & np.isfinite(h)
+            out["radii_unit"][k] = {
+                "winter_sd": _stats(w)[1],
+                "hand_median_abs_diff": float(np.median(np.abs(h - w)[ok])) if ok.any() else None,
+                "hand_r": float(np.corrcoef(w[ok], h[ok])[0, 1]) if ok.sum() > 2 else None}
     out["no_trunk_axis"] = [r["tree"] for r in rows if not np.isfinite(r["winter_trunk_tilt"])]
     out["hand_missing"] = [r["tree"] for r in rows if not np.isfinite(r["hand_v_opening"])]
     framing = {}
@@ -801,10 +904,17 @@ def _num(x, spec: str = "6.1f") -> str:
     return "   n/a" if x is None or not np.isfinite(x) else format(x, spec)
 
 
+def _stretch(params: ShapeParams) -> str:
+    """The stretch of leader the lines are fitted over, in words."""
+    if params.unit is None:
+        return f"leader lines {params.start:g}-{params.reach:g} trunk radii from the fork"
+    return (f"leader lines {params.start * params.unit:.0f}-{params.reach * params.unit:.0f} px from the fork in the "
+            f"winter photo, x{SUMMER_SCALE:g} in the summer view")
+
+
 def print_summary(s: dict, params: ShapeParams = ShapeParams()) -> None:
     """Print :func:`summarise`'s result as a table."""
-    print(f"\nShape measures on {s['n_trees']} development trees (degrees; leader lines {params.start:g}-"
-          f"{params.reach:g} trunk radii from the fork):")
+    print(f"\nShape measures on {s['n_trees']} development trees (degrees; {_stretch(params)}):")
     print(f"  {'measure':12s} {'winter mean':>11s} {'sd':>6s} {'n':>4s} | {'clicks-winter':>13s} | "
           f"{'hand-winter mean':>16s} {'median|d|':>9s} {'r':>5s} {'n':>4s}")
     for k, m in s["measures"].items():
@@ -813,8 +923,14 @@ def print_summary(s: dict, params: ShapeParams = ShapeParams()) -> None:
               f"{_num(m['hand_median_abs_diff'], '9.1f')} {_num(m['hand_r'], '5.2f')} {m['hand_n']:4d}")
     for src, v in s["short_leaders"].items():
         if v["fraction"] is not None:
-            print(f"  {src}: {v['fraction']:.1%} of {v['n_leaders']} leaders are shorter than {params.reach:g} "
-                  f"trunk radii in view (median length {v['median_length']:.1f})")
+            print(f"  {src}: {v['fraction']:.1%} of {v['n_leaders']} leaders are shorter than the stretch in view "
+                  f"(median length {v['median_length']:.1f} units)")
+    ru = s.get("radii_unit")
+    if ru:
+        print("  With each tree's own trunk radius as the unit instead (hand masks: the drawn trunk), "
+              "hand-winter median|d| / r:")
+        print("    " + ", ".join(f"{k} {_num(v['hand_median_abs_diff'], '.1f')}/{_num(v['hand_r'], '.2f')}"
+                               for k, v in ru.items()))
     if s["no_trunk_axis"]:
         print(f"  No trunk axis (trunk shorter than {params.min_trunk:g} px): {', '.join(s['no_trunk_axis'])}")
     if s["hand_missing"]:
@@ -824,7 +940,7 @@ def print_summary(s: dict, params: ShapeParams = ShapeParams()) -> None:
         print("  Change if the winter photo were framed tighter at the top (median / 95th percentile, degrees):")
         for keep in FRAMING_KEEP:
             parts = []
-            for label, name in (("fixed", f"{params.start:g}-{params.reach:g} trunk radii"), ("whole", "whole leader")):
+            for label, name in (("fixed", "the fixed stretch"), ("whole", "whole leader")):
                 v = [fr.get(f"{label}_{round(keep * 100)}_{k}") for k in FRAMING_MEASURES]
                 parts.append(name + ": " + ", ".join(f"{k} {x['median']:.1f}/{x['p95']:.1f}"
                                                       for k, x in zip(FRAMING_MEASURES, v) if x))
@@ -912,10 +1028,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Measuring {len(ids)} development-row trees ({n_test} test-row trees left out)...", flush=True)
     t0 = time.time()
     step = max(1, min(25, len(jobs) // 10))
-    rows, tiles = [], []
+    rows, tiles, traces = [], [], []
     with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
-        for i, (row, tile) in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
+        for i, (row, tile, trace) in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
             rows.append(row)
+            traces.append(trace)
             if tile is not None:
                 tiles.append(tile)
             if i % step == 0 or i == len(jobs):
@@ -932,8 +1049,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 w.writerow({k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()})
     except OSError as e:                                  # e.g. open in a spreadsheet on Windows
         failed.append(f"{table} ({e})")
+    try:
+        save_traces(out / "winter_traces.npz", [r["tree"] for r in rows], traces)
+    except OSError as e:
+        failed.append(f"{out / 'winter_traces.npz'} ({e})")
     summary = summarise(rows, params)
     summary["params"] = asdict(params)
+    summary["summer_scale"] = SUMMER_SCALE
     summary["test_rows_excluded"] = sorted(test_rows)
     (out / "shape_summary.json").write_text(json.dumps(summary, indent=2))
     print_summary(summary, params)
@@ -972,7 +1094,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Saved {path} ({path.stat().st_size / 1e6:.1f} MB)")
         except OSError as e:
             failed.append(f"{path} ({e})")
-    print(f"Saved {table} and {out / 'shape_summary.json'}" + (f" and {args.figure}" if args.figure else ""))
+    print(f"Saved {table}, {out / 'winter_traces.npz'} and {out / 'shape_summary.json'}"
+          + (f" and {args.figure}" if args.figure else ""))
     report_failed(failed)
     return 1 if failed else 0
 

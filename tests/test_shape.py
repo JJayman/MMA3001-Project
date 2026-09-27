@@ -6,8 +6,10 @@ from skimage.draw import polygon
 
 from treeskel.guided_gt import Clicks
 from treeskel.shape import (
+    MASK_ZOOM,
     MEASURES,
     ROLL_FREE,
+    UNIT_PX,
     ShapeParams,
     click_paths,
     crop_top,
@@ -113,8 +115,9 @@ def test_bend_of_a_circular_arc_is_half_its_turning():
 
 
 def test_only_the_top_of_the_trunk_sets_its_axis():
-    # A trunk that is bent near its base: only the top 4 trunk radii (60 px) count.
-    knee = ray(FORK, 180.0 + 10.0, 60.0)                       # top 60 px tilted 10 degrees
+    # A trunk that is bent near its base: only the top 4 units (66 px) count.
+    top = 4 * UNIT_PX
+    knee = ray(FORK, 180.0 + 10.0, top)                        # the top tilted 10 degrees
     root = ray(knee, 180.0 - 30.0, 60.0)                       # base leaning the other way
     trunk = polyline([root, knee, FORK])
     _, left, right = v_tree()
@@ -260,6 +263,11 @@ def test_cli_measures_development_trees_only(sample_dir, tmp_path, capsys):
     summary = __import__("json").loads((out / "shape_summary.json").read_text())
     assert summary["n_trees"] == 4 and summary["test_rows_excluded"] == [3, 12, 16]
     assert fig.exists() and not (out / "summer_resnet18.npz").exists()
+    from treeskel.shape import load_traces
+    traces = load_traces(out / "winter_traces.npz")
+    assert list(traces) == [r["tree"] for r in rows] and len(traces["R01N01"]["left"]) > 100
+    assert "winter_radii_v_opening" in rows[0] and "hand_radii_left_bend" in rows[0]
+    assert set(summary["radii_unit"]) == set(summary["measures"])
 
 
 def test_cli_features_with_random_weights(sample_dir, tmp_path):
@@ -346,3 +354,44 @@ def test_cli_draws_chosen_trees_without_touching_the_table(sample_dir, tmp_path,
     assert "left out: R12N02" in text                      # a test-row tree is never measured
     assert (tmp_path / "outputs" / "shape_trees" / "shape_measures.csv").exists() and fig.exists()
     assert not (tmp_path / "data").exists() and "Computing summer features" not in text
+
+
+# --- the unit of the stretch --------------------------------------------------
+
+def test_the_stretch_is_in_pixels_not_in_the_trees_trunk_radius():
+    paths = v_tree(left_turn=12.0, right_turn=-10.0)
+    thin, thick = shape_measures(*paths, 10.0), shape_measures(*paths, 22.0)
+    assert all(thin[k] == thick[k] for k in MEASURES)       # the trunk's radius no longer moves the stretch
+    radii = ShapeParams(unit=None)
+    a, b = shape_measures(*paths, 10.0, radii), shape_measures(*paths, 22.0, radii)
+    assert abs(a["right_tilt"] - b["right_tilt"]) > 1.0     # in trunk radii it did, on curved leaders
+    # Lengths are in units; an 8-connected path runs up to 8% long at these slopes.
+    assert thin["left_length"] == pytest.approx(320.0 / UNIT_PX, rel=0.1)
+
+
+def test_zoom_measures_the_same_stretch_in_a_larger_view():
+    # The same bent tree in a photo 1.12 times larger, as a summer photo shows it.
+    trunk, left, right = v_tree(left_turn=12.0, right_turn=-10.0)
+    big = [polyline(FORK + (np.asarray(q, float) - FORK) * 1.12) for q in (trunk, left, right)]
+    same = shape_measures(*big, 15.0, zoom=1.12)
+    plain = shape_measures(*big, 15.0)                        # the winter stretch in the larger view
+    orig = shape_measures(trunk, left, right, 15.0)
+    for k in ("v_opening", "left_bend", "right_bend", "left_tilt", "right_tilt"):
+        assert same[k] == pytest.approx(orig[k], abs=0.5), k
+    assert abs(plain["right_tilt"] - orig["right_tilt"]) > 1.0
+    assert MASK_ZOOM == pytest.approx(1.12 * 256 / 480)
+
+
+def test_saved_traces_load_back_exactly(tmp_path):
+    from treeskel.shape import load_traces, save_traces
+
+    trunk, left, right = v_tree()
+    traces = [{"trunk": trunk, "left": left, "right": right, "fork_radius": 14.5},
+              {"trunk": trunk[:5], "left": left[:9], "right": right, "fork_radius": 20.0}]
+    save_traces(tmp_path / "t.npz", ["R01N01", "R02N02"], traces)
+    back = load_traces(tmp_path / "t.npz")
+    assert list(back) == ["R01N01", "R02N02"]
+    for t, orig in zip(back.values(), traces):
+        for part in ("trunk", "left", "right"):
+            assert np.array_equal(t[part], orig[part])
+        assert t["fork_radius"] == pytest.approx(orig["fork_radius"])
