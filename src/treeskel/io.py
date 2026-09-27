@@ -235,8 +235,9 @@ class TreeRecord:
     def is_complete(self) -> bool:
         """True if all four images (2 seasons x RGB/depth) are present.
 
-        The mask is not required: it is used for validation only, so a tree
-        without one can still be used for training.
+        The mask is not required: a tree without one still has its winter
+        ground truth (the segmentation of :mod:`treeskel.segment` trains only
+        on trees that have one).
         """
         return not self.missing()
 

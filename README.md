@@ -28,11 +28,14 @@ src/treeskel/    Python package
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
   annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
+  annotate_mask.py     line up each provided hand mask on its own summer photo (opens a window)
   summer_gt.py   winter masks moved into the summer view (from the overlay transforms or pairs)
   shape.py       the tree's shape without alignment (V opening, leader angles, bends) from the winter traces
                  and the hand masks, and summer image features from a pretrained network
   shape_model.py predicts the winter shape from the summer features (ridge regression, row-grouped folds)
   shape_cnn.py   fine-tunes a CNN (ResNet-18) to predict the winter shape from the summer photo (GPU)
+  segment.py     trains a U-Net on the hand masks to segment the main branches in summer; its masks
+                 are measured like the hand masks and scored against the winter traces (GPU)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -86,6 +89,9 @@ python -m treeskel.annotate_pairs data/raw --dev-only      # (tried first) click
 python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   # shape measures and summer features (development rows)
 python -m treeskel.shape_model                             # predict the winter shape from the summer photo (5 folds)
 python -m treeskel.shape_cnn data/raw                      # fine-tune a CNN on the winter shape (5 folds, GPU)
+python -m treeskel.segment data/raw                        # U-Net on the hand masks, scored against winter (5 folds, GPU)
+python -m treeskel.annotate_mask data/raw --dev-only       # line up each hand mask on its summer photo
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # U-Net on the lined-up masks
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
@@ -93,7 +99,9 @@ pdoc -o docs/_build src/treeskel           # build HTML documentation
 
 Each tree (e.g. `R20N03` = row 20, tree 3 on the orchard map) has a summer
 and a winter RGB image and depth image (640x480 PNG), plus a hand-labelled
-256x256 summer mask of the main branches, used for validation only. Depth is 8-bit relative depth (brighter = closer,
+256x256 summer mask of the main branches. Since session 11 the development rows' masks are also training
+labels for the segmentation (`treeskel.segment`), scored against the winter traces; the test rows' masks stay
+unused until the final evaluation. Depth is 8-bit relative depth (brighter = closer,
 0 = no reading), not metric. The winter depth sits about 5 px below the colour image, so it is moved 5 rows
 up and 1 column right when loaded ([`docs/results/depth_registration`](docs/results/depth_registration/)).
 See [`data/sample/README.md`](data/sample/README.md).

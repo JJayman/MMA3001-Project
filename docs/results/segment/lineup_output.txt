@@ -1,0 +1,28 @@
+Lined up: 449 masks (0 from test rows), 0 skipped, flagged: ['R01N01', 'R11N10']
+Time: 28 min, median 2.8 s per tree
+Across (dx): median -4.6 px, middle half -28.0 to +24.3, range -81 to +98
+Down (dy):   median -1.1 px, middle half -3.1 to +0.3, range -54 to +6
+Size of the shift: median 26.3 px; over 3 px 96%, over 20 px 61%, over 40 px 29%; scaled: 0%
+Per row: trees, median dx, SD dx (px)
+  row  1:  44    +2.8   28.9
+  row  2:  43   -19.9   34.9
+  row  5:  34   +15.4   26.4
+  row  6:  32    -5.1   25.0
+  row  7:  32   -10.2   26.2
+  row  8:  22   -17.1   28.3
+  row  9:  34    +8.6   23.4
+  row 10:  29   -45.1   25.2
+  row 11:  22   -26.0   29.1
+  row 13:  33   -37.5   38.1
+  row 14:  30   +13.7   37.8
+  row 15:  28   -16.7   38.5
+  row 17:  23   +35.5   32.0
+  row 18:  26   +27.3   28.6
+  row 19:  11   +35.2   25.3
+  row 20:   6   +56.1   41.0
+
+Repeatability (20 trees redone from no shift):
+  difference across: median |.| 1.0 px, mean +0.0; down: median |.| 2.3 px
+  distance: median 2.8 px, 90th percentile 6.2, max 7.1
+  SD of one line-up (difference SD / sqrt 2): across 1.6 px, down 2.3 px
+  correlation of the two shifts across: r = 0.997

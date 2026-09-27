@@ -38,7 +38,9 @@ Five files per tree, all in one folder:
   ([example](../../docs/figures/mask_alignment_R12N02.jpg)). Stretching the
   mask to the full width fits worse. Pixel-level comparison therefore needs
   a per-tree alignment first.
-- Masks are used for **validation only**, not training.
+- Masks were for **validation only** until session 11. Since then the development rows' masks also
+  train the segmentation (`treeskel.segment`), which is scored against the winter traces; the test
+  rows' masks (rows 3 and 12 here) stay unused until the final evaluation.
 - Depth images are 8-bit greyscale (three identical channels): a scaled
   visualisation, not metric distance. Brighter = closer; 0 = no reading.
 - Row 4's 21 winter depth images are all copies of R03N34's winter depth
