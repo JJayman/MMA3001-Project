@@ -1,4 +1,4 @@
-"""Why the first U-Net run (masks as drawn) reads the shape poorly: two checks on its saved outputs.
+"""Two checks on a U-Net run's saved outputs (the first run, on the masks as drawn, by default).
 
 1. Does it reproduce the angles of the hand masks it was trained on? The correlation of its measures
    with the hand masks' and with the winter traces', and the spread of each (all 449 development trees,
@@ -8,11 +8,13 @@
    development trees whose hand masks are in the repository. Picking the best of 861 shifts flatters
    the second number, so it is an upper estimate.
 
-Run from the repository root: python docs/results/segment/diagnostics.py
+Run from the repository root: python docs/results/segment/diagnostics.py [results folder]
+(e.g. docs/results/segment_lined_up; its Dice is then against the drawn masks, as the first run's.)
 """
 
 import csv
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -21,7 +23,7 @@ import numpy as np
 from treeskel.io import index_dataset, load_mask
 from treeskel.segment import load_masks, mask_scores
 
-HERE = Path(__file__).parent
+HERE = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent
 MEASURES = ("v_opening", "left_bend", "right_bend", "trunk_tilt", "left_tilt", "right_tilt", "left_angle",
             "right_angle")
 

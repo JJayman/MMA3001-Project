@@ -59,3 +59,44 @@ branch or trunk feature at all).
 - **Agrees with the earlier eye check:** the five trees judged clearly off by eye before the line-up
   (R20N06, R07N29, R01N32, R01N08, R07N32) were moved the way and about as far as judged (R20N06:
   +81 px against about 90).
+
+## Second run: the lined-up masks (`docs/results/segment_lined_up/`)
+
+`python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json` (20.4 min): the same
+network, recipe, seed and folds; only the labels moved. Epochs chosen: 32–46 (first run 18–28): with
+the labels on the branches the held-out loss keeps falling for longer (0.33–0.39 at its lowest,
+against 0.87–0.92).
+
+| Measure (skill over the mean shape) | Hand masks | Angle CNN 480x640 | U-Net, masks as drawn | **U-Net, lined up** | lined up, forks found |
+|---|---|---|---|---|---|
+| V opening | +0.87 | +0.18 | +0.06 | **+0.72** | +0.78 |
+| Left / right bend | +0.70 / +0.61 | +0.06 / +0.05 | +0.02 / +0.03 | **+0.57 / +0.47** | +0.59 / +0.51 |
+| Left / right leader from the trunk | +0.75 / +0.75 | | +0.03 / +0.19 | **+0.61 / +0.67** | +0.67 / +0.71 |
+| Trunk from vertical | +0.70 | +0.38 | +0.27 | **+0.62** | +0.66 |
+| Left / right leader from vertical | +0.80 / +0.73 | +0.24 / +0.15 | −0.08 / +0.08 | **+0.62 / +0.69** | +0.69 / +0.70 |
+
+- **Every measure improves, tree by tree:** against the first run it predicts 65–75% of the trees
+  more closely (V opening MAE 9.6° → 4.5°, Wilcoxon p = 1e-36); against the best angle CNN, 61–73%
+  (V opening 8.8° → 4.5°, p = 6e-29). All ten measures, every comparison, p < 1e-9.
+- **It now reads the tree:** its V opening correlates with winter at r = 0.85 and with the hand
+  masks at 0.89 (first run 0.42 and 0.43), and it spreads almost as much as the real V (SD 11.1°
+  against 12.4°; first run 7.7°). The V-opening bias of +4.1° is gone (−0.2°).
+- **It places the branches where they are in the summer photo:** Dice against the lined-up masks
+  0.79 (median; IoU 0.66). Against the masks as drawn its median Dice is 0.22, rising to 0.80 after
+  the best shift (`diagnostics_output.txt` in its folder, the 21 local trees): its masks sit where
+  the student put the labels, not where the drawn masks were.
+- **Still short of the hand masks** (+0.72 against +0.87 on the V opening): 14 masks have no fork
+  (scored as the mean shape; without them +0.78), and a person reading the photo still does better
+  on every measure. The folds vary (V opening +0.56 to +0.81).
+- **The flagged R01N01** (whose mask looks like a different tree) is the lowest Dice in the example
+  figure (0.33).
+
+**Why a line-up changed so much.** The offsets (median 26 px) are larger than a leader is wide in
+the photo (about 10–20 px), so as drawn, many labels lay beside the branch the photo shows. A network
+trained on them cannot tell where to put a leader, and it learned a blurred, typical V. The angles
+were never at fault; the labels' positions were, and a translation-free score could not show it.
+
+**What this rests on.** The labels changed, nothing else. The line-up used only the summer photos
+(never the winter traces, which stay the independent truth), repeats to about 2 px, and was decided
+before this run's result; the two runs are reported together, not the better one alone. The shifts
+of the held-out trees never enter their own predictions.

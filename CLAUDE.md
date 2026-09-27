@@ -158,14 +158,17 @@ See the latest file in `docs/progress/`. As of session 10:
   - The hand masks are in the summer view and have the winter shape (448 of
     448 within 8 px). Every winter trace checked in the outlier review was
     right.
-- **Session 11:** the student chose segmentation trained on the hand masks
-  (`treeskel.segment`, U-Net with a ResNet-18 encoder, 5 row-grouped folds);
-  the first run (masks as drawn) is on the student's PC; next, the masks
-  lined up by hand and a second run. See the latest progress file.
+- **Session 11:** segmentation trained on the hand masks (`treeskel.segment`,
+  U-Net with a ResNet-18 encoder, 5 row-grouped folds; `docs/results/segment/`).
+  On the masks as drawn it scored +0.06 (V opening). The student lined all 449
+  development masks up on their summer photos (`annotations/mask_overlay.json`,
+  repeatable to about 2 px); on those it scores **+0.72** (hand masks +0.87,
+  best angle CNN +0.18), better on every measure tree by tree.
 - **Next (the student's call):**
-  1. The segmentation's results against the angle CNN, tree by tree.
-  2. Or regularise the angle CNN, compared with nested folds.
-  3. Then one final evaluation on the test rows.
+  1. Possibly one or two variants of the lined-up U-Net (all reported, not
+     the best picked on the same folds).
+  2. Then one final evaluation on the test rows (the test masks are not
+     lined up; the headline is the shape against the winter traces).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; scoring the

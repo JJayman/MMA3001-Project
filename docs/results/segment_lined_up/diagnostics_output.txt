@@ -1,0 +1,34 @@
+1. Spread (SD, degrees) and correlations, trees with all three known
+   measure       winter   hand  U-Net   r(U-Net, winter)  r(U-Net, hand)  r(hand, winter)
+   v_opening       12.4   11.7   11.1              +0.85           +0.89            +0.93
+   left_bend       12.1   12.6   10.4              +0.76           +0.76            +0.86
+   right_bend      11.2   10.9    9.5              +0.70           +0.75            +0.80
+   trunk_tilt      15.0   12.9   10.0              +0.80           +0.86            +0.84
+   left_tilt        8.7    8.4    8.1              +0.82           +0.87            +0.91
+   right_tilt       8.5    8.4    8.0              +0.85           +0.93            +0.87
+   left_angle      17.0   15.9   12.9              +0.80           +0.85            +0.88
+   right_angle     17.6   16.5   13.3              +0.84           +0.88            +0.88
+
+2. Dice against the hand mask, as predicted and after the best shift (21 trees)
+   R01N01  0.37 -> 0.57  shift ( +22,  -38) photo px
+   R01N02  0.09 -> 0.70  shift ( +34,  +11) photo px
+   R15N05  0.59 -> 0.82  shift (  +8,   +4) photo px
+   R20N06  0.03 -> 0.67  shift ( -75,   +0) photo px
+   R01N04  0.23 -> 0.71  shift ( -22,   +4) photo px
+   R01N05  0.09 -> 0.81  shift ( +41,  +15) photo px
+   R01N08  0.22 -> 0.82  shift ( +19,   +0) photo px
+   R01N13  0.27 -> 0.80  shift ( +19,   +4) photo px
+   R01N18  0.54 -> 0.75  shift ( -11,   +4) photo px
+   R01N25  0.75 -> 0.83  shift (  -4,   +8) photo px
+   R01N32  0.11 -> 0.80  shift ( -30,   +0) photo px
+   R07N09  0.13 -> 0.81  shift ( -26,   +0) photo px
+   R07N17  0.19 -> 0.80  shift ( +22,   -4) photo px
+   R07N25  0.23 -> 0.89  shift ( -22,   +0) photo px
+   R07N26  0.26 -> 0.80  shift ( -19,   +4) photo px
+   R07N29  0.03 -> 0.81  shift ( +45,   +0) photo px
+   R07N32  0.08 -> 0.79  shift ( +34,   +0) photo px
+   R09N12  0.21 -> 0.86  shift ( -22,   +4) photo px
+   R09N18  0.29 -> 0.83  shift ( +22,   +8) photo px
+   R09N32  0.72 -> 0.79  shift (  +4,   +0) photo px
+   R09N34  0.17 -> 0.81  shift ( -30,  +11) photo px
+   median 0.22 -> 0.80
