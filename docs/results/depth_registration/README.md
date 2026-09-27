@@ -132,12 +132,14 @@ all 449 development trees is still to come**, and will replace them.
 
 ### Why the fit reads low: the colour centre follows its window
 
-- **Selection is not the cause.** On the cross-sections usable both before
-  and after moving the depth up 4 rows, each difference changes by exactly
-  the move along its normal (slope 0.985), and the fit by 3.97 px. The fit on
-  its own usable set changes by only 3.39 (0.87 per row), because the set
-  changes. The cross-sections usable at every move read 3.50 px (95% CI over
-  trees 2.97–4.09), not 3.19.
+- **Why a move changes the fit by only 0.87 per row: selection.** On the
+  cross-sections usable both before and after moving the depth up 4 rows,
+  each difference changes by exactly the move along its normal (slope
+  0.985), and the fit by 3.97 px. On its own usable set the fit changes by
+  only 3.39 (0.87 per row), because which cross-sections are usable changes
+  with the move. The cross-sections usable at every move read 3.50 px (95% CI
+  over trees 2.97–4.09), not 3.19. That is part of the gap, not the cause of
+  the low estimate:
 - **The colour estimate follows its window.** Moving each cross-section's
   window along its normal, with the images unchanged, moves the depth run's
   centre by nothing (±0.04 px) but the bark's colour centre (`branch_edges`)
@@ -303,8 +305,8 @@ were placed where traces cut the inside of curves. Too few, and biased, to
 decide.
 
 **What changes in the masks** (21 local trees, the same clicks): the leaders
-move a median 0.9 px across themselves, all upwards along their normals
-(more than 1 px on a third of their points), and the masks before and after
+move a median 0.9 px across themselves, upwards on average (+0.9 px along
+their normals; more than 1 px on a third of their points), and the masks before and after
 overlap at IoU 0.86 (lowest 0.76); the widths do not change (−0.05 px).
 `docs/figures/depth_registration_masks_before_after.jpg` shows six trees
 (outlines traced with the depth as stored in orange, corrected in blue).
@@ -375,12 +377,17 @@ session 8's runs with the depth as stored:
 
 ## Next (session 9)
 
-1. Run `python -m treeskel.measure_registration` on all 449 development trees
-   (the student's PC) and see which estimates agree, overall and row by row.
-2. Choose the winter correction from them and set it in
-   `treeskel.io.DEPTH_SHIFT`; check it with `--registered`; re-trace and
-   re-render; re-check the fork measurements and the leader widths.
-3. Check whether the session-8 leader widths depend on where their window
-   sits: moved 1 px off the path, a cross-section's measured width grew by
-   0.24 px on average.
-4. Leave the summer depth as it is unless a better check is found.
+Done: the measurement on all 449 development trees, a summer check (mutual
+information; not reliable enough to correct summer), the winter correction
+(5 rows up, 1 column right), the re-render and the re-checks of the fork and
+the leader widths. Still open:
+
+1. The crotch: depth now reaches 0.2–0.3 trunk radii higher between the
+   leaders than the masks draw.
+2. The colour-edge fit's window dependence also touches the leader widths:
+   moved 1 px off the path, a cross-section's measured width grew by 0.24 px
+   on average.
+3. The summer depth (about 2.3 px low by mutual information) is not
+   corrected.
+4. An independent check of the correction, if the report needs one: bark
+   edges clicked by hand at about 30 sloping places on development trees.
