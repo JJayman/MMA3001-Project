@@ -81,10 +81,15 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                measure_width.py (leader widths), measure_registration.py (depth-colour shift),
                align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
-               (line-up tool, chosen), summer_gt.py (summer masks and checks)
+               (line-up tool, chosen), summer_gt.py (summer masks and checks),
+               shape.py (shape measures without alignment; summer CNN features),
+               shape_model.py (predicting the winter shape from summer, 5 folds),
+               shape_cnn.py (fine-tuning a CNN on the winter shape; the student's GPU)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
+data/shape/    shape measures and summer ResNet-18 features per development tree
+               (computed on the student's PC by treeskel.shape; the models run anywhere)
 annotations/   winter_clicks.json (ground truth), season_overlay.json (alignment),
                season_pairs.json (11 trees of clicked pairs, used as a check)
 data/raw/      full dataset, git-ignored, only on the student's PC
@@ -120,34 +125,32 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 9:
+See the latest file in `docs/progress/`. As of session 10:
 
-- **Winter masks** (sessions 8–9, student-approved): leaders drawn at their
-  bark's width with a gentle taper, no shoulder fill, and a flat trunk top
-  with straight joins at the fork; since session 9 traced with the corrected
-  depth. Every session-8 setting was re-checked with the corrected depth on
-  all 449 development trees and holds (`docs/results/depth_registration/`).
-- **Depth registration done for winter** (session 9): see the fixed decision
-  above. Found on the way: the colour-edge fit (`branch_edges`) follows the
-  window it is measured in (the mean moves 0.55–0.7 px per px the window
-  moves; the median does not), which made session 8's estimate low and may
-  bias the leader widths slightly. The summer depth is not corrected (about
-  2.3 px low by mutual information, which was too unreliable in winter).
-- **Next (the student's order):**
-  1. **Learn the tree's shape from winter, alignment-free:** shape measures
-     from the winter traces that need no alignment (leader angles relative to
-     the trunk, V opening, curvature), predicted from summer RGB-D with the 5
-     folds. Baselines: the mean shape, and the hand masks' shape.
-  2. Optional later: train on the hand masks (roughly in the summer view)
-     with the winter traces as shape truth. This would change "hand masks are
-     for validation only", so ask first.
-  3. Optional: the crotch (with the corrected depth, the wood reaches 0.2–0.3
-     trunk radii higher between the leaders than the masks draw); the colour
-     fit's window dependence in the leader widths; a hand check of the
-     registration (bark edges clicked at about 30 places) if the report needs
-     an independent one.
+- **Winter masks and depth registration** (sessions 8–9): settled, see the
+  fixed decisions above.
+- **The tree's shape, alignment-free** (session 10, `docs/results/shape/`):
+  - The winter traces are measured as angles (`treeskel.shape`): the V
+    opening, each leader's angle from the trunk and from the vertical, the
+    V's lean and each leader's bend.
+  - The lines are fitted over a fixed stretch of 25–264 px up each leader in
+    the winter photo (×1.12 in the summer view). The unit is pixels, not trunk
+    radii (the student's choice after the outlier check).
+  - Measures, summer ResNet-18 features and the winter traces are committed
+    in `data/shape/`.
+  - **Scores** (skill over the mean shape, 5 folds, V opening): hand masks
+    +0.87; ridge on fixed features +0.10; fine-tuned ResNet-18 +0.16 (480x640:
+    +0.18; trunk tilt +0.38); depth adds nothing.
+  - The hand masks are in the summer view and have the winter shape (448 of
+    448 within 8 px). Every winter trace checked in the outlier review was
+    right.
+- **Next (the student's call):**
+  1. Segmentation trained on the hand masks, scored against the winter
+     traces. This changes "hand masks are for validation only", so ask first.
+  2. Or regularise the angle CNN, compared with nested folds.
+  3. Then one final evaluation on the test rows.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
-  (`docs/results/align/`): too little rigid structure is visible in both
-  seasons, and the scale is not pinned down. The tools stay as evidence.
-- Still open: score the automatic winter baseline against the guided ground
-  truth; which season was photographed first; the summer depth registration.
+  (`docs/results/align/`).
+- Still open: the crotch; the colour fit's window dependence; scoring the
+  automatic winter baseline; which season was photographed first; the summer
+  depth registration.
