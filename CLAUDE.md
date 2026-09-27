@@ -139,7 +139,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 10:
+See the latest file in `docs/progress/`. As of session 11:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -164,11 +164,14 @@ See the latest file in `docs/progress/`. As of session 10:
   development masks up on their summer photos (`annotations/mask_overlay.json`,
   repeatable to about 2 px); on those it scores **+0.72** (hand masks +0.87,
   best angle CNN +0.18), better on every measure tree by tree.
-- **Next (the student's call):**
-  1. Possibly one or two variants of the lined-up U-Net (all reported, not
-     the best picked on the same folds).
-  2. Then one final evaluation on the test rows (the test masks are not
-     lined up; the headline is the shape against the winter traces).
+  14 of its masks have no fork: about half are cut by only 2–12 px.
+- **Next (agreed with the student at the end of session 11):**
+  1. Join nearly-joined predicted masks before measuring, with a gap limit
+     fixed from geometry (about a trunk's width), never tuned on winter.
+  2. One variant: the lined-up U-Net at full-size input (all runs reported,
+     not the best picked on the same folds).
+  3. Then one final evaluation on the test rows, the model named first (the
+     test masks are not lined up; the headline is the shape against winter).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; scoring the
