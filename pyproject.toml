@@ -14,6 +14,8 @@ dev = ["pytest>=7.4", "pdoc>=14.0"]
 # Learned matchers for winter-to-summer alignment (treeskel.align). Install PyTorch
 # first with the command for your GPU from pytorch.org, then: pip install -e ".[match]"
 match = ["torch>=2.1", "kornia>=0.7.4"]
+# Summer image features for the shape model (treeskel.shape); install PyTorch first as above.
+shape = ["torch>=2.1", "torchvision>=0.16"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

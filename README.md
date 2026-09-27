@@ -29,8 +29,12 @@ src/treeskel/    Python package
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
   annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
   summer_gt.py   winter masks moved into the summer view (from the overlay transforms or pairs)
+  shape.py       the tree's shape without alignment (V opening, leader angles, bends) from the winter traces
+                 and the hand masks, and summer image features from a pretrained network
+  shape_model.py predicts the winter shape from the summer features (ridge regression, row-grouped folds)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
+data/shape/      shape measures and summer image features per development tree (from shape.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
 splits.json      fixed test rows and cross-validation folds (do not change)
@@ -47,7 +51,9 @@ pip install -e ".[dev]"
 The learned matchers for the winter-to-summer alignment also need PyTorch and
 kornia: install PyTorch first with the command for your GPU from
 [pytorch.org](https://pytorch.org/get-started/locally/), then
-`pip install -e ".[match]"`.
+`pip install -e ".[match]"`. The summer image features for the shape model
+(`treeskel.shape`) need PyTorch and torchvision, which the pytorch.org command
+installs together (`.[shape]` lists them).
 
 ## Usage
 
@@ -67,6 +73,8 @@ python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic m
 python -m treeskel.annotate_overlay data/raw --dev-only    # line up each tree's winter photo on its summer photo
 python -m treeskel.summer_gt data/raw                      # check the alignments; write the summer masks
 python -m treeskel.annotate_pairs data/raw --dev-only      # (tried first) click winter-summer point pairs
+python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   # shape measures and summer features (development rows)
+python -m treeskel.shape_model                             # predict the winter shape from the summer photo (5 folds)
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
