@@ -39,3 +39,23 @@ Skill over the mean shape (5 folds, 449 trees; 14 masks with no fork scored as t
 Moving a mask does not change its angles, so lining the masks up (the student's next step,
 `treeskel.annotate_mask`) mends the pixel labels; whether cleaner labels also help the network read
 the angles is what the second run will show.
+
+## The line-up of the hand masks (`lineup.py`, output in `lineup_output.txt`)
+
+The student lined up all 449 development masks with `treeskel.annotate_mask` in 28 minutes (median
+2.8 s a tree; none skipped; R01N01 flagged as looking like a different tree, R11N10 as showing no
+branch or trunk feature at all).
+
+- **Nearly every mask moved:** 96% by more than 3 px; median 26 px, 29% more than 40 px, range −81
+  to +98 px across. Almost all of it is sideways (middle half of the vertical shifts −3 to 0 px), and
+  no mask needed scaling.
+- **Part of it is by row, most by tree:** the rows' median shifts run from −45 px (row 10) to +56 px
+  (row 20), and within a row the shifts still spread by 23–41 px (SD). No correction per row or per
+  crop would have done it.
+- **Repeatable to about 2 px:** 20 random trees (seed 11) redone from no shift, without the saved
+  shifts, differ by a median 1.0 px across and 2.3 px down (the largest difference 7 px); the SD of
+  one line-up is 1.6 px across and 2.3 px down, about 1 px of the 256x256 mask, against shifts of
+  tens of pixels (r = 0.997 between the two sets across).
+- **Agrees with the earlier eye check:** the five trees judged clearly off by eye before the line-up
+  (R20N06, R07N29, R01N32, R01N08, R07N32) were moved the way and about as far as judged (R20N06:
+  +81 px against about 90).
