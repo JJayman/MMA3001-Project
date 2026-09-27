@@ -52,8 +52,17 @@ The learned matchers for the winter-to-summer alignment also need PyTorch and
 kornia: install PyTorch first with the command for your GPU from
 [pytorch.org](https://pytorch.org/get-started/locally/), then
 `pip install -e ".[match]"`. The summer image features for the shape model
-(`treeskel.shape`) need PyTorch and torchvision, which the pytorch.org command
-installs together (`.[shape]` lists them).
+(`treeskel.shape`) also need torchvision, built for the same PyTorch. Print the
+installed version, then install torchvision from the index it came from, pinned
+to it, so that `pip` does not replace your GPU build (`.[shape]` lists both):
+
+```bash
+python -c "import torch; print(torch.__version__)"      # e.g. 2.7.1+cu126
+pip install torchvision "torch==2.7.1+cu126" --index-url https://download.pytorch.org/whl/cu126
+```
+
+Use the version printed and its `+cu…` part in both places; a version without
+`+cu…` is the CPU-only build: `pip install torchvision "torch==<version>"`.
 
 ## Usage
 
