@@ -329,6 +329,37 @@ trees); the runs on all 449 are to come:
   on these trees; they are 17 problem trees and 4 others, and the 21-tree
   choice was overturned on 449 in session 8.
 
+**Re-checked on all 449 development trees** (the student's PC; masks
+re-rendered for all 541 trees, `rerender_all_trees.txt`; outputs in
+`recheck_fork_all_dev_rows.txt` and `recheck_width_all_dev_rows.txt`), against
+session 8's runs with the depth as stored:
+
+| 449 development trees | Depth as stored (session 8) | Corrected (5 up, 1 right) |
+|---|---|---|
+| Fork-zone precision / IoU (masks with the junction) | 0.942 / 0.831 | 0.949 / 0.836 |
+| Crotch pixels off the depth silhouette | 12.5% | 8.4% |
+| Junction reach matching depth, 1.5 R / 2 R (shrunk 2 px) | 1.04 / 1.23 (0.62 / 0.59) | 1.05 / 1.26 (0.62 / 0.65) |
+| Shoulder coverage at 1.5 R, no fill (depth, shrunk) | 0.905 (0.940, 0.878) | 0.892 (0.925, 0.852) |
+| Widening: best / default (0.35, 12) / constant width | (0.35, 12) 2.457 / 2.457 / 2.511 | (0.30, 12) 2.498 / 2.498 / 2.546 |
+| Leader half-width at 8+ trunk radii: drawn / depth minus overshoot | 6.9 / 6.5 px | 6.9 / 6.5 px |
+| Depth past clear edges: median (IQR), mean | +2.0 (0 to +4), 1.69 | +2.0 (+1 to +4), 2.09 |
+| Crotch above the fork: depth / round top / the leaders' V | 1.07 / 1.00 / 0.89 R | 1.35 / 1.05 / 1.04 R |
+
+- **Every session-8 setting holds.** The junction reach that matches depth
+  still brackets 1.0 (the 21-tree drop to 0.83 did not hold); the masks
+  without a shoulder fill still lie between depth and depth shrunk 2 px; the
+  widening still fades over 12 trunk radii, and 0.30 at the fork is within
+  0.0005 of the default 0.35 (leave-one-tree-out picks 0.30 and 12; the
+  folds 0.30–0.35 and 8–16, better than a constant width on 5 of 5).
+- **The masks agree a little better with depth**, around the fork and in the
+  crotch, and depth's overshoot past the two edges is more even (fewer
+  zeros: in session 8 the upper edges read about 0, the lower ones 4).
+- **New:** depth's crotch now sits 0.23–0.33 trunk radii above the masks'
+  (0.10–0.21 against depth shrunk 2 px): the wood between the leaders reaches
+  higher than either the round top or the leaders' V draws it.
+- **The student's look** at the re-rendered masks: "not sure they look that
+  much better". That is the size expected: the leaders moved a median 0.9 px.
+
 ## Next (session 8's list)
 
 1. Turn `reproduce.py`'s measurement into a package module and run it on all

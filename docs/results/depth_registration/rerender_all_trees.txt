@@ -1,0 +1,4 @@
+(.venv) C:\Users\jjada\Documents\GitHub\MMA3001-Project>python -m treeskel.guided_gt data/raw --overlays
+Rendering 541 trees using 8 process(es)...
+  [progress lines omitted]
+Rendered 541 trees in 180 s; 0 skipped or incomplete; 0 not found in data/raw. Results in outputs\winter_gt_guided

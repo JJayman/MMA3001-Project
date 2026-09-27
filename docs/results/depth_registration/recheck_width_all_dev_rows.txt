@@ -1,0 +1,25 @@
+(.venv) C:\Users\jjada\Documents\GitHub\MMA3001-Project>python -m treeskel.measure_width data/raw --out outputs/measure_width_registered --plot outputs/leader_width_profiles_registered.png
+Measuring 449 development-row trees (92 test-row trees left out)...
+  [progress lines omitted; 449/449 trees in 318 s]
+
+898 leaders on 449 trees.
+Cross-sections that could reach the other leader are left out: the first one used is a median 2.3 trunk radii from the fork (IQR 1.9-2.8).
+Depth reaches past clear colour edges by a median +2.0 px (IQR +1.0 to +4.0, mean +2.09; 121670 edges).
+Leader half-width at least 8 trunk radii from the fork (897 leaders): before 3.2 px, after 6.9 px, depth minus overshoot 6.5 px
+  after minus depth: median +0.1 px (IQR -0.9 to +1.4)
+  before minus depth: median -3.3 px (IQR -4.3 to -2.4)
+Half-width / trunk radius at the fork, by distance from the fork (trunk radii):
+  from                 0   0.5     1   1.5     2     3     4     5     7    10    15
+  hand masks       0.84  0.62  0.56  0.55  0.55  0.53  0.52  0.50  0.47  0.42  0.35
+  depth (raw)       -     -    0.52  0.51  0.55  0.52  0.52  0.53  0.55  0.55  0.53
+  depth-overshoot   -     -    0.44  0.41  0.43  0.40  0.40  0.41  0.43  0.42  0.41
+  measured          -     -    0.44  0.45  0.49  0.47  0.47  0.45  0.45  0.42  0.39
+  after            0.53  0.53  0.52  0.52  0.51  0.50  0.49  0.48  0.47  0.45  0.42
+  before           0.27  0.27  0.26  0.26  0.26  0.26  0.26  0.25  0.24  0.23  0.20
+Shared widening, best on all trees: 0.30 at the fork (0.26 at 1.5 trunk radii), fading over 12 trunk radii; cost 2.4978 (constant width 2.5459; current default 0.35 and 12: 2.4983).
+  Leave-one-tree-out: picks 0.30-0.30 and 12-12; held-out cost 2.4978 vs 2.5459 for a constant width (better on 292 of 449 trees).
+  Row-grouped folds (splits.json): picks 0.30-0.35 and 8-16; held-out cost 2.5025 vs 2.5480 for a constant width (better on 5 of 5 folds).
+Free straight tapers (the old fit): median change -16% from 1.5 trunk radii to the tip (IQR -31% to +6%); 31% widen upwards.
+Mask pixels in the crotch that are off the depth silhouette (off / all): before 4834/158754, after 20047/239220, after no widening 13321/211158
+Traced path to the bark's centre: median 2.5 px over 305247 cross-sections, 41% more than 3 px (per leader 1.0-5.5 px).
+Saved outputs\measure_width_registered\leaders.csv, outputs\measure_width_registered\report.json, outputs/leader_width_profiles_registered.png
