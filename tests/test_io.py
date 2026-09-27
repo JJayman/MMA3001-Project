@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from conftest import write_png
+from treeskel import io
 from treeskel.io import (
     find_identical_images,
     index_dataset,
@@ -13,6 +14,7 @@ from treeskel.io import (
     load_tree,
     mask_to_image_frame,
     parse_filename,
+    shift_image,
     to_mask_frame,
 )
 
@@ -160,6 +162,43 @@ class TestLoaders:
         tree = index_dataset(sample_dir).trees[0]
         with pytest.raises(ValueError):
             load_tree(tree, "autumn")
+
+    def test_depth_is_moved_by_the_seasons_shift(self, sample_dir, monkeypatch):
+        tree = index_dataset(sample_dir).trees[0]
+        raw = load_tree(tree, "winter", register=False)
+        # Zero shift: the depth as stored.
+        monkeypatch.setattr(io, "DEPTH_SHIFT", {"summer": (0, 0), "winter": (0, 0)})
+        np.testing.assert_array_equal(load_tree(tree, "winter")["depth"], raw["depth"])
+        monkeypatch.setattr(io, "DEPTH_SHIFT", {"summer": (0, 0), "winter": (-4, 1)})
+        moved = load_tree(tree, "winter")
+        np.testing.assert_array_equal(moved["depth"][:-4, 1:], raw["depth"][4:, :-1])   # up 4 rows, right 1 col
+        assert not moved["depth"][-4:].any() and not moved["depth"][:, 0].any()         # uncovered: no reading
+        np.testing.assert_array_equal(moved["valid"], moved["depth"] > 0)
+        np.testing.assert_array_equal(moved["rgb"], raw["rgb"])                         # colour never moves
+        np.testing.assert_array_equal(load_tree(tree, "winter", register=False)["depth"], raw["depth"])
+        np.testing.assert_array_equal(load_tree(tree, "summer")["depth"],
+                                      load_tree(tree, "summer", register=False)["depth"])
+
+
+class TestShiftImage:
+    def test_moves_content_and_fills_the_uncovered_edge(self):
+        a = np.arange(1, 13).reshape(3, 4)
+        np.testing.assert_array_equal(shift_image(a, (0, 0)), a)
+        assert shift_image(a, (0, 0)) is not a
+        np.testing.assert_array_equal(shift_image(a, (-1, 2)), [[0, 0, 5, 6], [0, 0, 9, 10], [0, 0, 0, 0]])
+        np.testing.assert_array_equal(shift_image(a, (2, -3), fill=-1), [[-1] * 4, [-1] * 4, [4, -1, -1, -1]])
+        assert (shift_image(a, (3, 0)) == 0).all() and (shift_image(a, (0, -9)) == 0).all()   # moved out entirely
+
+    def test_keeps_dtype_and_channels(self):
+        mask = np.zeros((5, 6), bool)
+        mask[2, 3] = True
+        moved = shift_image(mask, (1, 1))
+        assert moved.dtype == bool and moved[3, 4] and moved.sum() == 1
+        rgb = np.random.default_rng(0).integers(0, 255, (5, 6, 3)).astype(np.uint8)
+        np.testing.assert_array_equal(shift_image(rgb, (0, 2))[:, 2:], rgb[:, :-2])
+        # A move and its reverse restore everything the first move kept.
+        back = shift_image(shift_image(rgb, (2, -1)), (-2, 1))
+        np.testing.assert_array_equal(back[:-2, 1:], rgb[:-2, 1:])
 
 
 class TestExclusionsAndDuplicates:
