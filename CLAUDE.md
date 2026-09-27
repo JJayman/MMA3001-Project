@@ -71,7 +71,7 @@ camera, different (autumn) capture.
 src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                (tracing, widths, fork junction), annotate.py (click tool),
                tune_cost.py, measure_fork.py (fork fill and junction),
-               measure_width.py (leader widths),
+               measure_width.py (leader widths), measure_registration.py (depth-colour shift),
                align.py (transforms, matchers),
                annotate_pairs.py (pair click tool, tried first), annotate_overlay.py
                (line-up tool, chosen), summer_gt.py (summer masks and checks)

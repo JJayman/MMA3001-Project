@@ -28,20 +28,36 @@ lower. The correction moves the depth by about ``(−dy, −dx)``.
    shift change across the image?).
 
    The depth is then moved by each shift on a grid (:data:`TRIAL_MOVES`),
-   with the traced paths kept, and the shift is fitted again. On the same
-   cross-sections a move changes the fitted shift one for one (checked on 21
-   trees: slope 0.985), but *which* cross-sections are usable changes with
-   the move: a misregistered run can merge with something beside it, or miss
-   the path. At the depth as loaded that selection hides part of the shift
-   (on 21 trees the fit reads 3.19 px, the same cross-sections usable at a
-   4-row move read 3.43 px). So three estimates of the correction are
-   reported: the move that leaves no fitted shift, interpolated over the
-   grid (:func:`zero_move`); the fit on the cross-sections usable at every
-   move on the grid; and the move at which depth reaches equally far past
-   the bark's upper and lower edges on sloping leaders (mean overshoots).
-   Each tree's leaders are also split into the halves near and far from the
-   fork, fitted separately: if trees really differ in their shift, the two
-   halves agree tree by tree (:func:`split_half`).
+   with the traced paths kept, and the shift is fitted again; the move that
+   leaves no fitted shift, interpolated over the grid (:func:`zero_move`),
+   estimates the correction. The fit on the cross-sections usable at every
+   move, and the move at which depth reaches equally far past the bark's
+   upper and lower edges on sloping leaders, are reported too. Each tree's
+   leaders are also split into the halves near and far from the fork, fitted
+   separately: if trees really differ in their shift, the two halves agree
+   tree by tree (:func:`split_half`).
+
+   **The colour centre follows its window (found in session 9).** On real
+   leaders the bark's centre found in colour moves with the window it is
+   measured in: moving the window 1 px along the normal moves the mean
+   centre 0.55–0.7 px (the median does not move: most cross-sections are
+   unaffected, some jump as clutter enters or leaves the window's ends; on
+   synthetic bark the pull is at most 0.2, even blurred or on a dark
+   background). Robust fits and a test of each cross-section's stability did
+   not remove it. The windows sit on the traced paths, which follow the
+   depth, so the estimate above depends on the paths: traced again with the
+   depth moved up 4 rows, the same images read about 0.9 px more. The
+   correction is therefore also estimated in ways that the pull affects
+   less (:func:`correction_estimates`): on cross-sections whose two edges
+   are both clear (a grey-level change over :data:`CONTRAST`; the pull there
+   is about 0.4), with the colour measured on the depth run's centre
+   instead of the path (:func:`anchored_differences`: zero where the depth
+   lines up, whatever the pull, but it magnifies any bias of the colour
+   centre of its own), and by tracing each tree again with the depth moved
+   by :data:`CHECK_MOVES` and interpolating the shift left. Each is made
+   for all trees and for each orchard row; the rows' spread gives its
+   uncertainty. On the 21 local trees these gave 3.7 (paths kept) to 5.8
+   rows up (the colour on the depth run).
 2. **Mutual information (both seasons).** The summer images have no traced
    branches, so (1) cannot be used there, and a check along single depth
    edges was tried and failed on winter (thin, shaded bark gives no clear
@@ -60,18 +76,6 @@ lower. The correction moves the depth by about ``(−dy, −dx)``.
    towards the edge of the search (the far ground's range limit is a
    depth edge with no colour edge). So mutual information is reported by
    band and pooled over many trees only.
-
-**Caveat (session 9, not resolved).** On real leaders the colour centre found
-by :func:`treeskel.guided_gt.branch_edges` follows the window it is measured
-in: moving the window 1 px along the normal moves the mean centre about
-0.55–0.7 px (the median does not move: most cross-sections are unaffected,
-some jump as clutter enters or leaves the window's ends; on synthetic bark the
-pull is at most 0.2). The windows sit on the traced paths, which follow the
-depth, so the fitted shift depends on the paths: re-traced with the depth
-moved up 4 rows, the same images read about 0.9 px more. On cross-sections
-whose two edges are both clear the pull is smaller (0.43), and the move that
-leaves no shift is 4.2–4.4 rows up (21 trees), against 3.7 here. The
-estimates of (1) are therefore low; see ``docs/results/depth_registration/``.
 
 Usage::
 
@@ -98,11 +102,11 @@ from treeskel.guided_gt import (
     NEIGHBOUR_MARGIN,
     GuidedParams,
     arc_length,
-    branch_edges,
     clear_of,
     guided_gt,
     load_clicks,
     path_normals,
+    profile_edges,
     straighten,
 )
 from treeskel.io import parse_filename, shift_image
@@ -112,8 +116,16 @@ from treeskel.winter_gt import WinterGT, foreground_mask, report_failed
 TRIAL_MOVES = tuple((dy, dx) for dy in range(2, -7, -1) for dx in (-1, 0, 1, 2))
 """Moves ``(rows, cols)`` of the depth tried with the traced paths kept (negative rows: up)."""
 
+CHECK_MOVES = ((-4, 1), (-5, 1))
+"""Moves of the depth with which each tree is traced again, to see what a correction leaves once
+the paths follow the moved depth (as they will after it)."""
+
 MIN_HALF_WIDTH = 2.5
 """Cross-sections whose bark is narrower than this (px, half-width) are not used (failed edges)."""
+
+CONTRAST = 60.0
+"""An edge is clear if the grey level changes by more than this across it (as in
+:data:`treeskel.measure_width.CONTRAST`)."""
 
 SLOPING = 0.4
 """A cross-section is sloping if its normal's row component is larger than this; only sloping
@@ -141,6 +153,9 @@ DEPTH_STEP = 12
 N_BOOT = 200
 """Bootstrap resamples of the trees, for the confidence intervals."""
 
+MIN_ROW_TREES = 3
+"""Rows with fewer development trees than this are left out of the mean over rows."""
+
 
 # --- the leaders' cross-sections --------------------------------------------------------------
 
@@ -149,10 +164,27 @@ def silhouette(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:
     return ndi.binary_closing(foreground_mask(depth, valid), disk(2))
 
 
+def edge_contrast(grey: np.ndarray, edge: np.ndarray, outward: int, reach: int = 3) -> np.ndarray:
+    """Change of the mean grey level across an edge of each profile: ``reach`` samples inside against outside.
+
+    Args:
+        grey: ``(N, 2X + 1)`` grey profiles centred on the path.
+        edge: ``(N,)`` edge offsets (px, from :func:`treeskel.guided_gt.profile_edges`).
+        outward: −1 for the ``first`` edge, +1 for the ``last``.
+        reach: Samples averaged each side, as in :func:`treeskel.measure_width.edge_overshoot`.
+    """
+    half, width = grey.shape[1] // 2, grey.shape[1]
+    rows = np.arange(len(grey))[:, None]
+    inside = np.clip(half + edge[:, None] - outward * np.arange(reach)[None], 0, width - 1)
+    outside = np.clip(half + edge[:, None] + outward * np.arange(1, reach + 1)[None], 0, width - 1)
+    return np.abs(grey[rows, inside].mean(1) - grey[rows, outside].mean(1))
+
+
 def leader_sections(rgb: np.ndarray, gt: WinterGT, half_width: int | None = None) -> dict[str, np.ndarray]:
     """The leaders' cross-sections that can be compared with depth, and their colour edges.
 
-    Cross-sections that could reach the other leader
+    The edges are found as :func:`treeskel.guided_gt.branch_edges` finds
+    them. Cross-sections that could reach the other leader
     (:func:`treeskel.guided_gt.clear_of`) or whose bark is narrower than
     :data:`MIN_HALF_WIDTH` are left out.
 
@@ -167,24 +199,33 @@ def leader_sections(rgb: np.ndarray, gt: WinterGT, half_width: int | None = None
         ``index`` (the point on that leader's path), ``frac`` (its distance
         along the leader, as a fraction of the leader's length), ``row`` and
         ``col``, the normal ``n_row`` and ``n_col``
-        (:func:`treeskel.guided_gt.path_normals`), and the colour edges
-        ``first`` and ``last`` (offsets along the normal, px).
+        (:func:`treeskel.guided_gt.path_normals`), the colour edges
+        ``first`` and ``last`` (offsets along the normal, px), and ``clear``:
+        True where the grey level changes by more than :data:`CONTRAST`
+        across both edges (:func:`edge_contrast`).
     """
     half = half_width or GuidedParams().profile_half_width
+    along = GuidedParams().profile_along
     parts = []
     for k, (side, other) in enumerate((("left", gt.right), ("right", gt.left))):
         path = getattr(gt, side)
         if len(path) == 0:
             continue
-        first, last = branch_edges(rgb, path, half, GuidedParams().profile_along)
+        samples = straighten(rgb, path, half)
+        if along > 0:
+            samples = ndi.uniform_filter1d(samples, 2 * along + 1, axis=0, mode="nearest")
+        first, last = profile_edges(samples)
+        grey = samples.mean(-1)
+        clear = (edge_contrast(grey, first, -1) > CONTRAST) & (edge_contrast(grey, last, 1) > CONTRAST)
         use = clear_of(path, other, half + NEIGHBOUR_MARGIN) & ((last - first + 1) / 2.0 > MIN_HALF_WIDTH)
         s, n = arc_length(path), path_normals(path)
         i = np.nonzero(use)[0]
         parts.append({"side": np.full(len(i), k), "index": i, "frac": s[i] / max(s[-1], 1.0),
                       "row": path[i, 0], "col": path[i, 1], "n_row": n[i, 0], "n_col": n[i, 1],
-                      "first": first[i], "last": last[i]})
-    keys = ("side", "index", "frac", "row", "col", "n_row", "n_col", "first", "last")
-    return {k: np.concatenate([p[k] for p in parts]) if parts else np.zeros(0) for k in keys}
+                      "first": first[i], "last": last[i], "clear": clear[i]})
+    keys = ("side", "index", "frac", "row", "col", "n_row", "n_col", "first", "last", "clear")
+    return {k: np.concatenate([p[k] for p in parts]) if parts else np.zeros(0, bool if k == "clear" else float)
+            for k in keys}
 
 
 def depth_runs(fg: np.ndarray, gt: WinterGT, sections: dict[str, np.ndarray],
@@ -219,6 +260,58 @@ def depth_runs(fg: np.ndarray, gt: WinterGT, sections: dict[str, np.ndarray],
 def centre_difference(first, last, d0, d1) -> np.ndarray:
     """The depth run's centre minus the bark's centre, along each cross-section's normal (px)."""
     return (np.asarray(d0) + np.asarray(d1)) / 2.0 - (np.asarray(first) + np.asarray(last)) / 2.0
+
+
+def anchored_differences(rgb: np.ndarray, fg: np.ndarray, gt: WinterGT, sections: dict[str, np.ndarray],
+                         half_width: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """The depth run's centre minus the bark's centre, with the colour measured on the depth run's centre.
+
+    On real leaders the bark's centre found in colour follows the window it
+    is measured in: with the window centred on ``w``, it comes out near
+    ``b + k · (w − b)`` for a bark centred on ``b`` (``k`` about 0.5 on the
+    development trees). Centred on the path, the measured difference then
+    depends on the path. Centred on the depth run's centre ``d`` (which does
+    not depend on the path), the difference is ``(1 − k) · (d − b)``:
+    smaller, but zero exactly where the depth lines up with the colour, so
+    the move of the depth that leaves no shift is the registration whatever
+    ``k`` is. Any bias of the colour centre of its own is magnified by
+    ``1 / (1 − k)``, though.
+
+    Args:
+        rgb: The winter colour image.
+        fg: The depth silhouette (:func:`silhouette`).
+        gt: The traced tree; its paths only place the cross-sections.
+        sections: From :func:`leader_sections` on ``gt``.
+        half_width: As in :func:`leader_sections`.
+
+    Returns:
+        ``(delta, usable)`` per cross-section: the difference (px, along the
+        normal) and whether the depth run through it is closed.
+    """
+    half = half_width or GuidedParams().profile_half_width
+    along = GuidedParams().profile_along
+    delta = np.zeros(len(sections["side"]))
+    usable = np.zeros(len(sections["side"]), bool)
+    image = rgb.astype(float)
+    offsets = np.arange(-half, half + 1)[None, :]
+    for k, side in enumerate(("left", "right")):
+        mine = sections["side"] == k
+        if not mine.any():
+            continue
+        path = getattr(gt, side)
+        n = path_normals(path)
+        d0, d1, closed = centre_runs(straighten(fg.astype(float), path, half, order=0) > 0.5)
+        anchor = path + np.where(closed, (d0 + d1) / 2.0, 0.0)[:, None] * n
+        coords = [anchor[:, :1] + offsets * n[:, :1], anchor[:, 1:] + offsets * n[:, 1:]]
+        samples = np.stack([ndi.map_coordinates(image[..., c], coords, order=1, mode="nearest")
+                            for c in range(image.shape[2])], -1)
+        if along > 0:
+            samples = ndi.uniform_filter1d(samples, 2 * along + 1, axis=0, mode="nearest")
+        first, last = profile_edges(samples)
+        i = sections["index"][mine].astype(int)
+        delta[mine] = -(first[i] + last[i]) / 2.0
+        usable[mine] = closed[i]
+    return delta, usable
 
 
 def edge_overshoots(n_row, first, last, d0, d1) -> tuple[np.ndarray, np.ndarray]:
@@ -470,24 +563,40 @@ def measure_tree(job: tuple) -> dict:
             correction) instead of as stored.
 
     Returns:
-        The tree's cross-sections (:func:`leader_sections`), the depth runs
-        through them at every move in :data:`TRIAL_MOVES`, the median depth
+        The tree's cross-sections (:func:`leader_sections`); at every move in
+        :data:`TRIAL_MOVES`, the depth runs through them and the differences
+        measured on the depth run's centre (:func:`anchored_differences`);
+        the cross-sections of the tree traced again with the depth moved by
+        each of :data:`CHECK_MOVES` (not when ``registered``: the tree is
+        then traced with the corrected depth already); the median depth
         along the leaders, the capture time, and the mutual-information
         surfaces of both seasons.
     """
     from treeskel.io import DEPTH_SHIFT, load_tree
 
+    def compact(sec: dict) -> dict:
+        return {k: v if v.dtype == bool else v.astype(np.float32 if v.dtype.kind == "f" else np.int16)
+                for k, v in sec.items()}
+
     rec, clicks, registered = job
     winter = load_tree(rec, "winter", register=registered)
     gt = guided_gt(winter["rgb"], winter["depth"], winter["valid"], clicks)
     sections = leader_sections(winter["rgb"], gt)
-    runs = []
+    runs, anchored = [], []
     for move in TRIAL_MOVES:
         depth = shift_image(winter["depth"], move)
-        runs.append(depth_runs(silhouette(depth, depth > 0), gt, sections))
-    d0 = np.array([r[0] for r in runs], np.int8)
-    d1 = np.array([r[1] for r in runs], np.int8)
-    closed = np.array([r[2] for r in runs], bool)
+        fg = silhouette(depth, depth > 0)
+        runs.append(depth_runs(fg, gt, sections))
+        anchored.append(anchored_differences(winter["rgb"], fg, gt, sections))
+    checks = []
+    for move in () if registered else CHECK_MOVES:
+        # Traced again with the moved depth, as the ground truth will be after a correction.
+        depth = shift_image(winter["depth"], move)
+        again = guided_gt(winter["rgb"], depth, depth > 0, clicks)
+        sec = leader_sections(winter["rgb"], again)
+        a, b, c = depth_runs(silhouette(depth, depth > 0), again, sec)
+        checks.append({"move": list(move), "sections": compact(sec), "d0": a.astype(np.int8), "d1": b.astype(np.int8),
+                       "closed": c})
     along = np.concatenate([gt.left, gt.right])
     values = winter["depth"][along[:, 0], along[:, 1]]
     summer = load_tree(rec, "summer", register=registered)
@@ -496,9 +605,12 @@ def measure_tree(job: tuple) -> dict:
     return {
         "tree": rec.tree_id, "row": rec.row,
         "time": parse_filename(rec.paths[("winter", "depth")]).time,
-        "sections": {k: (v.astype(np.float32) if v.dtype.kind == "f" else v.astype(np.int16))
-                     for k, v in sections.items()},
-        "d0": d0, "d1": d1, "closed": closed,
+        "sections": compact(sections),
+        "d0": np.array([r[0] for r in runs], np.int8), "d1": np.array([r[1] for r in runs], np.int8),
+        "closed": np.array([r[2] for r in runs], bool),
+        "anchored": np.array([a[0] for a in anchored], np.float32),
+        "anchored_ok": np.array([a[1] for a in anchored], bool),
+        "checks": checks,
         "depth_value": float(np.median(values[values > 0])) if (values > 0).any() else float("nan"),
         "mi": {season: mi_surface(d["rgb"], d["depth"], d["valid"], margin=margin).astype(np.float32)
                for season, d in (("winter", winter), ("summer", summer))},
@@ -507,21 +619,114 @@ def measure_tree(job: tuple) -> dict:
 
 # --- pooling ---------------------------------------------------------------------------------
 
-def _pool(results: list[dict], move: int, keep=None) -> dict[str, np.ndarray]:
-    """All trees' cross-sections usable at one move (index into :data:`TRIAL_MOVES`)."""
+def _pool(results: list[dict], move: int, keep=None, anchored: bool = False) -> dict[str, np.ndarray]:
+    """All trees' cross-sections usable at one move (an index into :data:`TRIAL_MOVES`).
+
+    Args:
+        results: :func:`measure_tree` results.
+        move: Index of the move of the depth.
+        keep: Per tree, which cross-sections to use (default: those whose
+            depth run is closed at this move).
+        anchored: Use the differences measured on the depth run's centre
+            (:func:`anchored_differences`) instead of on the path.
+    """
     parts = []
     for t, r in enumerate(results):
         s = r["sections"]
-        use = r["closed"][move] if keep is None else keep[t]
+        if keep is not None:
+            use = keep[t]
+        else:
+            use = r["anchored_ok"][move] if anchored else r["closed"][move]
+        first, last, d0, d1 = s["first"][use], s["last"][use], r["d0"][move][use], r["d1"][move][use]
         parts.append({"tree": np.full(int(use.sum()), t), "n_row": s["n_row"][use], "n_col": s["n_col"][use],
-                      "row": s["row"][use], "col": s["col"][use], "frac": s["frac"][use],
-                      "delta": centre_difference(s["first"][use], s["last"][use], r["d0"][move][use],
-                                                 r["d1"][move][use]),
-                      "upper_lower": np.stack(edge_overshoots(s["n_row"][use], s["first"][use], s["last"][use],
-                                                              r["d0"][move][use], r["d1"][move][use]), -1)})
-    keys = ("tree", "n_row", "n_col", "row", "col", "frac", "delta")
+                      "row": s["row"][use], "col": s["col"][use], "frac": s["frac"][use], "clear": s["clear"][use],
+                      "delta": r["anchored"][move][use] if anchored else centre_difference(first, last, d0, d1),
+                      "upper_lower": np.stack(edge_overshoots(s["n_row"][use], first, last, d0, d1), -1)})
+    keys = ("tree", "n_row", "n_col", "row", "col", "frac", "clear", "delta")
     out = {k: np.concatenate([p[k] for p in parts]).astype(float) for k in keys}
+    out["clear"] = out["clear"] > 0
     out["upper_lower"] = np.concatenate([p["upper_lower"] for p in parts]).reshape(-1, 2).astype(float)
+    return out
+
+
+def _pool_checks(results: list[dict], k: int) -> dict[str, np.ndarray] | None:
+    """All trees' cross-sections when traced again with the depth moved by ``CHECK_MOVES[k]``."""
+    parts = []
+    for r in results:
+        if len(r["checks"]) <= k:
+            continue
+        c = r["checks"][k]
+        s, use = c["sections"], c["closed"]
+        parts.append({"n_row": s["n_row"][use], "n_col": s["n_col"][use], "clear": s["clear"][use],
+                      "delta": centre_difference(s["first"][use], s["last"][use], c["d0"][use], c["d1"][use])})
+    if not parts:
+        return None
+    return {key: np.concatenate([p[key] for p in parts]) for key in ("n_row", "n_col", "clear", "delta")}
+
+
+def _row_move_from_checks(remaining: Sequence[tuple[float, float]]) -> float | None:
+    """The rows moved at which the remaining ``dy`` of the checks would be zero (linear between them)."""
+    (m1, r1), (m2, r2) = [(float(move[0]), float(rem[0])) for move, rem in zip(CHECK_MOVES, remaining)][:2]
+    if not (np.isfinite(r1) and np.isfinite(r2)) or r1 == r2:
+        return None
+    return m1 + (m2 - m1) * r1 / (r1 - r2)
+
+
+ESTIMATES = (
+    ("path_all", "Paths kept, all cross-sections: the move that leaves no shift"),
+    ("path_clear", "Paths kept, both edges clear: the move that leaves no shift"),
+    ("anchored_all", "Colour measured on the depth run: the move that leaves no shift"),
+    ("anchored_clear", "Colour measured on the depth run, both edges clear"),
+    ("retraced_all", "Traced again with the moved depth, all cross-sections (rows only)"),
+    ("retraced_clear", "Traced again with the moved depth, both edges clear (rows only)"),
+)
+"""The estimates of the correction made by :func:`correction_estimates`, and their names."""
+
+
+def correction_estimates(results: list[dict]) -> dict:
+    """The move of the depth that registers it, estimated in each way from these trees.
+
+    ``path_*``: the depth moved by each of :data:`TRIAL_MOVES` with the paths
+    kept, the colour measured on the path, and the move that leaves no fitted
+    shift (:func:`zero_move`). ``anchored_*``: the same with the colour
+    measured on the depth run's centre (:func:`anchored_differences`).
+    ``retraced_*``: the shift left when each tree is traced again with the
+    depth moved by each of :data:`CHECK_MOVES`, and the rows moved at which
+    it would be none. ``*_clear``: only cross-sections whose two edges are
+    both clear.
+
+    Returns:
+        ``{key: {"move": [rows, cols] (cols None for the re-traced ones) or
+        None, "n": cross-sections at no move, ...}}`` for each key of
+        :data:`ESTIMATES`.
+    """
+    moves = list(TRIAL_MOVES)
+    home = moves.index((0, 0))
+    out = {}
+    for anchored in (False, True):
+        pools = [_pool(results, m, anchored=anchored) for m in range(len(moves))]
+        for clear in (False, True):
+            fits = [_fit(p, p["clear"] if clear else None) for p in pools]
+            zm = zero_move(moves, fits)
+            key = f"{'anchored' if anchored else 'path'}_{'clear' if clear else 'all'}"
+            out[key] = {"move": zm["move"] if zm else None, "response": zm["response"] if zm else None,
+                        "at_no_move": [float(v) for v in fits[home]],
+                        "n": int(pools[home]["clear"].sum() if clear else len(pools[home]["delta"]))}
+    for clear in (False, True):
+        remaining, counts = [], []
+        for k in range(len(CHECK_MOVES)):
+            p = _pool_checks(results, k)
+            if p is None:
+                remaining.append((float("nan"), float("nan")))
+                counts.append(0)
+                continue
+            remaining.append(_fit(p, p["clear"] if clear else None))
+            counts.append(int(p["clear"].sum() if clear else len(p["delta"])))
+        rows_move = _row_move_from_checks(remaining) if len(CHECK_MOVES) >= 2 else None
+        out[f"retraced_{'clear' if clear else 'all'}"] = {
+            "move": [rows_move, None] if rows_move is not None else None, "n": counts[0] if counts else 0,
+            "remaining": [{"move": list(m), "dy": float(r[0]), "dx": float(r[1]), "n": n}
+                          for m, r, n in zip(CHECK_MOVES, remaining, counts)]}
     return out
 
 
@@ -589,6 +794,7 @@ def summarise(results: list[dict], n_boot: int = N_BOOT, seed: int = 0) -> dict:
     report["loaded"] = {"n": int(len(loaded["delta"])), "dy": grid[home]["dy"], "dx": grid[home]["dx"]}
     report["fixed_set"] = {"n": int(len(fixed["delta"])), "dy": fdy, "dx": fdx,
                            "ci_dy": _ci(boots[:, 0]) if n_boot else None, "ci_dx": _ci(boots[:, 1]) if n_boot else None}
+    report["estimates"] = correction_estimates(results)
     report["zero_move"] = zero_move(moves, [(g["dy"], g["dx"]) for g in grid])
     # Equal overshoot at the upper and lower edges, along the rows moved (at the whole column move
     # nearest the zero move's): where the mean difference changes sign.
@@ -651,6 +857,7 @@ def summarise(results: list[dict], n_boot: int = N_BOOT, seed: int = 0) -> dict:
             p = _pool([results[t] for t in members], m)
             row_grid.append(_fit(p))
         zm_row = zero_move(moves, row_grid)
+        estimates = correction_estimates([results[t] for t in members])
         dy, dx = _fit(fixed, sel)
         # Bootstrap over the row's trees (a row of one tree has no interval).
         picks = [rng.choice(members, len(members)) for _ in range(n_boot if len(members) > 1 else 0)]
@@ -659,7 +866,8 @@ def summarise(results: list[dict], n_boot: int = N_BOOT, seed: int = 0) -> dict:
         entry = {"row": int(row), "n_trees": int(len(members)), "n": int(sel.sum()),
                  "time": min(results[t]["time"] for t in members), "dy": dy, "dx": dx,
                  "ci_dy": _ci(boot[:, 0]) if len(boot) else None, "ci_dx": _ci(boot[:, 1]) if len(boot) else None,
-                 "zero_move": zm_row["move"] if zm_row else None}
+                 "zero_move": zm_row["move"] if zm_row else None,
+                 "estimates": {key: est["move"] for key, est in estimates.items()}}
         for season, surf in surfaces.items():
             dy, dx, edge = mi_peak(surf[members, 0].sum(0))
             boot = np.array([mi_peak(surf[pick, 0].sum(0))[:2] for pick in picks]).reshape(-1, 2)
@@ -668,6 +876,15 @@ def summarise(results: list[dict], n_boot: int = N_BOOT, seed: int = 0) -> dict:
                                      "ci_dx": _ci(boot[:, 1]) if len(boot) else None}
         by_row.append(entry)
     report["by_row"] = by_row
+    # Rows as replicates: the mean of the rows' estimates, and its standard error.
+    usable_rows = [r for r in by_row if r["n_trees"] >= MIN_ROW_TREES]
+    report["across_rows"] = {"n_rows": len(usable_rows), "min_trees": MIN_ROW_TREES}
+    for key, _ in ESTIMATES:
+        values = np.array([r["estimates"][key][0] for r in usable_rows
+                           if r["estimates"][key] is not None and r["estimates"][key][0] is not None], float)
+        report["across_rows"][key] = ({"mean": float(values.mean()), "se": float(values.std(ddof=1) / np.sqrt(len(values))),
+                                       "range": [float(values.min()), float(values.max())], "n_rows": int(len(values))}
+                                      if len(values) >= 2 else None)
     report["per_tree_rows"] = [{"tree": results[t]["tree"], "row": int(rows[t]), "time": results[t]["time"],
                                 "n": int((fixed["tree"] == t).sum()), "dy": per_tree[t, 0], "dx": per_tree[t, 1],
                                 "dy_near": near_far[t, 0], "dy_far": near_far[t, 1],
@@ -700,6 +917,19 @@ def print_report(report: dict) -> None:
     ld, fx, zm, eq = report["loaded"], report["fixed_set"], report["zero_move"], report["edges_equal"]
     print(f"\n{report['n_trees']} trees. Shifts are where the depth sits relative to the colour (dy > 0: lower); "
           "the correction moves the depth the other way.")
+    est, rows = report["estimates"], report["across_rows"]
+    print(f"Estimates of the correction (rows and cols to move the winter depth; negative rows: up). Last column: "
+          f"mean of the {rows['n_rows']} rows with {rows['min_trees']}+ trees, +- 2 standard errors:")
+    for key, name in ESTIMATES:
+        e, a = est[key], rows.get(key)
+        move = e["move"] or [None, None]
+        spread = f"{a['mean']:+.2f} +- {2 * a['se']:.2f}" if a else "  -"
+        print(f"   {name:66s} rows {_fmt(move[0])}, cols {_fmt(move[1])}   rows by row {spread}  ({e['n']})")
+    for key in ("retraced_all", "retraced_clear"):
+        left = ", ".join(f"moved {tuple(r['move'])}: dy {_fmt(r['dy'])}, dx {_fmt(r['dx'])}" for r in est[key]["remaining"])
+        print(f"   left after tracing again ({key.split('_')[1]}): {left}")
+    mi = report["mi"]["winter"]["whole"]
+    print(f"   {'Mutual information, winter (whole image)':66s} rows {-mi['dy']:+.2f}, cols {-mi['dx']:+.2f}")
     print("1. Across the leaders (winter)")
     print(f"   depth as loaded, {ld['n']} cross-sections: dy {ld['dy']:+.2f}, dx {ld['dx']:+.2f} px")
     ci = (f" (95% CI over trees {fx['ci_dy'][0]:+.2f} to {fx['ci_dy'][1]:+.2f}; dx {fx['ci_dx'][0]:+.2f} to "
@@ -751,15 +981,15 @@ def print_report(report: dict) -> None:
         if vs["pearson"] is not None:
             print(f"     tree by tree against the leaders' dy ({vs['n_trees']} trees): r {vs['pearson']:+.2f}, "
                   f"Spearman {vs['spearman']:+.2f}")
-    print("3. By orchard row (capture order): dy, dx across the leaders; the move that leaves none; "
-          "mutual information winter / summer")
+    print("3. By orchard row (capture order): dy, dx across the leaders (usable at every move); the rows to move by "
+          "each estimate (path all, path clear, anchored all, anchored clear, traced again all, traced again clear); "
+          "mutual information dy, dx winter / summer (! = at the edge of the search)")
     for r in report["by_row"]:
-        zm_row = r["zero_move"]
+        moves = " ".join(_fmt(r["estimates"][key][0] if r["estimates"][key] else None) for key, _ in ESTIMATES)
         mi = {s: f"{r[f'mi_{s}']['dy']:+.2f}, {r[f'mi_{s}']['dx']:+.2f}" + ("!" if r[f"mi_{s}"]["at_edge"] else "")
               for s in ("winter", "summer")}
         print(f"   row {r['row']:2d} ({r['n_trees']:2d} trees, from {r['time']}): {_fmt(r['dy'])}, {_fmt(r['dx'])}; "
-              f"move {_fmt(zm_row[0] if zm_row else None)}, {_fmt(zm_row[1] if zm_row else None)}; "
-              f"MI winter {mi['winter']}; summer {mi['summer']}")
+              f"move {moves}; MI {mi['winter']} / {mi['summer']}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

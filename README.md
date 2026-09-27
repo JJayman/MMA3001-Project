@@ -24,6 +24,7 @@ src/treeskel/    Python package
   tune_cost.py   tunes the tracing cost map against corrected annotations
   measure_fork.py  measures the masks at the fork against winter depth (shoulder fill, fork junction)
   measure_width.py measures the leaders' widths against winter depth and the hand masks (sets the width model)
+  measure_registration.py  measures how far the depth images sit from the colour images (the depth-colour shift)
   align.py       winter-to-summer alignment: transforms, robust fits, mask warping, automatic matchers
   annotate_pairs.py  click tool for winter-summer point pairs (opens a window)
   annotate_overlay.py  line up the winter photo on the summer photo by hand (opens a window)
@@ -61,6 +62,7 @@ python -m treeskel.guided_gt data/raw --overlays           # render guided groun
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
 python -m treeskel.measure_fork data/raw                   # check the fork junction and fill (development rows only)
 python -m treeskel.measure_width data/raw                  # check the leader widths (development rows only)
+python -m treeskel.measure_registration data/raw           # measure the depth-colour shift (development rows only)
 python -m treeskel.align data/raw --matcher lightglue --dev-only   # automatic matching (needs ".[match]"; failed, see docs/results/align)
 python -m treeskel.annotate_overlay data/raw --dev-only    # line up each tree's winter photo on its summer photo
 python -m treeskel.summer_gt data/raw                      # check the alignments; write the summer masks

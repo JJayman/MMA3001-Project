@@ -15,9 +15,14 @@ from treeskel import io
 from treeskel.guided_gt import guided_gt
 from treeskel.io import index_dataset, shift_image
 from treeskel.measure_registration import (
+    CHECK_MOVES,
+    ESTIMATES,
     MI_REACH,
     TRIAL_MOVES,
+    anchored_differences,
     centre_difference,
+    correction_estimates,
+    edge_contrast,
     depth_runs,
     edge_overshoots,
     fit_affine,
@@ -25,6 +30,7 @@ from treeskel.measure_registration import (
     leader_sections,
     main,
     measure_tree,
+    _row_move_from_checks,
     mi_peak,
     mi_surface,
     silhouette,
@@ -69,6 +75,40 @@ def test_the_move_that_leaves_no_shift():
     zm = zero_move(TRIAL_MOVES, fits)
     assert zm["move"] == pytest.approx([-3, 1], abs=0.35)
     assert np.allclose(zm["response"], np.eye(2), atol=0.15)           # a clean tree follows a move one for one
+
+
+def test_colour_measured_on_the_depth_run_finds_a_known_shift():
+    # Synthetic bark has no pull towards its window, so measured on the depth run's centre the difference
+    # follows a move one for one, and the move that leaves none is the true one.
+    rgb, depth, valid = shifted_tree((3, -1))
+    gt = guided_gt(rgb, depth, valid, good_clicks())
+    sec = leader_sections(rgb, gt)
+    assert sec["clear"].mean() > 0.9                                     # pale bark on grass: clear edges
+    fits = []
+    for move in TRIAL_MOVES:
+        moved = shift_image(depth, move)
+        delta, ok = anchored_differences(rgb, silhouette(moved, moved > 0), gt, sec)
+        assert ok.mean() > (0.9 if move == (0, 0) else 0.6)             # far moves take runs off thin leaders
+        fits.append(fit_shift(sec["n_row"][ok], sec["n_col"][ok], delta[ok]))
+    zm = zero_move(TRIAL_MOVES, fits)
+    assert zm["move"] == pytest.approx([-3, 1], abs=0.35)
+    assert np.allclose(zm["response"], np.eye(2), atol=0.2)
+
+
+def test_edge_contrast():
+    grey = np.full((2, 21), 50.0)
+    grey[:, 7:14] = 150.0                                                # bark from -3 to +3
+    grey[1, 14:] = 140.0                                                 # a pale background on the right
+    first, last = np.array([-3, -3]), np.array([3, 3])
+    assert edge_contrast(grey, first, -1).tolist() == [100.0, 100.0]
+    assert edge_contrast(grey, last, 1).tolist() == [100.0, 10.0]
+
+
+def test_row_move_from_checks():
+    assert _row_move_from_checks([(0.7, 0.1), (0.2, 0.0)]) == pytest.approx(CHECK_MOVES[0][0] + 0.7 / 0.5 *
+                                                                            (CHECK_MOVES[1][0] - CHECK_MOVES[0][0]))
+    assert _row_move_from_checks([(0.5, 0.0), (0.5, 0.0)]) is None     # no change: no crossing
+    assert _row_move_from_checks([(np.nan, 0.0), (0.5, 0.0)]) is None
 
 
 def test_zero_move_undoes_a_measure_that_follows_moves_less_than_one_for_one():
@@ -183,9 +223,15 @@ def test_measure_tree_loads_raw_depth_unless_asked(sample_dir, monkeypatch):
     clicks = io_clicks()["R20N06"]
     monkeypatch.setattr(io, "DEPTH_SHIFT", {"summer": (0, 0), "winter": (-4, 1)})
     raw = measure_tree((rec, clicks, False))
-    assert raw["d0"].shape == (len(TRIAL_MOVES), len(raw["sections"]["side"]))
+    assert raw["d0"].shape == raw["anchored"].shape == (len(TRIAL_MOVES), len(raw["sections"]["side"]))
+    assert [c["move"] for c in raw["checks"]] == [list(m) for m in CHECK_MOVES]
+    assert raw["sections"]["clear"].dtype == bool
     assert raw["mi"]["winter"].shape == raw["mi"]["summer"].shape == (5, 2 * MI_REACH + 1, 2 * MI_REACH + 1)
     moved = measure_tree((rec, clicks, True))
+    assert moved["checks"] == []                                         # traced with the corrected depth already
+    est = correction_estimates([raw])
+    assert set(est) == {key for key, _ in ESTIMATES}
+    assert all(len(e["move"]) == 2 for e in est.values() if e["move"] is not None)
     # The depth moved on loading, 4 rows up and 1 column right: on the same colour pixels (a margin
     # beyond the move keeps its uncovered edge out), the information at shift s' is the stored
     # depth's at s' + (4, -1), wherever both were searched.
@@ -212,6 +258,8 @@ def test_cli_measures_development_rows_only(sample_dir, tmp_path, capsys):
     assert report["trees"] == ["R01N01", "R01N02"] and report["test_rows_excluded"] == [3, 12, 16]
     assert "test-row trees left out" in out and "Mutual information" in out
     assert len(report["grid"]) == len(TRIAL_MOVES) and report["fixed_set"]["ci_dy"] is not None
+    assert set(report["estimates"]) == {key for key, _ in ESTIMATES} and "Estimates of the correction" in out
+    assert report["across_rows"]["n_rows"] == 0                          # no row with 3 development trees here
     assert [r["row"] for r in report["by_row"]] == [1]
     rows = (tmp_path / "out" / "trees.csv").read_text().splitlines()
     assert rows[0].startswith("tree,row,time") and len(rows) == 3
