@@ -22,7 +22,8 @@ Ground truth comes from **winter** images of the same trees (bare branches),
 traced with a click-guided tool. Data: "Dataset (With Summer GT)", Intel
 RealSense D435, 640x480, 8-bit relative depth (brighter = nearer, 0 = no
 reading), files `R<row>N<tree>_<Summer|Winter>_<RGB|D|GT>-H-M-S.png`. The
-`GT` files are hand-drawn 256x256 summer masks, used **for validation only**.
+`GT` files are hand-drawn 256x256 summer masks: since session 11 also training
+labels for the segmentation (development rows only; see the fixed decisions).
 The related paper is Chen et al. (2020), arXiv:2010.06879: same orchard and
 camera, different (autumn) capture.
 
@@ -44,6 +45,14 @@ camera, different (autumn) capture.
   trees with `measure_registration`; the colour-edge fit follows its window,
   which made session 8's estimate (3.1–3.8) low. See
   `docs/results/depth_registration/`.
+- **Hand masks as training labels** (session 11, the student's decision,
+  replacing "validation only" from session 2): the development rows' hand
+  masks train the segmentation (`treeskel.segment`); the winter traces stay
+  the independent truth, never training or choosing anything there, and the
+  predicted masks' shape is scored against them. The test rows' masks stay
+  unused until the final evaluation. Caveat: several masks sit 20–60 px off
+  the visible summer trunk (R20N06 about 90), varying by tree, so pixel
+  scores against them are not the headline; the shape scores are.
 - **Two leaders per tree**, matching the hand masks. "Left" is the leader
   whose tip is further left in the image.
 - **Masks:** the trunk width comes from depth (robust straight taper). Each
@@ -84,7 +93,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                (line-up tool, chosen), summer_gt.py (summer masks and checks),
                shape.py (shape measures without alignment; summer CNN features),
                shape_model.py (predicting the winter shape from summer, 5 folds),
-               shape_cnn.py (fine-tuning a CNN on the winter shape; the student's GPU)
+               shape_cnn.py (fine-tuning a CNN on the winter shape; the student's GPU),
+               segment.py (U-Net on the hand masks, scored against winter; the student's GPU)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -144,9 +154,11 @@ See the latest file in `docs/progress/`. As of session 10:
   - The hand masks are in the summer view and have the winter shape (448 of
     448 within 8 px). Every winter trace checked in the outlier review was
     right.
+- **Session 11:** the student chose segmentation trained on the hand masks
+  (`treeskel.segment`, U-Net with a ResNet-18 encoder, 5 row-grouped folds);
+  its first run is on the student's PC. See the latest progress file.
 - **Next (the student's call):**
-  1. Segmentation trained on the hand masks, scored against the winter
-     traces. This changes "hand masks are for validation only", so ask first.
+  1. The segmentation's results against the angle CNN, tree by tree.
   2. Or regularise the angle CNN, compared with nested folds.
   3. Then one final evaluation on the test rows.
 - **Winter-to-summer pixel alignment was abandoned** in session 7

@@ -476,7 +476,11 @@ SERIES_NAME = {"hand masks": "Hand masks (a person's reading of the summer photo
                "shape_cnn_480x640": "ResNet-18 fine-tuned (photo, 480x640)"}
 
 
-def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list[str]) -> None:
+def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list[str],
+                    title: str = "Fine-tuning reads the trunk and some of the V; a person reading the photo still "
+                                 "does far better",
+                    subtitle: str = "449 development trees, each predicted by the fold that held its row out",
+                    names: dict[str, str] | None = None, styles: dict[str, tuple[str, str]] | None = None) -> None:
     """Skill over the mean shape per measure, one marker per model, whiskers over the 5 folds.
 
     Args:
@@ -485,6 +489,9 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
             model (``{measure: evaluate(...)}``).
         path: Where to save the figure.
         failed: Collects paths that could not be written.
+        title, subtitle: The figure's title and the line under it.
+        names, styles: Legend names and ``(colour, marker)`` for keys beyond
+            :data:`SERIES_NAME` and :data:`SERIES_STYLE` (or to override them).
     """
     import matplotlib
 
@@ -493,10 +500,11 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
 
     from treeskel.shape_model import AXIS, GRID, INK, LABELS, MUTED, SECONDARY, SURFACE, _save, _style
 
+    names, styles = {**SERIES_NAME, **(names or {})}, {**SERIES_STYLE, **(styles or {})}
     groups = (("No reference", HEADLINE), ("From the trunk", TRUNK_RELATIVE), ("From the vertical", VERTICAL))
     rows_y, labels, pos = {}, [], 0.0
-    for _, names in groups:
-        for k in names:
+    for _, members in groups:
+        for k in members:
             rows_y[k] = -pos
             labels.append(LABELS[k])
             pos += 1.0
@@ -506,7 +514,7 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
     _style(ax)
     n = len(series)
     for i, (key, scores) in enumerate(series):
-        colour, marker = SERIES_STYLE.get(key, (MUTED, "o"))
+        colour, marker = styles.get(key, (MUTED, "o"))
         off = (i - (n - 1) / 2) * 0.16
         for k, y0 in rows_y.items():
             sc = scores.get(k, {})
@@ -517,21 +525,19 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
                 ax.plot([min(fs), max(fs)], [y0 - off] * 2, color=colour, lw=0.9, alpha=0.7, zorder=2,
                         solid_capstyle="round")
             ax.plot(sc["skill"], y0 - off, marker=marker, ms=5.5, color=colour, mec=SURFACE, mew=0.8, ls="none",
-                    zorder=3, label=SERIES_NAME.get(key, key) if k == HEADLINE[0] else None)
+                    zorder=3, label=names.get(key, key) if k == HEADLINE[0] else None)
     ax.axvline(0, color=AXIS, lw=1.0, zorder=1)
     ax.set_yticks(list(rows_y.values()), labels, fontsize=8, color=SECONDARY)
     ax.set_xlim(-0.25, 1.0)
     ax.grid(axis="x", color=GRID, lw=0.5)
     gy = 0.0
-    for title, names in groups:
-        ax.text(-0.25, gy + 0.55, title, fontsize=7.5, color=MUTED, ha="left", va="bottom", style="italic")
-        gy -= len(names) + 0.6
+    for group, members in groups:
+        ax.text(-0.25, gy + 0.55, group, fontsize=7.5, color=MUTED, ha="left", va="bottom", style="italic")
+        gy -= len(members) + 0.6
     ax.set_xlabel("Skill over the mean shape: 1 − MSE / MSE(mean shape)   (lines: the range over the 5 folds)",
                   fontsize=8, color=SECONDARY)
-    fig.suptitle("Fine-tuning reads the trunk and some of the V; a person reading the photo still does far better",
-                 x=0.02, ha="left", fontsize=10, color=INK, fontweight="bold")
-    ax.set_title("449 development trees, each predicted by the fold that held its row out", loc="left",
-                 fontsize=8, color=SECONDARY)
+    fig.suptitle(title, x=0.02, ha="left", fontsize=10, color=INK, fontweight="bold")
+    ax.set_title(subtitle, loc="left", fontsize=8, color=SECONDARY)
     fig.legend(*ax.get_legend_handles_labels(), loc="lower left", bbox_to_anchor=(0.02, 0.0), ncol=2,
                frameon=False, fontsize=7.5, labelcolor=SECONDARY)
     fig.tight_layout(rect=(0, 0.07 + 0.025 * max(0, (n - 1) // 2), 1, 1))
@@ -539,7 +545,8 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
     plt.close(fig)
 
 
-def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str], title: str) -> None:
+def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str], title: str,
+                  ylabel: str = "Loss (standardised squared error)") -> None:
     """Loss against epoch for each fold's choice of epochs: the training loss and the held-out rows' loss.
 
     A falling training loss with a flat held-out loss is the network learning its training photos
@@ -573,7 +580,7 @@ def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
         ax.grid(axis="y", color=GRID, lw=0.5)
         ax.set_title(f"Fold {f + 1}: {best.get(f, '?')} epochs chosen", loc="left", fontsize=7.5, color=SECONDARY)
         ax.set_xlabel("Epoch", fontsize=7.5, color=SECONDARY)
-    axes[0][0].set_ylabel("Loss (standardised squared error)", fontsize=7.5, color=SECONDARY)
+    axes[0][0].set_ylabel(ylabel, fontsize=7.5, color=SECONDARY)
     axes[0][0].legend(frameon=False, fontsize=7, labelcolor=SECONDARY, loc="upper right")
     fig.suptitle(title, x=0.01, ha="left", fontsize=9.5, color=INK, fontweight="bold")
     fig.tight_layout()
