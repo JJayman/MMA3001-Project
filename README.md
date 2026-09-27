@@ -32,6 +32,7 @@ src/treeskel/    Python package
   shape.py       the tree's shape without alignment (V opening, leader angles, bends) from the winter traces
                  and the hand masks, and summer image features from a pretrained network
   shape_model.py predicts the winter shape from the summer features (ridge regression, row-grouped folds)
+  shape_cnn.py   fine-tunes a CNN (ResNet-18) to predict the winter shape from the summer photo (GPU)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -84,6 +85,7 @@ python -m treeskel.summer_gt data/raw                      # check the alignment
 python -m treeskel.annotate_pairs data/raw --dev-only      # (tried first) click winter-summer point pairs
 python -m treeskel.shape data/raw --figure docs/figures/shape_lines.jpg   # shape measures and summer features (development rows)
 python -m treeskel.shape_model                             # predict the winter shape from the summer photo (5 folds)
+python -m treeskel.shape_cnn data/raw                      # fine-tune a CNN on the winter shape (5 folds, GPU)
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
