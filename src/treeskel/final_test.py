@@ -8,7 +8,8 @@ folds. This module runs once, at the end (session 11's third item):
    saved development run (e.g. ``docs/results/segment_lined_up_joined``) and
    is committed before this module runs. Its recipe is taken as it stands:
    the network's parameters, the lined-up masks it trained on, whether its
-   masks are joined (:func:`treeskel.segment.join_pieces`, with its gap), and
+   masks are grown (:func:`treeskel.segment.grow_mask`, with its lower
+   threshold) and joined (:func:`treeskel.segment.join_pieces`, with its gap), and
    the number of epochs: the median of the numbers its 5 folds chose (each on
    rows held out inside the training rows, never on a test row).
 2. **One network is trained on all development trees** that the run's folds
@@ -65,14 +66,15 @@ from treeskel.segment import (
     draw_example,
     example_trees,
     fill_failures,
+    grow_mask,
     hand_mask,
     join_pieces,
     load_frames,
     mask_scores,
     mask_shape,
     predict_masks,
+    prob_frame,
     save_masks,
-    to_mask_size,
     train_seg,
     whole_photo,
 )
@@ -93,7 +95,8 @@ def named_recipe(model_file: Path) -> dict:
 
     Returns:
         ``{"named": model.json's content, "run": folder, "params": SegParams, "mask_overlay": path or None,
-        "join_gap": gap or None, "epochs": int, "fold_epochs": [...], "development": the run's report}``.
+        "join_gap": gap or None, "grow_low": lower threshold or None, "epochs": int, "fold_epochs": [...],
+        "development": the run's report}``.
     """
     named = json.loads(Path(model_file).read_text())
     run = Path(named["run"])
@@ -106,7 +109,8 @@ def named_recipe(model_file: Path) -> dict:
     if not fold_epochs:
         raise ValueError(f"{run}/report.json records no epochs chosen by its folds")
     return {"named": named, "run": str(run), "params": SegParams(**p), "mask_overlay": report.get("mask_overlay"),
-            "join_gap": (report.get("join") or {}).get("gap"), "epochs": int(round(statistics.median(fold_epochs))),
+            "join_gap": (report.get("join") or {}).get("gap"), "grow_low": (report.get("grow") or {}).get("low"),
+            "epochs": int(round(statistics.median(fold_epochs))),
             "fold_epochs": fold_epochs, "development": report}
 
 
@@ -246,6 +250,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     say(f"Named model: {recipe['run']} ({recipe['named'].get('why', 'no reason recorded')})")
     say(f"  recipe: size {params.size}, encoder {params.encoder}, depth {params.depth}, batch {params.batch}, "
         f"seed {params.seed}; masks {'lined up (' + recipe['mask_overlay'] + ')' if recipe['mask_overlay'] else 'as drawn'}; "
+        f"{'grown into pixels above ' + format(recipe['grow_low'], 'g') + ', ' if recipe['grow_low'] else ''}"
         f"{'pieces joined within ' + format(recipe['join_gap'], 'g') + ' px' if recipe['join_gap'] else 'no joining'}; "
         f"{recipe['epochs']} epochs (median of the folds' {recipe['fold_epochs']})")
 
@@ -337,7 +342,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     pixel = {}
     joined = 0
     for i, t in enumerate(test):
-        pred[i] = to_mask_size(prob[i], params.threshold, whole_photo(params))
+        p = prob_frame(prob[i], whole_photo(params))
+        pred[i] = p > params.threshold
+        if recipe["grow_low"]:                              # on the probabilities as development saved them
+            pred[i] = grow_mask(np.round(p * 255) / 255, recipe["grow_low"], pred[i], params.threshold)
         if recipe["join_gap"]:
             pred[i], k = join_pieces(pred[i], recipe["join_gap"])
             joined += k > 0
@@ -357,7 +365,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     row_index = np.array([test_rows.index(records[t].row) for t in test])
     dev_scores = recipe["development"]["scores"]
     report = {"named": recipe["named"], "run": recipe["run"], "params": asdict(params),
-              "mask_overlay": recipe["mask_overlay"], "join_gap": recipe["join_gap"], "epochs": recipe["epochs"],
+              "mask_overlay": recipe["mask_overlay"], "join_gap": recipe["join_gap"], "grow_low": recipe["grow_low"],
+              "epochs": recipe["epochs"],
               "fold_epochs": recipe["fold_epochs"], "seed": params.seed + SEED_OFFSET, "device": device,
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "minutes": minutes,
               "code": git_head(), "test_rows": test_rows, "n_trees": n, "n_dev": int(has.sum()),

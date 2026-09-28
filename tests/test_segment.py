@@ -434,5 +434,14 @@ def test_cli_on_whole_photos_of_the_local_trees(tmp_path, capsys):
     assert len(masks) == 21 and next(iter(masks.values())).shape == (256, 256)   # measured in the masks' frame
     joined = json.loads((results / "segment_lined_up_64x96_joined" / "report.json").read_text())
     assert joined["variant"] == "segment_lined_up_64x96_joined" and joined["n_trees"] == 21
+    grown = json.loads((results / "segment_lined_up_64x96_grown" / "report.json").read_text())
+    assert grown["grow"]["low"] in (0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05) and len(grown["grow"]["cldice"]) == 8
+    assert grown["masks"]["dice"]["n"] == 21                  # the grown masks against the lined-up hand masks
+    assert "Choosing the lower threshold" in text and (results / "segment_lined_up_64x96" / "probabilities.npz").exists()
+    # A results folder that holds a run is not overwritten by accident.
+    again = [*data, "--random-weights", "--device", "cpu", "--size", "64", "96", "--epochs", "1", "--examples", "0",
+             "--mask-overlay", str(ROOT / "annotations/mask_overlay.json"), "--out", str(results / "segment_lined_up_64x96"),
+             "--table", str(ROOT / "data/shape/shape_measures.csv"), "--split", str(ROOT / "splits.json")]
+    assert main(again) == 1 and "already holds a run" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         main([*data, "--size", "64", "100"])                  # 100 does not divide by 32

@@ -207,6 +207,7 @@ def test_segmentation_uses_only_lined_up_masks_moved(tmp_path):
                  "--table", str(ROOT / "data/shape/shape_measures.csv"),
                  "--traces", str(ROOT / "data/shape/winter_traces.npz"), "--split", str(ROOT / "splits.json")]) == 0
     report = json.loads((results / "segment_lined_up" / "report.json").read_text())
-    assert report["mask_overlay"] == str(path) and report["variant"] == "segment_lined_up_64"   # the size is in it
+    assert report["mask_overlay"] == str(path) and report["recipe"] == "segment_lined_up_64"    # the size is in it
+    assert report["variant"] == "segment_lined_up"                                              # its folder
     assert report["n_trees"] == 21 and report["n_masks"] == 20
     assert (tmp_path / "fig" / "segment_lined_up_skill.png").exists()

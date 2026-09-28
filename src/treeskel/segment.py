@@ -85,6 +85,18 @@ within :data:`JOIN_GAP` (about a trunk's width, fixed from the hand masks'
 geometry, never tuned on winter) are joined to the largest. Every run is
 also scored this way, into ``<run>_joined``, and both are reported.
 
+**Grown masks** (:func:`grow_mask`, :func:`grown_run`, session 12, the
+student's idea): where leaves hide a leader, the U-Net's probability often
+fades below 0.5 before the leader ends, so the mask stops short or breaks.
+On the lined-up run, 33 of 444 trees had a leader shorter than the stretch
+the angles are fitted over, and they carried 47% of the V opening's squared
+error. Each mask is grown into the less sure pixels connected to it
+(hysteresis thresholding), then joined. The lower threshold is the one of
+:data:`GROW_LOWS` whose masks best match the lined-up hand masks' centre
+lines (:func:`cl_dice`); the winter traces play no part. Training runs save
+their probabilities in the masks' frame (``probabilities.npz``) and write
+``<run>_grown`` beside ``<run>_joined``.
+
 Usage::
 
     python -m treeskel.segment data/raw                      # the student's PC (GPU); docs/results/segment/
@@ -94,6 +106,7 @@ Usage::
     python -m treeskel.segment data/raw --depth              # docs/results/segment_depth/
     python -m treeskel.segment --replot docs/results/segment # figures only
     python -m treeskel.segment --join docs/results/segment_lined_up   # its masks joined: segment_lined_up_joined/
+    python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun   # grown, threshold chosen again
 """
 
 from __future__ import annotations
@@ -562,14 +575,13 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
 # Scoring
 # --------------------------------------------------------------------------
 
-def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) -> np.ndarray:
-    """Probabilities to a 256x256 bool mask in the hand masks' frame, resized bilinearly first.
+def prob_frame(prob: np.ndarray, whole: bool = False) -> np.ndarray:
+    """Probabilities in the hand masks' 256x256 frame (float32), resized bilinearly.
 
     Args:
         prob: ``(S, S)`` probabilities in the masks' frame, or, with ``whole``,
             ``(H, W)`` over the whole photo, whose centre columns
             (:func:`known_columns`) are the masks' frame.
-        threshold: Probability above which a pixel is branch.
         whole: ``prob`` covers the whole photo.
     """
     from PIL import Image
@@ -582,7 +594,18 @@ def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) 
         p = np.ascontiguousarray(p[:, a:b])
     if p.shape != MASK_SHAPE:
         p = np.asarray(Image.fromarray(p).resize(MASK_SHAPE[::-1], Image.BILINEAR))
-    return p > threshold
+    return p
+
+
+def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) -> np.ndarray:
+    """Probabilities to a 256x256 bool mask in the hand masks' frame (:func:`prob_frame`), thresholded.
+
+    Args:
+        prob: As :func:`prob_frame`.
+        threshold: Probability above which a pixel is branch.
+        whole: ``prob`` covers the whole photo.
+    """
+    return prob_frame(prob, whole) > threshold
 
 
 def mask_scores(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
@@ -686,6 +709,100 @@ def _widest_near(half_width: np.ndarray, skeleton: np.ndarray, point: tuple[int,
     ys, xs = np.nonzero(skeleton)
     near = np.hypot(ys - point[0], xs - point[1]) <= max(reach, 1.0)
     return float(half_width[ys[near], xs[near]].max())
+
+
+GROW_LOWS = (0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05)
+"""The lower thresholds :func:`choose_low` tries for :func:`grow_mask`, fixed before any run (session 12);
+0.5 grows nothing."""
+
+
+def grow_mask(prob: np.ndarray, low: float, seed: np.ndarray | None = None, high: float = 0.5) -> np.ndarray:
+    """Hysteresis thresholding: the confident mask plus every less sure pixel connected to it.
+
+    Where leaves hide a leader, the U-Net's probability often fades below the
+    threshold before the leader ends, so the mask stops short or breaks. Here
+    pixels above ``low`` are kept wherever they connect (8-connected, through
+    other such pixels) to the confident mask; faint patches that touch no
+    confident pixel stay out. It uses only the network's own output.
+
+    Args:
+        prob: ``(H, W)`` probabilities.
+        low: Lower threshold; ``low >= high`` grows nothing.
+        seed: The confident mask (default ``prob > high``); pass the saved
+            mask so that it is kept exactly.
+        high: The threshold the mask was made with.
+
+    Returns:
+        ``(H, W)`` bool: ``seed`` and the grown pixels.
+    """
+    from scipy import ndimage as ndi
+
+    p = np.asarray(prob, np.float32)
+    seed = p > high if seed is None else np.asarray(seed, bool)
+    candidates = seed | (p > low)
+    lab, n = ndi.label(candidates, np.ones((3, 3)))
+    keep = np.zeros(n + 1, bool)
+    keep[np.unique(lab[seed])] = True
+    keep[0] = False
+    return keep[lab]
+
+
+def cl_dice(pred: np.ndarray, truth: np.ndarray) -> float:
+    """Centre-line Dice (Shit et al., 2021): how well two masks' centre lines lie in each other.
+
+    The harmonic mean of the fraction of the prediction's centre line inside
+    the truth (topology precision) and of the truth's centre line inside the
+    prediction (topology sensitivity). A leader that stops short or breaks
+    loses sensitivity; growth into leaves beside the branch loses precision.
+    Unlike the pixel Dice, it is not dominated by the wide trunk. NaN if
+    either mask is empty.
+    """
+    from skimage.morphology import skeletonize
+
+    p, t = np.asarray(pred, bool), np.asarray(truth, bool)
+    sp, st = skeletonize(p), skeletonize(t)
+    if not sp.any() or not st.any():
+        return float("nan")
+    prec, sens = (sp & t).sum() / sp.sum(), (st & p).sum() / st.sum()
+    return float(2 * prec * sens / (prec + sens)) if prec + sens > 0 else 0.0
+
+
+def choose_low(probs: dict[str, np.ndarray], seeds: dict[str, np.ndarray], hands: dict[str, np.ndarray],
+               lows: Sequence[float] = GROW_LOWS, gap: float = JOIN_GAP,
+               progress: Callable[[str], None] = print) -> tuple[float, dict[str, float]]:
+    """The lower threshold of :func:`grow_mask` whose masks, grown and joined, best match the hand masks'
+    centre lines (mean :func:`cl_dice` over the trees with a hand mask). The winter traces play no part.
+
+    Args:
+        probs: ``{tree: (256, 256) probabilities}`` in the masks' frame, each from the fold that held it out.
+        seeds: ``{tree: the saved mask}``.
+        hands: ``{tree: its (lined-up) hand mask}``.
+        lows: The thresholds tried; on a tie the higher (less growth) wins.
+        gap: The joining gap applied after growing, as in the scored masks.
+
+    Returns:
+        ``(chosen low, {str(low): mean clDice})``.
+    """
+    trees = [t for t in probs if t in hands]
+    table = {}
+    for low in lows:
+        vals = [cl_dice(join_pieces(grow_mask(probs[t], low, seeds[t]), gap)[0], hands[t]) for t in trees]
+        table[f"{low:g}"] = float(np.nanmean(vals))
+        progress(f"  lower threshold {low:<4g}: mean clDice {table[f'{low:g}']:.4f} ({len(trees)} trees)")
+    best = max(lows, key=lambda v: (round(table[f"{v:g}"], 6), v))
+    return float(best), table
+
+
+def save_probabilities(path: Path, ids: Sequence[str], probs: np.ndarray) -> None:
+    """Probability maps of many trees in the masks' frame, as uint8 (``round(255 p)``) in one ``.npz``."""
+    q = np.round(np.clip(np.asarray(probs, np.float32), 0, 1) * 255).astype(np.uint8)
+    np.savez_compressed(path, ids=np.array(ids), prob=q)
+
+
+def load_probabilities(path: Path) -> dict[str, np.ndarray]:
+    """Inverse of :func:`save_probabilities`: ``{tree: (256, 256) float32 in [0, 1]}``."""
+    with np.load(path) as z:
+        return {str(t): z["prob"][i].astype(np.float32) / 255 for i, t in enumerate(z["ids"])}
 
 
 def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
@@ -884,7 +1001,9 @@ JOINED_STYLE = ("#e34948", "h")
 its own marker (validated beside the lined-up run's violet; the markers tell the two apart)."""
 
 RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE,
-              "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H")}
+              "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H"),
+              "segment_lined_up_rerun": ("#1baf7a", "X"), "segment_lined_up_rerun_joined": ("#eda100", "h"),
+              "segment_lined_up_rerun_grown": ("#1baf7a", "*")}
 """The full-size runs (session 12) take the two slots not used by these figures, orange and yellow; their figure
 draws them between the square runs (:data:`FIGURE_RUNS`) so that no two warm colours are adjacent (checked with
 the palette validator)."""
@@ -893,9 +1012,16 @@ RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
              "segment_lined_up": "U-Net on the lined-up hand masks, its masks measured",
              "segment_lined_up_joined": "U-Net on the lined-up hand masks, pieces of its masks joined",
              "segment_lined_up_480x640": "U-Net on the lined-up hand masks, whole photo at 480x640",
-             "segment_lined_up_480x640_joined": "U-Net, whole photo at 480x640, pieces of its masks joined"}
+             "segment_lined_up_480x640_joined": "U-Net, whole photo at 480x640, pieces of its masks joined",
+             "segment_lined_up_rerun": "The lined-up U-Net trained again (probabilities saved)",
+             "segment_lined_up_rerun_joined": "The same run again, pieces of its masks joined",
+             "segment_lined_up_rerun_grown": "The same run again, masks grown into less sure pixels, then joined"}
 
-FIGURE_RUNS = {"segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
+FIGURE_RUNS = {"segment_lined_up_rerun": ("segment_lined_up", "segment_lined_up_rerun"),
+               "segment_lined_up_rerun_joined": ("segment_lined_up_joined", "segment_lined_up_rerun_joined"),
+               "segment_lined_up_rerun_grown": ("segment_lined_up_joined", "segment_lined_up_rerun_joined",
+                                                "segment_lined_up_rerun_grown"),
+               "segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
                "segment_lined_up_480x640_joined": ("segment_lined_up_480x640", "segment_lined_up",
                                                    "segment_lined_up_480x640_joined", "segment_lined_up_joined")}
 """The runs drawn (after the hand masks, in this order) in a run's skill figure, where not the default: the
@@ -1009,6 +1135,136 @@ def _value(text: str) -> float:
     return float(text) if text else float("nan")
 
 
+def _read_run(src: Path) -> tuple[dict, dict[str, dict]]:
+    """A saved run's report, and per tree its row, fold and ``(winter, mean shape, hand masks)`` per measure
+    (from its ``predictions.csv``, in its order)."""
+    source = json.loads((Path(src) / "report.json").read_text())
+    info: dict[str, dict] = {}
+    with open(Path(src) / "predictions.csv", newline="") as f:
+        for r in csv.DictReader(f):
+            t = info.setdefault(r["tree"], {"row": int(r["row"]), "fold": int(r["fold"])})
+            t[r["measure"]] = (_value(r["winter"]), _value(r["mean shape"]), _value(r["hand masks"]))
+    return source, info
+
+
+def _measure_all(masks: dict[str, np.ndarray], trees: Sequence[str]) -> np.ndarray:
+    """``(n, len(MEASURES))`` shape measures of each tree's mask (:func:`mask_shape`)."""
+    out = np.full((len(trees), len(MEASURES)), np.nan)
+    for i, t in enumerate(trees):
+        m, _ = mask_shape(masks[t])
+        out[i] = [m[k] for k in MEASURES]
+    return out
+
+
+def _rescored_run(src: Path, source: dict, info: dict[str, dict], trees: Sequence[str], final: dict[str, np.ndarray],
+                  seg: np.ndarray, out: Path, extra: dict, mask_header: Sequence[str], mask_rows: Sequence[Sequence],
+                  figures: Path | None, sheet: tuple[str, dict, dict] | None, versus: Sequence[tuple[str, str]],
+                  progress: Callable[[str], None]) -> list[str]:
+    """Score, print and save a saved run's masks after a change (:func:`joined_run`, :func:`grown_run`).
+
+    Args:
+        src, source, info: The run's folder, report and :func:`_read_run` measures.
+        trees: The trees, in order.
+        final: ``{tree: the changed mask}``; ``seg`` their measures (:func:`_measure_all`).
+        out: The new run's folder.
+        extra: Report entries of the change (its settings and counts, and the pixel scores).
+        mask_header, mask_rows: ``mask_scores.csv``.
+        figures: Where the skill figure and the contact sheet go (None: none).
+        sheet: ``(name, masks before, masks after)`` for :func:`draw_joins`, or None.
+        versus: Extra saved runs to compare with tree by tree, beside :data:`OTHER_RUNS`.
+        progress: Where the printed summary goes.
+
+    Returns:
+        Paths that could not be written.
+    """
+    y, mean, hand = (np.array([[info[t][k][c] for k in MEASURES] for t in trees]) for c in range(3))
+    folds = np.array([info[t]["fold"] for t in trees])
+    seg_filled = fill_failures(seg, mean)
+    report = {k: source[k] for k in ("n_masks", "mask_overlay", "params", "device", "weights", "epochs", "minutes")
+              if k in source}
+    report.update(n_trees=len(trees), variant=out.name, no_fork=int((~np.isfinite(seg).any(axis=1)).sum()))
+    report.update(extra)
+    report.update(scores={}, against_runs={})
+    for j, k in enumerate(MEASURES):
+        base = mean[:, j]
+        mean_shape = evaluate(y[:, j], base, base, folds)
+        mean_shape["r"] = None
+        report["scores"][k] = {"mean shape": mean_shape, "hand masks": evaluate(y[:, j], hand[:, j], base, folds),
+                               "segmentation": evaluate(y[:, j], seg_filled[:, j], base, folds),
+                               "segmentation, forks found": evaluate(y[:, j], seg[:, j], base, folds)}
+    for title, names in (("Headline (no reference direction)", HEADLINE), ("From the trunk's axis", TRUNK_RELATIVE),
+                         ("From the photo's vertical (camera roll adds to these)", VERTICAL)):
+        progress(f"\n{title}:")
+        print_scores(report, names)
+
+    failed: list[str] = []
+    out.mkdir(parents=True, exist_ok=True)
+
+    def write(path: Path, fn) -> None:
+        try:
+            fn(path)
+        except OSError as e:                                # e.g. open in a viewer on Windows
+            failed.append(f"{path}: {e.strerror or e}")
+
+    def predictions(path):
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["tree", "row", "fold", "measure", "winter", "mean shape", "hand masks", "segmentation"])
+            for i, t in enumerate(trees):
+                for j, k in enumerate(MEASURES):
+                    w.writerow([t, info[t]["row"], info[t]["fold"], k]
+                               + ["" if not np.isfinite(v) else f"{v:.2f}"
+                                  for v in (y[i, j], mean[i, j], hand[i, j], seg_filled[i, j])])
+
+    def mask_table(path):
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(mask_header)
+            w.writerows(mask_rows)
+
+    write(out / "predictions.csv", predictions)
+    write(out / "mask_scores.csv", mask_table)
+    write(out / "predicted_masks.npz", lambda p: save_masks(p, trees, np.stack([final[t] for t in trees])))
+    if (out / "predictions.csv").exists():
+        report["against_runs"] = against_runs(out, tuple(OTHER_RUNS) + tuple(versus))
+        print_against(report["against_runs"])
+    write(out / "report.json", lambda p: p.write_text(json.dumps(report, indent=2)))
+    if figures is not None:
+        figures = Path(figures)
+        figures.mkdir(parents=True, exist_ok=True)
+        if (out / "report.json").exists():
+            failed += replot(out, figures)
+        if sheet is not None and sheet[1]:
+            write(figures / f"{out.name}_{sheet[0]}.png", lambda p: draw_joins(sheet[1], sheet[2]).save(p))
+    progress(f"\nSaved {out}/ (report.json, predictions.csv, mask_scores.csv, predicted_masks.npz)")
+    return failed
+
+
+def _pixel_columns(src: Path, trees: Sequence[str], final: dict[str, np.ndarray],
+                   hands: dict[str, np.ndarray] | None) -> tuple[dict, str, dict[str, list]]:
+    """Pixel scores for a re-scored run: against the hand masks if given, else the run's own (of the masks
+    before the change). Returns ``(report summary, note, {tree: row values})``."""
+    rows: dict[str, list] = {}
+    if hands is not None:
+        per = {t: mask_scores(final[t], hands[t]) for t in trees if t in hands}
+        summary = {}
+        for c in MASK_COLUMNS:
+            v = np.array([per[t][c] for t in per], float)
+            v = v[np.isfinite(v)]
+            summary[c] = {"median": float(np.median(v)) if len(v) else None,
+                          "mean": float(v.mean()) if len(v) else None, "n": int(len(v))}
+        for t in trees:
+            rows[t] = ["" if t not in per or not np.isfinite(per[t][c]) else f"{per[t][c]:.4f}" for c in MASK_COLUMNS]
+        return summary, "pixel scores of the changed masks against the hand masks", rows
+    pixel = {}
+    if (Path(src) / "mask_scores.csv").exists():
+        with open(Path(src) / "mask_scores.csv", newline="") as f:
+            pixel = {r["tree"]: r for r in csv.DictReader(f)}
+    for t in trees:
+        rows[t] = [pixel.get(t, {}).get(c, "") for c in MASK_COLUMNS]
+    return json.loads((Path(src) / "report.json").read_text()).get("masks", {}), "pixel scores of the masks before the change", rows
+
+
 def joined_run(src: Path, gap: float = JOIN_GAP, out: Path | None = None, figures: Path | None = None,
                progress: Callable[[str], None] = print) -> tuple[Path, list[str]]:
     """Score a saved run's masks again after joining their pieces (:func:`join_pieces`).
@@ -1034,108 +1290,110 @@ def joined_run(src: Path, gap: float = JOIN_GAP, out: Path | None = None, figure
         ``(out, paths that could not be written)``.
     """
     src = Path(src)
-    source = json.loads((src / "report.json").read_text())
+    source, info = _read_run(src)
     masks = load_masks(src / "predicted_masks.npz")
-    info: dict[str, dict] = {}
-    with open(src / "predictions.csv", newline="") as f:
-        for r in csv.DictReader(f):
-            t = info.setdefault(r["tree"], {"row": int(r["row"]), "fold": int(r["fold"])})
-            t[r["measure"]] = (_value(r["winter"]), _value(r["mean shape"]), _value(r["hand masks"]))
     trees = [t for t in info if t in masks]
     out = Path(out) if out else src.parent / (f"{src.name}_joined" if gap == JOIN_GAP else f"{src.name}_joined_{gap:g}")
-    y, mean, hand = (np.array([[info[t][k][c] for k in MEASURES] for t in trees]) for c in range(3))
-    folds = np.array([info[t]["fold"] for t in trees])
-    seg, seg0 = np.full((len(trees), len(MEASURES)), np.nan), np.full((len(trees), len(MEASURES)), np.nan)
     joined, pieces, added = {}, np.zeros(len(trees), int), np.zeros(len(trees), int)
     for i, t in enumerate(trees):
         joined[t], pieces[i] = join_pieces(masks[t], gap)
         added[i] = int((joined[t] & ~masks[t]).sum())
-        m, _ = mask_shape(joined[t])
-        seg[i] = [m[k] for k in MEASURES]
-        seg0[i] = [mask_shape(masks[t])[0][k] for k in MEASURES] if pieces[i] else seg[i]   # unchanged: once
+    seg = _measure_all(joined, trees)
+    seg0 = seg.copy()
+    changed = [i for i in range(len(trees)) if pieces[i]]
+    seg0[changed] = _measure_all(masks, [trees[i] for i in changed])            # unchanged masks: measured once
     before, after = np.isfinite(seg0).any(axis=1), np.isfinite(seg).any(axis=1)   # as main: no measure = no fork
     v = MEASURES.index("v_opening")
-    seg_filled = fill_failures(seg, mean)
+    join = {"source": str(src), "gap": gap, "masks_joined": int((pieces > 0).sum()),
+            "pieces_joined": int(pieces.sum()), "pixels_added": int(added.sum()),
+            "no_fork_before": int((~before).sum()), "no_fork_after": int((~after).sum()),
+            "v_opening_before": int(np.isfinite(seg0[:, v]).sum()), "v_opening_after": int(np.isfinite(seg[:, v]).sum()),
+            "forks_found_by_joining": [t for i, t in enumerate(trees) if after[i] and not before[i]],
+            "forks_lost_by_joining": [t for i, t in enumerate(trees) if before[i] and not after[i]]}
+    progress(f"Joined pieces within {gap:g} px in {_n(join['masks_joined'], 'mask')} of {len(trees)} "
+             f"({_n(join['pieces_joined'], 'piece')}, {join['pixels_added']} pixels added); masks with no fork "
+             f"{join['no_fork_before']} -> {join['no_fork_after']}; with a V opening {join['v_opening_before']} -> "
+             f"{join['v_opening_after']}")
+    masks_summary, _, pixel = _pixel_columns(src, trees, joined, None)
+    header = ["tree", "row", "fold", "fork_found", "fork_found_before", "pieces_joined", "pixels_added",
+              *(f"{c}_before_joining" for c in MASK_COLUMNS)]
+    rows = [[t, info[t]["row"], info[t]["fold"], int(after[i]), int(before[i]), int(pieces[i]), int(added[i]),
+             *pixel[t]] for i, t in enumerate(trees)]
+    moved = [t for i, t in enumerate(trees) if pieces[i]]
+    failed = _rescored_run(src, source, info, trees, joined, seg, out,
+                           {"masks": masks_summary, "masks_note": "pixel scores of the masks before joining",
+                            "join": join},
+                           header, rows, figures, ("masks", {t: masks[t] for t in moved}, {t: joined[t] for t in moved}),
+                           ((src.name, "segmentation"),), progress)
+    return out, failed
 
-    report = {k: source[k] for k in ("n_masks", "mask_overlay", "params", "device", "weights", "epochs", "minutes")
-              if k in source}
-    report.update(n_trees=len(trees), variant=out.name, no_fork=int((~after).sum()),
-                  masks=source.get("masks", {}), masks_note="pixel scores of the masks before joining",
-                  join={"source": str(src), "gap": gap, "masks_joined": int((pieces > 0).sum()),
-                        "pieces_joined": int(pieces.sum()), "pixels_added": int(added.sum()),
-                        "no_fork_before": int((~before).sum()), "no_fork_after": int((~after).sum()),
-                        "v_opening_before": int(np.isfinite(seg0[:, v]).sum()),
-                        "v_opening_after": int(np.isfinite(seg[:, v]).sum()),
-                        "forks_found_by_joining": [t for i, t in enumerate(trees) if after[i] and not before[i]],
-                        "forks_lost_by_joining": [t for i, t in enumerate(trees) if before[i] and not after[i]]},
-                  scores={}, against_runs={})
-    for j, k in enumerate(MEASURES):
-        base = mean[:, j]
-        mean_shape = evaluate(y[:, j], base, base, folds)
-        mean_shape["r"] = None
-        report["scores"][k] = {"mean shape": mean_shape, "hand masks": evaluate(y[:, j], hand[:, j], base, folds),
-                               "segmentation": evaluate(y[:, j], seg_filled[:, j], base, folds),
-                               "segmentation, forks found": evaluate(y[:, j], seg[:, j], base, folds)}
-    jn = report["join"]
-    progress(f"Joined pieces within {gap:g} px in {_n(jn['masks_joined'], 'mask')} of {len(trees)} "
-             f"({_n(jn['pieces_joined'], 'piece')}, {jn['pixels_added']} pixels added); masks with no fork "
-             f"{jn['no_fork_before']} -> {jn['no_fork_after']}; with a V opening {jn['v_opening_before']} -> "
-             f"{jn['v_opening_after']}")
-    for title, names in (("Headline (no reference direction)", HEADLINE), ("From the trunk's axis", TRUNK_RELATIVE),
-                         ("From the photo's vertical (camera roll adds to these)", VERTICAL)):
-        progress(f"\n{title}:")
-        print_scores(report, names)
 
-    failed: list[str] = []
-    out.mkdir(parents=True, exist_ok=True)
+def grown_run(src: Path, low: float, choice: dict | None = None, hands: dict[str, np.ndarray] | None = None,
+              gap: float = JOIN_GAP, out: Path | None = None, figures: Path | None = None,
+              progress: Callable[[str], None] = print) -> tuple[Path, list[str]]:
+    """Score a saved run's masks again after growing them (:func:`grow_mask`) and joining their pieces.
 
-    def write(path: Path, fn) -> None:
-        try:
-            fn(path)
-        except OSError as e:                                # e.g. open in a viewer on Windows
-            failed.append(f"{path}: {e.strerror or e}")
+    Like :func:`joined_run`, from the run's own files, plus its
+    ``probabilities.npz``: each saved mask is grown into the pixels above
+    ``low`` connected to it, then joined (:func:`join_pieces`), then measured.
+    The result goes to ``<run>_grown`` and is compared tree by tree with
+    ``<run>_joined`` (the same network, joined only) and the other saved runs.
 
-    def predictions(path):
-        with open(path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["tree", "row", "fold", "measure", "winter", "mean shape", "hand masks", "segmentation"])
-            for i, t in enumerate(trees):
-                for j, k in enumerate(MEASURES):
-                    w.writerow([t, info[t]["row"], info[t]["fold"], k]
-                               + ["" if not np.isfinite(v) else f"{v:.2f}"
-                                  for v in (y[i, j], mean[i, j], hand[i, j], seg_filled[i, j])])
+    Args:
+        src: The saved run's folder (with ``probabilities.npz``).
+        low: The lower threshold (chosen by :func:`choose_low`, never on winter).
+        choice: How ``low`` was chosen (``{str(low): mean clDice}``), for the report.
+        hands: ``{tree: hand mask}`` for pixel scores of the grown masks (else the run's own, before growing).
+        gap: The joining gap after growing.
+        out: Results folder (default ``<run>_grown``).
+        figures: Where the skill figure and the contact sheet of the most grown masks go (None: none).
+        progress: Where the printed summary goes.
 
-    pixel = {}
-    if (src / "mask_scores.csv").exists():
-        with open(src / "mask_scores.csv", newline="") as f:
-            pixel = {r["tree"]: r for r in csv.DictReader(f)}
-
-    def mask_table(path):
-        with open(path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["tree", "row", "fold", "fork_found", "fork_found_before", "pieces_joined", "pixels_added",
-                        *(f"{c}_before_joining" for c in MASK_COLUMNS)])
-            for i, t in enumerate(trees):
-                w.writerow([t, info[t]["row"], info[t]["fold"], int(after[i]), int(before[i]), int(pieces[i]),
-                            int(added[i]), *(pixel.get(t, {}).get(c, "") for c in MASK_COLUMNS)])
-
-    write(out / "predictions.csv", predictions)
-    write(out / "mask_scores.csv", mask_table)
-    write(out / "predicted_masks.npz", lambda p: save_masks(p, trees, np.stack([joined[t] for t in trees])))
-    if (out / "predictions.csv").exists():
-        report["against_runs"] = against_runs(out, OTHER_RUNS + ((src.name, "segmentation"),))
-        print_against(report["against_runs"])
-    write(out / "report.json", lambda p: p.write_text(json.dumps(report, indent=2)))
-    if figures is not None:
-        figures = Path(figures)
-        figures.mkdir(parents=True, exist_ok=True)
-        if (out / "report.json").exists():
-            failed += replot(out, figures)
-        changed = [t for i, t in enumerate(trees) if pieces[i] > 0]
-        if changed:
-            write(figures / f"{out.name}_masks.png",
-                  lambda p: draw_joins({t: masks[t] for t in changed}, {t: joined[t] for t in changed}).save(p))
-    progress(f"\nSaved {out}/ (report.json, predictions.csv, mask_scores.csv, predicted_masks.npz)")
+    Returns:
+        ``(out, paths that could not be written)``.
+    """
+    src = Path(src)
+    source, info = _read_run(src)
+    masks = load_masks(src / "predicted_masks.npz")
+    probs = load_probabilities(src / "probabilities.npz")
+    trees = [t for t in info if t in masks and t in probs]
+    out = Path(out) if out else src.parent / f"{src.name}_grown"
+    high = float(source.get("params", {}).get("threshold", 0.5))
+    final, grown_px, pieces = {}, np.zeros(len(trees), int), np.zeros(len(trees), int)
+    for i, t in enumerate(trees):
+        grown = grow_mask(probs[t], low, masks[t], high)
+        grown_px[i] = int((grown & ~masks[t]).sum())
+        final[t], pieces[i] = join_pieces(grown, gap)
+    seg = _measure_all(final, trees)
+    joined_only = {t: join_pieces(masks[t], gap)[0] for t in trees}
+    seg0 = _measure_all(joined_only, trees)
+    v = MEASURES.index("v_opening")
+    before, after = np.isfinite(seg0).any(axis=1), np.isfinite(seg).any(axis=1)
+    change = np.abs(seg - seg0)                             # a measure gained or lost counts as changed
+    change[np.isnan(seg) != np.isnan(seg0)] = np.inf
+    moved = np.nan_to_num(change, nan=0.0).max(axis=1)
+    grow = {"source": str(src), "low": low, "high": high, "chosen_by": "mean clDice against the lined-up hand masks",
+            "cldice": choice or {}, "masks_grown": int((grown_px > 0).sum()), "pixels_added": int(grown_px.sum()),
+            "no_fork_joined_only": int((~before).sum()), "no_fork_grown": int((~after).sum()),
+            "v_opening_joined_only": int(np.isfinite(seg0[:, v]).sum()),
+            "v_opening_grown": int(np.isfinite(seg[:, v]).sum()),
+            "masks_whose_measures_changed": int((moved > 0.5).sum())}
+    progress(f"Grown into pixels above {low:g} connected to each mask: {_n(grow['masks_grown'], 'mask')} of "
+             f"{len(trees)} grew ({grow['pixels_added']} pixels); then joined within {gap:g} px. Masks with no fork "
+             f"(joined only -> grown) {grow['no_fork_joined_only']} -> {grow['no_fork_grown']}; with a V opening "
+             f"{grow['v_opening_joined_only']} -> {grow['v_opening_grown']}; measures moved by more than 0.5 degrees "
+             f"in {grow['masks_whose_measures_changed']}")
+    masks_summary, note, pixel = _pixel_columns(src, trees, final, hands)
+    header = ["tree", "row", "fold", "fork_found", "fork_found_joined_only", "pixels_grown", "pieces_joined",
+              "largest_change_deg", *(MASK_COLUMNS if hands is not None else
+                                      tuple(f"{c}_before_growing" for c in MASK_COLUMNS))]
+    rows = [[t, info[t]["row"], info[t]["fold"], int(after[i]), int(before[i]), int(grown_px[i]), int(pieces[i]),
+             f"{moved[i]:.2f}", *pixel[t]] for i, t in enumerate(trees)]
+    top = [trees[i] for i in np.argsort(-moved)[:48] if moved[i] > 0.5]
+    failed = _rescored_run(src, source, info, trees, final, seg, out,
+                           {"masks": masks_summary, "masks_note": note, "grow": grow, "join": {"gap": gap}},
+                           header, rows, figures, ("masks", {t: masks[t] for t in top}, {t: final[t] for t in top}),
+                           ((src.name, "segmentation"), (f"{src.name}_joined", "segmentation")), progress)
     return out, failed
 
 
@@ -1172,6 +1430,46 @@ def draw_joins(before: dict[str, np.ndarray], after: dict[str, np.ndarray], colu
     return sheet
 
 
+def _grow_and_score(run: Path, hands: dict[str, np.ndarray], gap: float, figures: Path | None,
+                    low: float | None = None) -> list[str]:
+    """Choose the lower threshold on the hand masks (unless given) and score the run's grown masks."""
+    print("\n--- The same masks grown into the less sure pixels connected to them, then joined ---")
+    if low is None:
+        print("Choosing the lower threshold by the hand masks' centre lines (mean clDice; the winter traces play "
+              "no part):", flush=True)
+        probs = load_probabilities(run / "probabilities.npz")
+        seeds = load_masks(run / "predicted_masks.npz")
+        low, choice = choose_low(probs, seeds, hands, gap=gap, progress=lambda m: print(m, flush=True))
+        print(f"Chosen: {low:g}", flush=True)
+    else:
+        choice = None
+    return grown_run(run, low, choice, hands or None, gap, figures=figures)[1]
+
+
+def _grow_command(args) -> int:
+    """``--grow DIR``: grow a saved run's masks, with ``--grow-low`` or a threshold chosen on the hand masks."""
+    run = Path(args.grow)
+    if args.grow_low is None and not args.data_dirs:
+        print("Choosing the lower threshold needs the hand masks: give the dataset folder(s), or --grow-low.")
+        return 1
+    hands: dict[str, np.ndarray] = {}
+    if args.data_dirs:
+        from treeskel.io import index_dataset
+        from treeskel.summer_gt import load_overlays
+
+        source = json.loads((run / "report.json").read_text())
+        overlays = load_overlays(source["mask_overlay"]) if source.get("mask_overlay") else None
+        records = {t.tree_id: t for d in args.data_dirs for t in index_dataset(d).trees}
+        for t in load_masks(run / "predicted_masks.npz"):
+            hm = hand_mask(records[t], overlays) if t in records else None
+            if hm is not None:
+                hands[t] = hm
+    failed = _grow_and_score(run, hands, args.join_gap, Path(args.figures), args.grow_low)
+    for f in failed:
+        print(f"Could not write {f}")
+    return 1 if failed else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Train on the development rows' hand masks, fold by fold, and score the masks and their shape
     (or, with ``--replot``, only redraw the figures from a saved run)."""
@@ -1201,6 +1499,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="only score a saved run's masks again with their pieces joined (writes DIR_joined)")
     ap.add_argument("--join-gap", type=float, default=JOIN_GAP,
                     help=f"largest gap joined, mask px (default {JOIN_GAP:g}: about a trunk's width, fixed)")
+    ap.add_argument("--grow", metavar="DIR",
+                    help="only score a saved run's masks again, grown into the less sure pixels connected to them "
+                         "and joined (writes DIR_grown); the lower threshold is --grow-low, or chosen on the hand "
+                         "masks if the dataset folder(s) are given")
+    ap.add_argument("--grow-low", type=float, help="the lower threshold for --grow (default: chosen by clDice)")
+    ap.add_argument("--overwrite", action="store_true", help="train even if the results folder holds a run")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
     args = ap.parse_args(argv)
 
@@ -1216,8 +1520,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         for f in failed:
             print(f"Could not write {f}")
         return 1 if failed else 0
+    if args.grow:
+        return _grow_command(args)
     if not args.data_dirs:
-        ap.error("give the dataset folder(s), or --replot or --join")
+        ap.error("give the dataset folder(s), or --replot, --join or --grow")
     if len(args.size) > 2 or any(v % 32 for v in args.size):
         ap.error(f"--size takes one or two numbers, each divisible by 32; got {args.size}")
     size = args.size[0] if len(args.size) == 1 else (args.size[0], args.size[1])
@@ -1226,6 +1532,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     params = SegParams(size=size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
                        depth=args.depth)
+    out = Path(args.out or f"docs/results/{variant(params, args.mask_overlay is not None)}")
+    if (out / "report.json").exists() and not args.overwrite:
+        print(f"{out} already holds a run. Give another --out (e.g. {out}_2), or --overwrite to replace it.")
+        return 1
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
     table = load_table(args.table)
@@ -1278,12 +1588,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     done = cv["fold"] >= 0
     pred_masks = np.zeros((len(trees),) + MASK_SHAPE, bool)
+    probs = np.zeros((len(trees),) + MASK_SHAPE, np.float32)          # in the masks' frame, for growing
     seg = np.full((len(trees), len(MEASURES)), np.nan)
     scores = {t: dict.fromkeys(MASK_COLUMNS, float("nan")) for t in trees}
     for i, t in enumerate(trees):
         if not done[i]:
             continue
-        pred_masks[i] = to_mask_size(cv["prob"][i], params.threshold, whole_photo(params))
+        probs[i] = prob_frame(cv["prob"][i], whole_photo(params))
+        pred_masks[i] = probs[i] > params.threshold                  # as to_mask_size
         m, _ = mask_shape(pred_masks[i])
         seg[i] = [m[k] for k in MEASURES]
         if has[i]:
@@ -1299,7 +1611,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     no_fork = int((done & ~np.isfinite(seg).any(axis=1)).sum())
     seg_filled = fill_failures(seg, mean)
 
-    report = {"n_trees": int(done.sum()), "n_masks": int((done & has).sum()), "variant": variant(params, overlays is not None),
+    report = {"n_trees": int(done.sum()), "n_masks": int((done & has).sum()),
+              "variant": out.name, "recipe": variant(params, overlays is not None),   # its folder; its settings' name
               "mask_overlay": args.mask_overlay,
               "params": asdict(params), "device": cv["device"],
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "epochs": cv["epochs"],
@@ -1329,7 +1642,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"\n{title}:")
         print_scores(report, names)
 
-    out = Path(args.out or f"docs/results/{variant(params, overlays is not None)}")
     out.mkdir(parents=True, exist_ok=True)
     failed: list[str] = []
 
@@ -1370,6 +1682,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     write(out / "training_log.csv", training_log)
     write(out / "predicted_masks.npz", lambda p: save_masks(p, [t for i, t in enumerate(trees) if done[i]],
                                                             pred_masks[done]))
+    write(out / "probabilities.npz", lambda p: save_probabilities(p, [t for i, t in enumerate(trees) if done[i]],
+                                                                  probs[done]))
     # Tree by tree against the other runs, on the same trees and folds.
     if (out / "predictions.csv").exists():
         report["against_runs"] = against_runs(out)
@@ -1404,6 +1718,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (out / "predictions.csv").exists() and (out / "predicted_masks.npz").exists():
         print(f"\n--- The same masks with their pieces joined (gaps up to {args.join_gap:g} px) ---")
         failed += joined_run(out, args.join_gap, figures=figures)[1]
+    if (out / "predictions.csv").exists() and (out / "probabilities.npz").exists():
+        hands = {t: hand_mask(records[t], overlays) for i, t in enumerate(trees) if done[i] and has[i]}
+        failed += _grow_and_score(out, hands, args.join_gap, figures)
     for f in failed:
         print(f"Could not write {f}")
     return 0

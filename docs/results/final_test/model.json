@@ -1,0 +1,6 @@
+{
+  "run": "docs/results/segment_lined_up_joined",
+  "named": "2026-09-28, session 12, by the rule in naming_rule.md (fixed before the full-size results)",
+  "why": "the full-size joined run did not beat it tree by tree on the V opening (MAE 4.0 -> 4.3 degrees, Wilcoxon p = 0.89), so the simpler 256 joined run is named",
+  "evidence": "docs/results/segment_lined_up_480x640_joined/report.json: against_runs.segment_lined_up_joined.v_opening"
+}
