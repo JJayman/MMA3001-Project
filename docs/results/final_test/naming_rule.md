@@ -118,3 +118,9 @@ measure was scored**. The final test was not run in between.
   way as a replicate; it is reported, not used to decide.
 - **The leaf check** (`docs/results/leaf_prior/leaf_check.py`, the student's PC) describes where the leaves
   lie around the hand-mask leaders; it decides nothing here.
+
+**Applied (scored from the saved masks, after the commit above):** the named run: 31 trees had a short
+leader completed (a = -2.78, c = +0.69 on all trees). On the V opening, tree by tree against
+`segment_lined_up_joined`: MAE 4.100° → 4.102°, p = 0.78; on the 31 trees it changed, 8.33° → 8.36°
+(12 closer, 15 farther). **Not adopted;** `model.json` stays as it is. The re-run replicate agrees (4.105°
+→ 4.133°, p = 0.65).

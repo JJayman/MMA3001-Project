@@ -1,4 +1,4 @@
-# Completing the broken leaders: the re-run, growing and continuing
+# Completing the broken leaders: the re-run, growing, continuing and shape completion
 
 Session 12, after the model for the final test had been named (`../final_test/naming_rule.md`). The
 student saw many predicted leaders stop short or break, and proposed completing them before the final
@@ -67,10 +67,32 @@ predicted). Differences between variants smaller than this are not worth reading
     paths); it trimmed the trunk's uneven bulges where the local half-width misses them, which moves the
     trunk's centre line near the fork, and with it the angles measured from the trunk.
 
+## Predicting short leaders' lines from the leaders' shapes (`segment_lined_up_completed`)
+
+- **Method (the student's next idea):** where a leader stops though the leaves go on, predict where it goes
+  from the shapes of the leaders the model draws in full. A short leader's line over the whole stretch is
+  its visible line moved by `a·g + c·g·bend` outwards (`g` the missing fraction of the stretch, `bend` the
+  visible part's), fitted by least squares on complete leaders cut short on purpose, per fold on the other
+  folds' trees (`treeskel.segment.complete_measures`, `--complete`). Masks unchanged.
+- **Why it looked promising (no winter used):** cutting complete predicted leaders back to the short ones'
+  lengths moves the V opening by 2.7° on average, about the whole excess error of trees with a short leader
+  (6.8° against 3.7° on the re-run); on the cut complete leaders the model reduces that from 2.72° to 1.95°.
+  Fitted on the named run: lines turn 2.8° more upright over a missing stretch and keep 0.69 of the visible
+  part's turning.
+- **Applied to the named run itself:** 31 trees changed. V opening MAE 4.100° → 4.102°, p = 0.78; on the 31
+  trees, 8.33° → 8.36° (12 closer, 15 farther). **Not adopted.** The re-run replicate agrees (39 trees,
+  6.84° → 7.16°; p = 0.65). The right leader's angle from the trunk got worse on the changed trees
+  (7.70° → 9.11°; 1 closer, 13 farther).
+- **Why:** on these trees the V opening as predicted is not biased (mean +1.1°, median +0.2° from winter),
+  but far off either way (MAE 8.3°). The cutting test assumed the visible part of a short leader is right
+  and only the rest is missing; on real short leaders the visible part itself is unreliable, drawn under
+  the same leaves that stopped it.
+
 ## What this means
 
 Most short leaders are not broken but missing: the network sees no leader there, neither above 0.5 nor
-as faint probability that stays on the leader, nor as a piece further on. Leaves hide them, and no
+as faint probability that stays on the leader, nor as a piece further on; and where it stops, what it
+did draw of the leader is unreliable too, so predicting the rest from its shape does not help either. Leaves hide them, and no
 post-processing of the mask brings back what the photo does not show. The trees with short leaders
 remain the largest source of error, and a limitation to report. The 256 joined run stays named
 (`../final_test/model.json`).

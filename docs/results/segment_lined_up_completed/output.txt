@@ -1,0 +1,115 @@
+Short leaders' lines predicted over the whole stretch in 31 trees (32 leaders); model fitted per fold on the other folds' complete leaders (all trees: a = -2.78, c = +0.694)
+
+Headline (no reference direction):
+
+  measure      model                  n    MAE   RMSE  skill     r   bias better        p  per-fold skill
+  v_opening    mean shape           449   9.76  12.66  +0.00     -  +0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  v_opening    hand masks           448   3.34   4.58  +0.87  0.93  +0.07    78%  8.3e-46  +0.80 +0.90 +0.83 +0.91 +0.88
+  v_opening    segmentation         444   4.10   6.26  +0.75  0.86  -0.31    76%  8.0e-40  +0.52 +0.85 +0.82 +0.74 +0.87
+  v_opening    segmentation, forks found  442   3.96   5.81  +0.78  0.88  -0.15    77%  8.0e-40  +0.58 +0.85 +0.82 +0.78 +0.87
+  left_bend    mean shape           449   9.53  12.14  +0.00     -  -0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  left_bend    hand masks           448   5.11   6.64  +0.70  0.86  -0.38    71%  6.2e-26  +0.67 +0.62 +0.75 +0.76 +0.70
+  left_bend    segmentation         448   5.50   7.71  +0.60  0.78  -0.55    69%  2.7e-25  +0.41 +0.38 +0.77 +0.66 +0.81
+  left_bend    segmentation, forks found  446   5.46   7.65  +0.60  0.78  -0.57    69%  2.7e-25  +0.42 +0.38 +0.77 +0.68 +0.81
+  right_bend   mean shape           449   8.77  11.26  +0.00     -  -0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  right_bend   hand masks           448   5.21   7.05  +0.61  0.80  -0.46    67%  1.1e-19  +0.62 +0.45 +0.57 +0.61 +0.75
+  right_bend   segmentation         445   5.58   7.73  +0.53  0.74  -0.97    66%  2.4e-16  +0.44 +0.44 +0.30 +0.67 +0.72
+  right_bend   segmentation, forks found  443   5.59   7.75  +0.53  0.74  -0.97    66%  2.4e-16  +0.44 +0.44 +0.30 +0.67 +0.72
+
+From the trunk's axis:
+
+  measure      model                  n    MAE   RMSE  skill     r   bias better        p  per-fold skill
+  left_angle   mean shape           448  13.04  17.36  +0.00     -  +0.02     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  left_angle   hand masks           447   6.29   8.73  +0.75  0.88  +2.89    72%  6.5e-31  +0.78 +0.82 +0.74 +0.76 +0.63
+  left_angle   segmentation         445   7.19  10.33  +0.65  0.81  +2.76    69%  9.9e-27  +0.60 +0.77 +0.69 +0.67 +0.57
+  left_angle   segmentation, forks found  443   7.02   9.74  +0.67  0.83  +2.97    70%  9.9e-27  +0.69 +0.77 +0.69 +0.67 +0.57
+  right_angle  mean shape           448  13.82  17.74  +0.00     -  -0.01     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  right_angle  hand masks           447   6.38   8.92  +0.75  0.88  -2.82    76%  2.8e-35  +0.77 +0.83 +0.72 +0.79 +0.60
+  right_angle  segmentation         444   7.03   9.58  +0.71  0.86  -2.98    76%  4.4e-34  +0.74 +0.77 +0.66 +0.78 +0.56
+  right_angle  segmentation, forks found  442   6.95   9.45  +0.72  0.86  -3.04    76%  4.4e-34  +0.76 +0.77 +0.66 +0.78 +0.56
+  lean         mean shape           448  12.25  16.37  +0.00     -  -0.02     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  lean         hand masks           447   6.08   8.52  +0.73  0.87  -2.85    71%  2.1e-28  +0.77 +0.81 +0.72 +0.75 +0.58
+  lean         segmentation         443   6.62   9.38  +0.67  0.84  -2.81    70%  4.9e-29  +0.69 +0.75 +0.66 +0.76 +0.53
+  lean         segmentation, forks found  441   6.52   9.06  +0.69  0.85  -2.95    71%  4.9e-29  +0.74 +0.75 +0.66 +0.76 +0.53
+
+From the photo's vertical (camera roll adds to these):
+
+  measure      model                  n    MAE   RMSE  skill     r   bias better        p  per-fold skill
+  trunk_tilt   mean shape           448  10.87  15.11  +0.00     -  +0.02     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  trunk_tilt   hand masks           447   5.73   8.25  +0.70  0.84  +1.42    69%  8.7e-25  +0.73 +0.78 +0.76 +0.67 +0.55
+  trunk_tilt   segmentation         446   6.27   9.02  +0.64  0.81  +1.39    70%  2.4e-27  +0.66 +0.72 +0.68 +0.64 +0.52
+  trunk_tilt   segmentation, forks found  444   6.19   8.80  +0.66  0.82  +1.48    70%  2.4e-27  +0.69 +0.72 +0.68 +0.64 +0.52
+  left_tilt    mean shape           449   7.13   8.91  +0.00     -  +0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  left_tilt    hand masks           448   3.06   3.89  +0.80  0.91  -1.46    75%  1.2e-38  +0.80 +0.88 +0.64 +0.85 +0.83
+  left_tilt    segmentation         448   3.65   4.97  +0.68  0.84  -1.37    72%  1.9e-30  +0.47 +0.86 +0.64 +0.65 +0.80
+  left_tilt    segmentation, forks found  446   3.56   4.68  +0.71  0.86  -1.49    72%  1.9e-30  +0.53 +0.86 +0.64 +0.70 +0.80
+  right_tilt   mean shape           449   6.95   8.55  +0.00     -  +0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  right_tilt   hand masks           448   3.14   4.45  +0.73  0.87  -1.39    73%  5.4e-36  +0.55 +0.84 +0.54 +0.89 +0.81
+  right_tilt   segmentation         445   3.54   5.04  +0.65  0.84  -1.68    74%  1.3e-31  +0.44 +0.78 +0.45 +0.80 +0.76
+  right_tilt   segmentation, forks found  443   3.52   5.01  +0.65  0.84  -1.65    74%  1.3e-31  +0.45 +0.78 +0.45 +0.81 +0.76
+  lean_v       mean shape           449   4.84   6.01  +0.00     -  +0.00     0%  1.0e+00  +0.00 +0.00 +0.00 +0.00 +0.00
+  lean_v       hand masks           448   2.67   3.50  +0.66  0.86  -1.43    67%  2.1e-23  +0.55 +0.79 +0.43 +0.81 +0.76
+  lean_v       segmentation         444   3.00   3.90  +0.57  0.82  -1.52    64%  8.0e-17  +0.39 +0.77 +0.37 +0.72 +0.70
+  lean_v       segmentation, forks found  442   2.98   3.87  +0.58  0.82  -1.56    65%  8.0e-17  +0.40 +0.77 +0.37 +0.73 +0.70
+
+Against shape_cnn, tree by tree (MAE: shape_cnn -> segmentation; trees predicted more closely; Wilcoxon p):
+  v_opening      8.8 ->   4.1    75%   p 4.8e-36
+  left_angle    11.8 ->   7.2    69%   p 2.0e-22
+  right_angle   11.3 ->   7.0    66%   p 3.2e-18
+  lean          10.6 ->   6.6    69%   p 1.4e-19
+  left_bend      9.1 ->   5.5    71%   p 1.2e-22
+  right_bend     8.5 ->   5.6    64%   p 4.3e-15
+  trunk_tilt     8.8 ->   6.3    62%   p 1.4e-12
+  left_tilt      6.2 ->   3.7    67%   p 2.4e-21
+  right_tilt     6.3 ->   3.5    71%   p 1.4e-25
+  lean_v         4.4 ->   3.0    64%   p 2.0e-12
+
+Against shape_cnn_480x640, tree by tree (MAE: shape_cnn_480x640 -> segmentation; trees predicted more closely; Wilcoxon p):
+  v_opening      8.7 ->   4.1    73%   p 2.3e-32
+  left_angle    11.2 ->   7.2    64%   p 4.0e-18
+  right_angle   11.0 ->   7.0    67%   p 1.5e-19
+  lean          10.1 ->   6.6    69%   p 2.9e-19
+  left_bend      8.9 ->   5.5    64%   p 9.3e-17
+  right_bend     8.7 ->   5.6    66%   p 2.6e-16
+  trunk_tilt     8.5 ->   6.3    63%   p 1.7e-12
+  left_tilt      5.9 ->   3.7    64%   p 2.8e-16
+  right_tilt     6.1 ->   3.5    68%   p 1.1e-21
+  lean_v         4.2 ->   3.0    61%   p 4.0e-10
+
+Against segment, tree by tree (MAE: segment -> segmentation; trees predicted more closely; Wilcoxon p):
+  v_opening      9.4 ->   4.1    77%   p 2.7e-40
+  left_angle    12.9 ->   7.2    71%   p 2.5e-29
+  right_angle   12.2 ->   7.0    70%   p 2.8e-26
+  lean          11.6 ->   6.6    72%   p 3.4e-27
+  left_bend      9.5 ->   5.5    69%   p 1.8e-25
+  right_bend     8.7 ->   5.5    66%   p 3.8e-18
+  trunk_tilt     9.3 ->   6.3    66%   p 2.5e-17
+  left_tilt      7.2 ->   3.7    75%   p 2.3e-31
+  right_tilt     6.4 ->   3.5    68%   p 5.2e-24
+  lean_v         5.1 ->   3.0    70%   p 8.5e-22
+
+Against segment_lined_up, tree by tree (MAE: segment_lined_up -> segmentation; trees predicted more closely; Wilcoxon p):
+  v_opening      4.4 ->   4.1     8%   p 4.3e-02
+  left_angle     7.4 ->   7.2     4%   p 4.5e-01
+  right_angle    7.3 ->   7.0     5%   p 2.2e-01
+  lean           6.8 ->   6.6     7%   p 4.3e-01
+  left_bend      5.6 ->   5.5     4%   p 2.2e-01
+  right_bend     5.8 ->   5.6     3%   p 2.6e-01
+  trunk_tilt     6.4 ->   6.3     2%   p 2.8e-02
+  left_tilt      3.8 ->   3.7     6%   p 1.4e-01
+  right_tilt     3.5 ->   3.5     4%   p 7.4e-01
+  lean_v         3.0 ->   3.0     7%   p 6.9e-01
+
+Against segment_lined_up_joined, tree by tree (MAE: segment_lined_up_joined -> segmentation; trees predicted more closely; Wilcoxon p):
+  v_opening      4.1 ->   4.1     3%   p 7.8e-01
+  left_angle     7.2 ->   7.2     2%   p 4.1e-01
+  right_angle    6.9 ->   7.0     0%   p 1.5e-03
+  lean           6.6 ->   6.6     2%   p 5.7e-02
+  left_bend      5.5 ->   5.5     0%   p 1.0e+00
+  right_bend     5.6 ->   5.6     0%   p 1.0e+00
+  trunk_tilt     6.3 ->   6.3     0%   p 1.0e+00
+  left_tilt      3.7 ->   3.7     2%   p 9.8e-01
+  right_tilt     3.5 ->   3.5     1%   p 2.1e-01
+  lean_v         3.0 ->   3.0     2%   p 2.3e-01
+
+Saved docs/results/segment_lined_up_completed/ (report.json, predictions.csv, mask_scores.csv, predicted_masks.npz)
