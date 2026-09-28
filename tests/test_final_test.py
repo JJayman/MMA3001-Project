@@ -20,7 +20,7 @@ from treeskel.shape import MEASURES  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def named_run(tmp_path, size=(64, 96), join=True):
+def named_run(tmp_path, size=(64, 96), join=True, grow=None):
     """A saved development run (its report only) and a model.json naming it."""
     run = tmp_path / "results" / "segment_lined_up_64x96_joined"
     run.mkdir(parents=True)
@@ -30,6 +30,8 @@ def named_run(tmp_path, size=(64, 96), join=True):
               "scores": {k: {"segmentation": {"skill": 0.5}} for k in MEASURES}}
     if join:
         report["join"] = {"gap": JOIN_GAP}
+    if grow is not None:
+        report["grow"] = {"low": grow}
     (run / "report.json").write_text(json.dumps(report))
     out = tmp_path / "final"
     out.mkdir()
@@ -46,7 +48,9 @@ def test_the_named_recipe_is_taken_as_it_stands(tmp_path):
     assert r["epochs"] == 1 and r["fold_epochs"] == [2, 1, 1, 3, 1]      # the median of the folds' choices
     assert r["join_gap"] == JOIN_GAP and r["mask_overlay"].endswith("mask_overlay.json")
     out2, _ = named_run(tmp_path / "b", size=(256, 256), join=False)
-    assert named_recipe(out2 / "model.json")["join_gap"] is None
+    assert named_recipe(out2 / "model.json")["join_gap"] is None and named_recipe(out2 / "model.json")["grow_low"] is None
+    out3, _ = named_run(tmp_path / "c", grow=0.2)
+    assert named_recipe(out3 / "model.json")["grow_low"] == 0.2
 
 
 def test_bootstrap_interval_of_the_skill():
@@ -66,7 +70,7 @@ def test_the_best_shift_finds_a_moved_mask():
 
 
 def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
-    out, split = named_run(tmp_path)
+    out, split = named_run(tmp_path, grow=0.2)
     args = [str(ROOT / "data" / "sample"), str(ROOT / "data" / "tuning"), "--out", str(out), "--split", str(split),
             "--figures", str(tmp_path / "figures"), "--device", "cpu", "--random-weights", "--jobs", "2",
             "--examples", "2", "--table", str(ROOT / "data/shape/shape_measures.csv"),
@@ -74,10 +78,12 @@ def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
     assert main(args) == 0
     text = capsys.readouterr().out
     assert "2 test trees" in text and "median of the folds' [2, 1, 1, 3, 1]" in text
+    assert "grown into pixels above 0.2" in text
     report = json.loads((out / "report.json").read_text())
     assert report["test_rows"] == [15, 20] and report["n_trees"] == 2
     assert report["n_dev"] == 19                              # the 21 local development trees minus rows 15 and 20
     assert report["epochs"] == 1 and report["seed"] == 1000 and report["join_gap"] == JOIN_GAP
+    assert report["grow_low"] == 0.2
     assert set(report["scores"]["v_opening"]) == {"mean shape", "hand masks", "model", "model, forks found",
                                                   "development"}
     assert report["scores"]["v_opening"]["development"] == 0.5

@@ -37,3 +37,28 @@ tree" (`report.json`: `against_runs.segment_lined_up_joined.v_opening`, keys `ma
 
 Then `model.json` is written in this folder naming the chosen run, committed, and
 `python -m treeskel.final_test data/raw` is run once.
+
+## Addendum, before the re-run: growing the masks
+
+Added on 28 September 2026 (session 12), after the naming above and **before the re-run below existed**.
+The final test was not run in between.
+
+- **The student's observation:** many predicted leaders stop short or break. Measured on the named run
+  (development trees only): 33 of 444 trees have a leader shorter than the stretch the angles are fitted
+  over, where no hand mask does, and those 7% of trees carry 47% of the V opening's squared error.
+- **The idea, the student's choice among four:** grow each mask into the U-Net's less sure pixels
+  connected to it (hysteresis thresholding, `treeskel.segment.grow_mask`), then join as before.
+- **The re-run:** the named recipe (256, lined-up masks) trained again with its probabilities saved,
+  `--out docs/results/segment_lined_up_rerun`. It writes `_joined` (joined only, as the named model) and
+  `_grown` (grown, then joined) from the same network.
+- **The lower threshold, fixed without winter:** of 0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.05 (0.5 grows
+  nothing), the one whose grown and joined masks best match the lined-up hand masks' centre lines (mean
+  clDice over the 449 development trees, each predicted by the fold that held it out); on a tie, the
+  higher. If 0.5 is chosen, there is nothing to adopt.
+- **The rule:** growing is adopted if `segment_lined_up_rerun_grown` beats `segment_lined_up_rerun_joined`
+  tree by tree on the V opening: lower MAE and Wilcoxon p < 0.05, as above. The comparison is between masks
+  of the same network, so it measures the growing alone (a re-run differs from the original by the GPU's
+  non-determinism; the original and the re-run side by side show how much).
+- **If adopted,** `model.json` is rewritten to name `docs/results/segment_lined_up_rerun_grown` (its
+  recipe: the re-run's median epochs, the chosen threshold, the same joining gap). **If not,** `model.json`
+  stays as it is.
