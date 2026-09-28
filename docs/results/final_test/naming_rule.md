@@ -89,3 +89,8 @@ scored**. The final test was not run in between.
   pruning). If not, `model.json` stays as it is.
 - This is the third change tested on the same development trees (joining adopted, growing not); each
   was fixed before it was scored, and the final test rows are the independent check of whichever is named.
+
+**Applied (scored from the saved masks, after the commit above):** 9 masks had a piece to continue to;
+pruning changed some measure by more than 0.5° in 344. Against the re-run's joined masks, on the V
+opening: MAE 4.105° → 4.129°, closer on 45% of trees, p = 0.21. **Not adopted;** `model.json` stays as it
+is (`docs/results/segment_lined_up_joined`). Details: `docs/results/segment_lined_up_rerun/README.md`.
