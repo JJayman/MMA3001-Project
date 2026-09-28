@@ -33,6 +33,14 @@ encoder's features at each scale. It sees the masks' frame: the centre
 480x480 of the photo, resized to ``size`` x ``size`` (256, the masks' own
 resolution, by default).
 
+**Full size** (``--size 480 640``, session 12, the one variant agreed at the
+end of session 11): the whole photo at its own resolution, as the angle
+CNN's best run. The hand masks cover only the photo's centre 480 columns, so
+the side columns are unknown to the loss (:func:`known_columns`,
+:func:`seg_loss`), and the predictions are measured in the masks' frame
+(:func:`to_mask_size`), exactly as the square runs'. The rotation of the
+augmentation is made in pixels, so it keeps angles in the wider frame.
+
 **Loss** (:func:`seg_loss`): binary cross-entropy plus the soft Dice loss;
 branch pixels are only about 6% of the frame, and the Dice term keeps the
 thin leaders from being traded for background.
@@ -81,6 +89,8 @@ Usage::
 
     python -m treeskel.segment data/raw                      # the student's PC (GPU); docs/results/segment/
     python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # docs/results/segment_lined_up/
+    python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640
+                                                             # docs/results/segment_lined_up_480x640/ (+ _joined/)
     python -m treeskel.segment data/raw --depth              # docs/results/segment_depth/
     python -m treeskel.segment --replot docs/results/segment # figures only
     python -m treeskel.segment --join docs/results/segment_lined_up   # its masks joined: segment_lined_up_joined/
@@ -111,8 +121,12 @@ class SegParams:
     """The training recipe, fixed before any result.
 
     Attributes:
-        size: Side of the square input: the photo's centre 480x480, resized.
-            256 is the hand masks' own resolution; it must divide by 32.
+        size: One number: the side of a square input, the photo's centre
+            480x480 (the hand masks' frame) resized; 256 is the masks' own
+            resolution. Two, ``(height, width)``: the whole photo resized,
+            e.g. ``(480, 640)`` at full size (session 12), where the hand
+            masks cover only the centre columns and the rest is unknown to
+            the loss (:func:`known_columns`). Each side must divide by 32.
         encoder: ``"resnet18"`` or ``"resnet34"``.
         epochs: Most epochs tried when choosing the number of epochs.
         batch: Photos per training step.
@@ -128,7 +142,7 @@ class SegParams:
         depth: Also give the network the summer depth, as a fourth channel.
     """
 
-    size: int = 256
+    size: int | tuple[int, int] = 256
     encoder: str = "resnet18"
     epochs: int = 60
     batch: int = 8
@@ -141,6 +155,59 @@ class SegParams:
     threshold: float = 0.5
     seed: int = 0
     depth: bool = False
+
+
+def whole_photo(params: SegParams) -> bool:
+    """True if the network sees the whole photo (``size`` is ``(height, width)``), not the masks' square frame."""
+    return not isinstance(params.size, int)
+
+
+def input_shape(params: SegParams) -> tuple[int, int]:
+    """``(height, width)`` of the network's input."""
+    return (params.size, params.size) if not whole_photo(params) else (int(params.size[0]), int(params.size[1]))
+
+
+def known_columns(width: int) -> tuple[int, int]:
+    """The columns ``[start, stop)`` of a whole photo resized to ``width`` that the hand masks describe (the
+    photo's columns 80-559, :data:`treeskel.io.CROP_COLS`); outside them a mask says nothing.
+
+    Example:
+        >>> known_columns(640), known_columns(320)
+        ((80, 560), (40, 280))
+    """
+    from treeskel.io import CROP_COLS, IMAGE_SHAPE
+
+    return round(CROP_COLS[0] * width / IMAGE_SHAPE[1]), round(CROP_COLS[1] * width / IMAGE_SHAPE[1])
+
+
+def known_map(params: SegParams) -> np.ndarray | None:
+    """``(height, width)`` float32, 1 where the hand masks say something and 0 where they do not; None for the
+    masks' own square frame, where they describe every pixel."""
+    if not whole_photo(params):
+        return None
+    h, w = input_shape(params)
+    out = np.zeros((h, w), np.float32)
+    a, b = known_columns(w)
+    out[:, a:b] = 1.0
+    return out
+
+
+def mask_to_photo(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """A 256x256 hand mask placed on the whole photo (:func:`treeskel.io.mask_to_image_frame`, but resized
+    bilinearly, so soft at the edges as in the square frame) and resized to ``shape`` = ``(height, width)``:
+    uint8 0-255, zero outside the columns it describes."""
+    from PIL import Image
+
+    from treeskel.io import CROP_COLS, IMAGE_SHAPE
+
+    side = IMAGE_SHAPE[0]
+    big = np.asarray(Image.fromarray(np.asarray(mask, bool).astype(np.uint8) * 255).resize((side, side),
+                                                                                            Image.BILINEAR))
+    full = np.zeros(IMAGE_SHAPE, np.uint8)
+    full[:, CROP_COLS[0]:CROP_COLS[1]] = big
+    if tuple(shape) == IMAGE_SHAPE:
+        return full
+    return np.asarray(Image.fromarray(full).resize((shape[1], shape[0]), Image.BILINEAR))
 
 
 # --------------------------------------------------------------------------
@@ -240,45 +307,61 @@ def UNet(encoder: str = "resnet18", pretrained: bool = True, channels: int = 3):
 # Training
 # --------------------------------------------------------------------------
 
-def seg_loss(logits, target):
+def seg_loss(logits, target, known=None):
     """Binary cross-entropy plus soft Dice loss (``1 − 2|P∩T| / (|P| + |T|)``, per photo, smoothed by 1).
 
     Args:
         logits: ``(B, H, W)`` network outputs.
         target: ``(B, H, W)`` masks in [0, 1] (soft at resampled edges).
+        known: Optional ``(B, H, W)`` or ``(H, W)`` weights in [0, 1]: where
+            the masks say something (1) or nothing (0, the whole photo's side
+            columns). Pixels of weight 0 count in neither term; None counts
+            every pixel, exactly as before.
     """
     import torch
     import torch.nn.functional as F
 
-    bce = F.binary_cross_entropy_with_logits(logits, target)
     p = torch.sigmoid(logits)
+    if known is None:
+        bce = F.binary_cross_entropy_with_logits(logits, target)
+    else:
+        known = known.expand_as(target)
+        bce = ((F.binary_cross_entropy_with_logits(logits, target, reduction="none") * known).sum()
+               / known.sum().clamp_min(1.0))
+        p, target = p * known, target * known
     inter = (p * target).sum(dim=(1, 2))
     dice = 1 - (2 * inter + 1) / (p.sum(dim=(1, 2)) + target.sum(dim=(1, 2)) + 1)
     return bce + dice.mean()
 
 
-def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float = 0.5):
+def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float = 0.5, known=None):
     """Random crop, rotation, mirror image and colour jitter, with the mask resampled alike.
 
-    The crop, rotation and mirror are one affine resampling per photo (of a
-    square frame, so a rotation keeps its angles): a square fraction ``f`` of
-    each side (``f² ∈ [crop, 1]`` of the area) at a random position.
+    The crop, rotation and mirror are one affine resampling per photo: a
+    fraction ``f`` of each side (``f² ∈ [crop, 1]`` of the area) at a random
+    position. The rotation is made in pixels, so it keeps angles in a
+    non-square frame too (in a square one the arithmetic is unchanged).
 
     Args:
-        x: ``(B, C, S, S)`` floats in [0, 1] (C = 3, or 4 with the depth last,
+        x: ``(B, C, H, W)`` floats in [0, 1] (C = 3, or 4 with the depth last,
             which is not jittered).
-        m: ``(B, S, S)`` masks in [0, 1].
+        m: ``(B, H, W)`` masks in [0, 1].
         generator: A ``torch.Generator`` on ``x``'s device.
         params: ``crop``, ``rotate`` and ``jitter``.
         flip_p: Chance of the mirror image.
+        known: Optional ``(H, W)`` or ``(B, H, W)`` weights (:func:`seg_loss`),
+            resampled with the mask; pixels brought in from past the edge are
+            the edge's.
 
     Returns:
-        ``(images, masks)``: normalised images and masks in [0, 1], same shapes.
+        ``(images, masks)``: normalised images and masks in [0, 1], same
+        shapes; with ``known``, ``(images, masks, known)``.
     """
     import torch
     import torch.nn.functional as F
 
     b, dev = x.shape[0], x.device
+    aspect = x.shape[-1] / x.shape[-2]                                       # width / height
 
     def uniform(lo, hi):
         return lo + (hi - lo) * torch.rand(b, device=dev, generator=generator)
@@ -289,12 +372,20 @@ def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float
     sx = torch.where(torch.rand(b, device=dev, generator=generator) < flip_p, -f, f)
     theta = torch.zeros(b, 2, 3, device=dev)
     cos, sin = torch.cos(a), torch.sin(a)
-    theta[:, 0, 0], theta[:, 0, 1], theta[:, 0, 2] = cos * sx, -sin * f, tx     # rotation after the mirror and scale
-    theta[:, 1, 0], theta[:, 1, 1], theta[:, 1, 2] = sin * sx, cos * f, ty
-    both = torch.cat([x, m.unsqueeze(1)], dim=1)
+    # Rotation after the mirror and scale, in pixels: in the grid's [-1, 1] coordinates the off-diagonal
+    # terms carry the frame's aspect ratio (1 for a square frame).
+    theta[:, 0, 0], theta[:, 0, 1], theta[:, 0, 2] = cos * sx, -sin * f / aspect, tx
+    theta[:, 1, 0], theta[:, 1, 1], theta[:, 1, 2] = sin * sx * aspect, cos * f, ty
+    parts = [x, m.unsqueeze(1)]
+    if known is not None:
+        parts.append(known.expand(b, *m.shape[-2:]).unsqueeze(1).to(x.dtype))
+    both = torch.cat(parts, dim=1)
     grid = F.affine_grid(theta, list(both.shape), align_corners=False)
     both = F.grid_sample(both, grid, mode="bilinear", padding_mode="border", align_corners=False)
-    x, m = both[:, :-1], both[:, -1].clamp(0, 1)
+    c = x.shape[1]
+    x, m = both[:, :c], both[:, c].clamp(0, 1)
+    if known is not None:
+        known = both[:, c + 1].clamp(0, 1)
     j = params.jitter
     if j > 0:
         rgb, rest = x[:, :3], x[:, 3:]
@@ -304,7 +395,7 @@ def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float
         grey = (0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]).unsqueeze(1)
         rgb = grey + (rgb - grey) * uniform(1 - j, 1 + j).view(b, 1, 1, 1)      # saturation
         x = torch.cat([rgb.clamp(0, 1), rest], dim=1)
-    return normalise(x), m
+    return (normalise(x), m) if known is None else (normalise(x), m, known)
 
 
 def _float(x_uint8):
@@ -320,7 +411,7 @@ def predict_masks(model, x_uint8, batch: int = 16) -> np.ndarray:
         batch: Photos per forward pass.
 
     Returns:
-        ``(N, S, S)`` float32 probabilities.
+        ``(N, H, W)`` float32 probabilities.
     """
     import torch
 
@@ -331,8 +422,7 @@ def predict_masks(model, x_uint8, batch: int = 16) -> np.ndarray:
             x = normalise(_float(x_uint8[i:i + batch]))
             p = (torch.sigmoid(model(x)) + torch.sigmoid(model(x.flip(-1))).flip(-1)) / 2
             out.append(p.float().cpu().numpy())
-    s = x_uint8.shape[-1]
-    return np.concatenate(out) if out else np.zeros((0, s, s), np.float32)
+    return np.concatenate(out) if out else np.zeros((0,) + tuple(x_uint8.shape[-2:]), np.float32)
 
 
 def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int, val: tuple | None = None,
@@ -341,8 +431,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
 
     Args:
         model: The :class:`UNet`, on its device.
-        x_uint8: ``(N, C, S, S)`` uint8 tensor of training photos on the device.
-        m_uint8: ``(N, S, S)`` uint8 tensor of their masks (0–255).
+        x_uint8: ``(N, C, H, W)`` uint8 tensor of training photos on the device.
+        m_uint8: ``(N, H, W)`` uint8 tensor of their masks (0–255).
         epochs: Epochs to train.
         params: The recipe.
         seed: Seed for the batch order and the augmentation.
@@ -357,6 +447,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
 
     dev = x_uint8.device
     torch.manual_seed(seed)
+    km = known_map(params)                                  # None in the masks' own frame
+    known = None if km is None else torch.from_numpy(km).to(dev)
     gen = torch.Generator(device=dev).manual_seed(seed)
     enc, dec = model.groups()
     opt = torch.optim.AdamW([{"params": enc, "lr": params.lr_encoder}, {"params": dec, "lr": params.lr_decoder}],
@@ -373,8 +465,12 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
             idx = order[i:i + params.batch]
             if len(idx) < 2:                                   # batch norm needs two photos
                 continue
-            x, m = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params)
-            loss = seg_loss(model(x), m)
+            if known is None:
+                x, m = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params)
+                loss = seg_loss(model(x), m)
+            else:
+                x, m, k = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params, known=known)
+                loss = seg_loss(model(x), m, k)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -383,7 +479,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
         record = {"epoch": epoch, "train_loss": total / max(count, 1), "val_loss": None}
         if val is not None:
             p = torch.as_tensor(predict_masks(model, val[0])).clamp(1e-6, 1 - 1e-6)
-            record["val_loss"] = float(seg_loss(torch.logit(p), _float(val[1]).cpu()))
+            record["val_loss"] = float(seg_loss(torch.logit(p), _float(val[1]).cpu(),
+                                               None if known is None else known.cpu()))
         log.append(record)
         if on_epoch:
             on_epoch(record)
@@ -396,8 +493,8 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
     """Train and predict every tree from the fold that holds its row out (see the module docstring).
 
     Args:
-        images: ``(n, S, S, C)`` uint8 summer photos in the masks' frame, at ``params.size``.
-        masks: ``(n, S, S)`` uint8 hand masks (0–255) at the same size.
+        images: ``(n, H, W, C)`` uint8 summer photos at ``params.size`` (:func:`load_frames`).
+        masks: ``(n, H, W)`` uint8 hand masks (0–255) in the same frame.
         has_mask: ``(n,)`` bool; trees without a hand mask are predicted but never trained on.
         rows: ``(n,)`` orchard rows.
         fold_rows: Each fold's held-out rows (``splits.json``).
@@ -407,7 +504,7 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
         progress: Where progress lines go.
 
     Returns:
-        ``{"prob": (n, S, S) float32, "fold": (n,), "epochs": [...], "log": [...], "device": str}``.
+        ``{"prob": (n, H, W) float32, "fold": (n,), "epochs": [...], "log": [...], "device": str}``.
     """
     import torch
 
@@ -417,8 +514,8 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
     start = copy.deepcopy(base.state_dict())
     x_all = torch.from_numpy(np.ascontiguousarray(images.transpose(0, 3, 1, 2))).to(device)
     m_all = torch.from_numpy(np.ascontiguousarray(masks)).to(device)
-    n, s = len(images), images.shape[1]
-    prob, fold = np.full((n, s, s), np.nan, np.float32), np.full(n, -1)
+    n = len(images)
+    prob, fold = np.full((n,) + images.shape[1:3], np.nan, np.float32), np.full(n, -1)
     chosen, logs = [], []
 
     def fresh():
@@ -465,13 +562,24 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
 # Scoring
 # --------------------------------------------------------------------------
 
-def to_mask_size(prob: np.ndarray, threshold: float = 0.5) -> np.ndarray:
-    """``(S, S)`` probabilities to a 256x256 bool mask (the hand masks' frame), resized bilinearly first."""
+def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) -> np.ndarray:
+    """Probabilities to a 256x256 bool mask in the hand masks' frame, resized bilinearly first.
+
+    Args:
+        prob: ``(S, S)`` probabilities in the masks' frame, or, with ``whole``,
+            ``(H, W)`` over the whole photo, whose centre columns
+            (:func:`known_columns`) are the masks' frame.
+        threshold: Probability above which a pixel is branch.
+        whole: ``prob`` covers the whole photo.
+    """
     from PIL import Image
 
     from treeskel.io import MASK_SHAPE
 
     p = np.asarray(prob, np.float32)
+    if whole:
+        a, b = known_columns(p.shape[1])
+        p = np.ascontiguousarray(p[:, a:b])
     if p.shape != MASK_SHAPE:
         p = np.asarray(Image.fromarray(p).resize(MASK_SHAPE[::-1], Image.BILINEAR))
     return p > threshold
@@ -652,39 +760,44 @@ def hand_mask(rec, overlays: dict | None = None) -> np.ndarray | None:
     return move_mask(load_mask(rec.paths[("summer", "mask")]), ov)
 
 
-def load_frames(records: dict, ids: Sequence[str], size: int, depth: bool = False,
+def load_frames(records: dict, ids: Sequence[str], size: int | tuple[int, int], depth: bool = False,
                 progress: Callable[[str], None] = print,
                 overlays: dict | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The summer photos and hand masks of ``ids`` in the masks' frame (centre 480x480), at ``size``.
+    """The summer photos and hand masks of ``ids``: in the masks' frame (centre 480x480) at ``size`` x ``size``,
+    or, for ``size = (height, width)``, the whole photo at that size with each mask on its centre columns
+    (:func:`mask_to_photo`).
 
     With ``overlays`` (the mask line-up file), each mask is moved onto its photo
     (:func:`hand_mask`), and trees not lined up count as having none.
 
     Returns:
-        ``(images, masks, has_mask)``: ``(n, size, size, 3 or 4)`` uint8 (depth
+        ``(images, masks, has_mask)``: ``(n, H, W, 3 or 4)`` uint8 (depth
         last, nearest-neighbour so no-reading zeros are not blended),
-        ``(n, size, size)`` uint8 masks (0–255, bilinear, so soft at the edges;
-        zero where there is none) and ``(n,)`` bool.
+        ``(n, H, W)`` uint8 masks (0–255, bilinear, so soft at the edges;
+        zero where there is none, and on a whole photo's side columns) and ``(n,)`` bool.
     """
     from PIL import Image
 
     from treeskel.io import CROP_COLS, load_tree
 
-    images = np.zeros((len(ids), size, size, 4 if depth else 3), np.uint8)
-    masks = np.zeros((len(ids), size, size), np.uint8)
+    whole = not isinstance(size, int)
+    h, w = (int(size[0]), int(size[1])) if whole else (size, size)
+    images = np.zeros((len(ids), h, w, 4 if depth else 3), np.uint8)
+    masks = np.zeros((len(ids), h, w), np.uint8)
     has = np.zeros(len(ids), bool)
     step = max(1, len(ids) // 10)
     for i, t in enumerate(ids):
         summer = load_tree(records[t], "summer")
-        crop = slice(CROP_COLS[0], CROP_COLS[1])
+        crop = slice(0, None) if whole else slice(CROP_COLS[0], CROP_COLS[1])
         images[i, ..., :3] = np.asarray(Image.fromarray(np.ascontiguousarray(summer["rgb"][:, crop]))
-                                        .resize((size, size), Image.BILINEAR))
+                                        .resize((w, h), Image.BILINEAR))
         if depth:
             images[i, ..., 3] = np.asarray(Image.fromarray(np.ascontiguousarray(summer["depth"][:, crop]))
-                                           .resize((size, size), Image.NEAREST))
+                                           .resize((w, h), Image.NEAREST))
         hm = hand_mask(records[t], overlays)
         if hm is not None:
-            masks[i] = np.asarray(Image.fromarray(hm.astype(np.uint8) * 255).resize((size, size), Image.BILINEAR))
+            masks[i] = (mask_to_photo(hm, (h, w)) if whole else
+                        np.asarray(Image.fromarray(hm.astype(np.uint8) * 255).resize((w, h), Image.BILINEAR)))
             has[i] = True
         if (i + 1) % step == 0 or i + 1 == len(ids):
             progress(f"  {i + 1}/{len(ids)} photos loaded")
@@ -770,11 +883,24 @@ JOINED_STYLE = ("#e34948", "h")
 """The run on the lined-up masks with the pieces of its masks joined (:func:`joined_run`): the last slot, and
 its own marker (validated beside the lined-up run's violet; the markers tell the two apart)."""
 
-RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE}
+RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE,
+              "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H")}
+"""The full-size runs (session 12) take the two slots not used by these figures, orange and yellow; their figure
+draws them between the square runs (:data:`FIGURE_RUNS`) so that no two warm colours are adjacent (checked with
+the palette validator)."""
 
 RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
              "segment_lined_up": "U-Net on the lined-up hand masks, its masks measured",
-             "segment_lined_up_joined": "The same, pieces of its masks within a trunk's width joined"}
+             "segment_lined_up_joined": "U-Net on the lined-up hand masks, pieces of its masks joined",
+             "segment_lined_up_480x640": "U-Net on the lined-up hand masks, whole photo at 480x640",
+             "segment_lined_up_480x640_joined": "U-Net, whole photo at 480x640, pieces of its masks joined"}
+
+FIGURE_RUNS = {"segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
+               "segment_lined_up_480x640_joined": ("segment_lined_up_480x640", "segment_lined_up",
+                                                   "segment_lined_up_480x640_joined", "segment_lined_up_joined")}
+"""The runs drawn (after the hand masks, in this order) in a run's skill figure, where not the default: the
+angle CNN's two runs, the U-Net on the masks as drawn, the lined-up run and its joined one, up to the run
+itself. The full-size figures compare the U-Net variants only, so that no more than six series share a row."""
 
 
 def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tuple[str, dict]] = ()) -> None:
@@ -784,8 +910,9 @@ def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tup
     scores = report["scores"]
     key = report.get("variant") or ("segment_lined_up" if report.get("mask_overlay") else "segment")
     series = [("hand masks", {k: v["hand masks"] for k, v in scores.items()})]
-    series += [o for o in others if o[0] != key]
-    series.append((key, {k: v["segmentation"] for k, v in scores.items()}))
+    have = dict(others)
+    have[key] = {k: v["segmentation"] for k, v in scores.items()}
+    series += [(name, have[name]) for name in figure_runs(key) if name in have]
     what = f"masks joined, {report['no_fork']}" if report.get("join") else _n(report["no_fork"], "U-Net mask")
     plot_comparison(series, path, failed, names=RUN_NAMES, styles=RUN_STYLES,
                     title="A U-Net trained on the hand masks, its masks measured against the winter traces",
@@ -801,17 +928,22 @@ def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
                   ylabel="Loss (cross-entropy + Dice)")
 
 
-def _other_runs(results: Path, source: str | None = None) -> list[tuple[str, dict]]:
-    """The angle CNN's saved runs and the segmentation on the masks as drawn, for the comparison figure;
-    and ``source``, the run a joined run was scored from."""
+def figure_runs(key: str) -> tuple[str, ...]:
+    """The runs drawn in ``key``'s skill figure, in order (:data:`FIGURE_RUNS`), ``key`` included."""
+    if key in FIGURE_RUNS:
+        return FIGURE_RUNS[key]
+    base = ("shape_cnn", "shape_cnn_480x640", "segment", "segment_lined_up", "segment_lined_up_joined")
+    return base[:base.index(key) + 1] if key in base else base[:3] + (key,)
+
+
+def _other_runs(results: Path, key: str) -> list[tuple[str, dict]]:
+    """The saved runs beside ``key``'s that its skill figure draws (:func:`figure_runs`)."""
     out = []
-    runs = [("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"), ("segment", "segmentation")]
-    if source and source != "segment":
-        runs.append((source, "segmentation"))
-    for name, model in runs:
+    for name in figure_runs(key):
         p = results / name / "report.json"
-        if p.exists():
+        if name != key and p.exists():
             rep = json.loads(p.read_text())
+            model = "cnn fine-tuned" if name.startswith("shape_cnn") else "segmentation"
             out.append((name, {k: v[model] for k, v in rep["scores"].items()}))
     return out
 
@@ -821,9 +953,8 @@ def replot(out: Path, figures: Path) -> list[str]:
     failed: list[str] = []
     figures.mkdir(parents=True, exist_ok=True)
     report = json.loads((out / "report.json").read_text())
-    source = (report.get("join") or {}).get("source")
-    plot_skill(report, figures / f"{out.name}_skill.png", failed,
-               _other_runs(out.parent, Path(source).name if source else None))
+    key = report.get("variant") or ("segment_lined_up" if report.get("mask_overlay") else "segment")
+    plot_skill(report, figures / f"{out.name}_skill.png", failed, _other_runs(out.parent, key))
     if (out / "training_log.csv").exists():                 # a joined run has none: it trained nothing
         with open(out / "training_log.csv", newline="") as f:
             plot_learning(list(csv.DictReader(f)), report["epochs"], figures / f"{out.name}_training.png", failed)
@@ -836,6 +967,8 @@ def variant(params: SegParams, lined_up: bool = False) -> str:
     name = "segment" + ("_lined_up" if lined_up else "") + ("_depth" if params.depth else "")
     if params.encoder != SegParams.encoder:
         name += f"_{params.encoder}"
+    if whole_photo(params):
+        return f"{name}_{input_shape(params)[0]}x{input_shape(params)[1]}"
     return name if params.size == SegParams.size else f"{name}_{params.size}"
 
 
@@ -846,7 +979,7 @@ def variant(params: SegParams, lined_up: bool = False) -> str:
 MASK_COLUMNS = ("iou", "dice", "precision", "recall")
 
 OTHER_RUNS = (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"), ("segment", "segmentation"),
-              ("segment_lined_up", "segmentation"))
+              ("segment_lined_up", "segmentation"), ("segment_lined_up_joined", "segmentation"))
 """The saved runs a new run is compared with tree by tree (results folder, predictions column)."""
 
 
@@ -1051,7 +1184,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--figures", default="docs/figures", help="folder for the figures")
     ap.add_argument("--device", help="cuda or cpu (default: the GPU if there is one)")
     ap.add_argument("--epochs", type=int, default=SegParams.epochs, help="most epochs tried")
-    ap.add_argument("--size", type=int, default=SegParams.size, help="side of the input (divisible by 32)")
+    ap.add_argument("--size", type=int, nargs="+", default=[SegParams.size], metavar="N",
+                    help="one number: side of the square input, the masks' frame (default 256); two, H W: the "
+                         "whole photo at that size, e.g. 480 640 (each divisible by 32)")
     ap.add_argument("--encoder", default=SegParams.encoder, choices=("resnet18", "resnet34"))
     ap.add_argument("--depth", action="store_true", help="also give the network the summer depth")
     ap.add_argument("--mask-overlay", metavar="JSON",
@@ -1083,12 +1218,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if failed else 0
     if not args.data_dirs:
         ap.error("give the dataset folder(s), or --replot or --join")
-    if args.size % 32:
-        ap.error(f"--size must divide by 32, got {args.size}")
+    if len(args.size) > 2 or any(v % 32 for v in args.size):
+        ap.error(f"--size takes one or two numbers, each divisible by 32; got {args.size}")
+    size = args.size[0] if len(args.size) == 1 else (args.size[0], args.size[1])
 
     from treeskel.io import index_dataset
 
-    params = SegParams(size=args.size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
+    params = SegParams(size=size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
                        depth=args.depth)
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
@@ -1109,7 +1245,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"PyTorch and torchvision are needed: {e}")
         return 1
     what = "photos, depth and hand masks" if params.depth else "photos and hand masks"
-    print(f"{len(trees)} development trees; loading the summer {what} at {params.size}x{params.size}...", flush=True)
+    frame = "whole photos" if whole_photo(params) else "masks' frame"
+    print(f"{len(trees)} development trees; loading the summer {what} ({frame}) at "
+          f"{input_shape(params)[0]}x{input_shape(params)[1]}...", flush=True)
     overlays = None
     if args.mask_overlay:
         from treeskel.summer_gt import load_overlays
@@ -1145,7 +1283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for i, t in enumerate(trees):
         if not done[i]:
             continue
-        pred_masks[i] = to_mask_size(cv["prob"][i], params.threshold)
+        pred_masks[i] = to_mask_size(cv["prob"][i], params.threshold, whole_photo(params))
         m, _ = mask_shape(pred_masks[i])
         seg[i] = [m[k] for k in MEASURES]
         if has[i]:
