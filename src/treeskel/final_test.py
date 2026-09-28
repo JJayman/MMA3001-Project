@@ -10,7 +10,9 @@ folds. This module runs once, at the end (session 11's third item):
    the network's parameters, the lined-up masks it trained on, whether its
    masks are grown (:func:`treeskel.segment.grow_mask`, with its lower
    threshold) and joined (:func:`treeskel.segment.join_pieces`, with its gap), whether its short
-   leaders are continued and the masks pruned (:func:`treeskel.segment.continue_leaders`), and
+   leaders are continued and the masks pruned (:func:`treeskel.segment.continue_leaders`), whether
+   short leaders' lines are completed (:func:`treeskel.segment.complete_measures`, with the model the
+   run fitted on all its development trees), and
    the number of epochs: the median of the numbers its 5 folds chose (each on
    rows held out inside the training rows, never on a test row).
 2. **One network is trained on all development trees** that the run's folds
@@ -64,6 +66,7 @@ from treeskel.segment import (
     MASK_COLUMNS,
     SegParams,
     UNet,
+    complete_measures,
     continue_leaders,
     draw_example,
     example_trees,
@@ -98,6 +101,7 @@ def named_recipe(model_file: Path) -> dict:
     Returns:
         ``{"named": model.json's content, "run": folder, "params": SegParams, "mask_overlay": path or None,
         "join_gap": gap or None, "grow_low": lower threshold or None, "continue_cone": cone or None,
+        "complete_coef": the completion model or None,
         "epochs": int, "fold_epochs": [...],
         "development": the run's report}``.
     """
@@ -114,6 +118,7 @@ def named_recipe(model_file: Path) -> dict:
     return {"named": named, "run": str(run), "params": SegParams(**p), "mask_overlay": report.get("mask_overlay"),
             "join_gap": (report.get("join") or {}).get("gap"), "grow_low": (report.get("grow") or {}).get("low"),
             "continue_cone": (report.get("continue") or {}).get("cone"),
+            "complete_coef": (report.get("complete") or {}).get("coef_all"),
             "epochs": int(round(statistics.median(fold_epochs))),
             "fold_epochs": fold_epochs, "development": report}
 
@@ -257,6 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{'grown into pixels above ' + format(recipe['grow_low'], 'g') + ', ' if recipe['grow_low'] else ''}"
         f"{'pieces joined within ' + format(recipe['join_gap'], 'g') + ' px' if recipe['join_gap'] else 'no joining'}; "
         f"{'short leaders continued within ' + format(recipe['continue_cone'], 'g') + ' degrees and pruned; ' if recipe['continue_cone'] else ''}"
+        f"{'short leader lines completed; ' if recipe['complete_coef'] else ''}"
         f"{recipe['epochs']} epochs (median of the folds' {recipe['fold_epochs']})")
 
     split = json.loads(Path(args.split).read_text())
@@ -356,7 +362,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             joined += k > 0
         if recipe["continue_cone"]:
             pred[i], _ = continue_leaders(pred[i], recipe["continue_cone"])
-        meas, _ = mask_shape(pred[i])
+        meas = (complete_measures(pred[i], recipe["complete_coef"])[0] if recipe["complete_coef"]
+                else mask_shape(pred[i])[0])
         seg[i] = [meas[k] for k in MEASURES]
         hm = hand_mask(records[t])                          # as drawn: the test masks are not lined up
         if hm is not None:
@@ -373,7 +380,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     dev_scores = recipe["development"]["scores"]
     report = {"named": recipe["named"], "run": recipe["run"], "params": asdict(params),
               "mask_overlay": recipe["mask_overlay"], "join_gap": recipe["join_gap"], "grow_low": recipe["grow_low"],
-              "continue_cone": recipe["continue_cone"],
+              "continue_cone": recipe["continue_cone"], "complete_coef": recipe["complete_coef"],
               "epochs": recipe["epochs"],
               "fold_epochs": recipe["fold_epochs"], "seed": params.seed + SEED_OFFSET, "device": device,
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "minutes": minutes,

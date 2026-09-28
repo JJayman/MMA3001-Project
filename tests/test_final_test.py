@@ -34,6 +34,7 @@ def named_run(tmp_path, size=(64, 96), join=True, grow=None, cont=None):
         report["grow"] = {"low": grow}
     if cont is not None:
         report["continue"] = {"cone": cont}
+        report["complete"] = {"coef_all": [-2.8, 0.7]}
     (run / "report.json").write_text(json.dumps(report))
     out = tmp_path / "final"
     out.mkdir()
@@ -54,6 +55,7 @@ def test_the_named_recipe_is_taken_as_it_stands(tmp_path):
     out3, _ = named_run(tmp_path / "c", grow=0.2)
     assert named_recipe(out3 / "model.json")["grow_low"] == 0.2
     assert named_recipe(out3 / "model.json")["continue_cone"] is None
+    assert named_recipe(out3 / "model.json")["complete_coef"] is None
 
 
 def test_bootstrap_interval_of_the_skill():
@@ -82,6 +84,7 @@ def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
     text = capsys.readouterr().out
     assert "2 test trees" in text and "median of the folds' [2, 1, 1, 3, 1]" in text
     assert "grown into pixels above 0.2" in text and "short leaders continued within 25 degrees" in text
+    assert "short leader lines completed" in text
     report = json.loads((out / "report.json").read_text())
     assert report["test_rows"] == [15, 20] and report["n_trees"] == 2
     assert report["n_dev"] == 19                              # the 21 local development trees minus rows 15 and 20

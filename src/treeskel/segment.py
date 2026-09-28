@@ -99,6 +99,13 @@ their probabilities in the masks' frame (``probabilities.npz``) and write
 every mask (a lower threshold of 0.1 chosen), added side branches, and was
 no closer to winter on the V opening.
 
+**Completed leader lines** (:func:`complete_measures`, :func:`completed_run`,
+session 12, the student's shape-prior idea): a short leader's line over the
+whole fitted stretch is predicted from its visible part, by a model fitted on
+complete leaders cut short on purpose (:func:`fit_completion`): over the
+missing part, lines turn more upright and keep turning the way the visible
+part does. Fitted per fold on the other folds' trees; never on winter.
+
 **Continued leaders** (:func:`continue_leaders`, :func:`continued_run`,
 session 12, the student's next idea): a short leader is joined to a piece
 lying on its line further on (within :data:`CONTINUE_CONE` of its direction
@@ -946,6 +953,112 @@ def prune_to_branches(mask: np.ndarray, br: dict) -> np.ndarray:
     return filled & (dist < half_width[iy, ix])
 
 
+COMPLETE_FRACTIONS = tuple(round(0.40 + 0.05 * i, 2) for i in range(12))
+"""Where :func:`completion_samples` cuts complete leaders (fractions of the fitted stretch, 0.40-0.95): the
+lengths short predicted leaders stop at (median 0.75 of the stretch, quartiles 0.54-0.89)."""
+
+
+def _outward(path: np.ndarray, side: str, params: ShapeParams = ShapeParams()) -> tuple[float, float]:
+    """A leader's line from the vertical, positive outwards, and its bend (as :func:`treeskel.shape.shape_measures`
+    measures them in a mask), or NaN where the path is too short."""
+    from treeskel.shape import MASK_ZOOM, halves, leader_part, line_direction, tilt, to_xy, unit_px, wrap
+
+    part = leader_part(path, unit_px(0.0, params, MASK_ZOOM), params)
+    if len(part) < params.min_points:
+        return float("nan"), float("nan")
+    t = tilt(line_direction(to_xy(part)))
+    low, up = halves(part)
+    bend = float("nan")
+    if min(len(low), len(up)) >= params.min_points:
+        turn = wrap(tilt(line_direction(to_xy(up))) - tilt(line_direction(to_xy(low))))
+        bend = turn if side == "right" else -turn
+    return (t if side == "right" else -t), bend
+
+
+def completion_samples(masks: dict[str, np.ndarray], params: ShapeParams = ShapeParams(),
+                       fractions: Sequence[float] = COMPLETE_FRACTIONS) -> np.ndarray:
+    """Complete leaders cut short on purpose: ``(n, 4)`` rows of ``(missing fraction g, outward line of the
+    cut leader, its bend, outward line of the whole)``, for :func:`fit_completion`.
+
+    Every leader of ``masks`` that spans the whole fitted stretch is cut at each of ``fractions`` of it.
+    """
+    from treeskel.guided_gt import arc_length
+    from treeskel.shape import MASK_ZOOM, unit_px
+
+    reach = params.reach * unit_px(0.0, params, MASK_ZOOM)
+    rows = []
+    for m in masks.values():
+        _, br = mask_shape(m, params)
+        if br is None:
+            continue
+        for side in ("left", "right"):
+            s = arc_length(br[side]) if len(br[side]) > 1 else np.zeros(1)
+            if s[-1] < reach:
+                continue
+            whole, _ = _outward(br[side], side, params)
+            for f in fractions:
+                cut, bend = _outward(br[side][s <= f * reach], side, params)
+                if np.isfinite(cut) and np.isfinite(whole):
+                    rows.append((1 - f, cut, bend, whole))
+    return np.array(rows, float).reshape(-1, 4)
+
+
+def fit_completion(samples: np.ndarray) -> np.ndarray:
+    """Least squares for the change of a leader's line over its missing part:
+    ``whole − cut = a·g + c·g·bend`` (``g`` the missing fraction; a missing bend counts as 0). Returns ``(a, c)``."""
+    g, cut, bend, whole = samples.T
+    x = np.stack([g, g * np.nan_to_num(bend)], 1)
+    coef, *_ = np.linalg.lstsq(x, whole - cut, rcond=None)
+    return coef
+
+
+def complete_measures(mask: np.ndarray, coef: Sequence[float], params: ShapeParams = ShapeParams()
+                      ) -> tuple[dict[str, float], int]:
+    """:func:`mask_shape` with each short leader's line predicted over the whole fitted stretch.
+
+    A leader shorter than the stretch has its line from the vertical moved
+    by :func:`fit_completion`'s model (``a·g + c·g·bend``, outwards); the
+    measures built on the leader lines (the V opening, the angles from the
+    trunk, the V's lean, the tilts) follow. The bends stay as measured.
+
+    Returns:
+        ``(measures, leaders completed)``.
+    """
+    from treeskel.guided_gt import arc_length
+    from treeskel.shape import MASK_ZOOM, unit_px, wrap
+
+    m, br = mask_shape(mask, params)
+    if br is None:
+        return m, 0
+    reach = params.reach * unit_px(0.0, params, MASK_ZOOM)
+    a, c = coef
+    tilts, done = {}, 0
+    for side in ("left", "right"):
+        tilts[side] = m[f"{side}_tilt"]
+        length = float(arc_length(br[side])[-1]) if len(br[side]) > 1 else 0.0
+        if length >= reach or not np.isfinite(tilts[side]):
+            continue
+        g = 1 - length / reach
+        _, bend = _outward(br[side], side, params)
+        shift = a * g + c * g * (0.0 if not np.isfinite(bend) else bend)
+        tilts[side] += shift if side == "right" else -shift
+        done += 1
+    if not done:
+        return m, 0
+    out = dict(m)
+    out["left_tilt"], out["right_tilt"] = tilts["left"], tilts["right"]
+    trunk = m["trunk_tilt"]
+    if np.isfinite(tilts["left"]) and np.isfinite(tilts["right"]):
+        out["v_opening"] = wrap(tilts["right"] - tilts["left"])
+        out["lean_v"] = (tilts["left"] + tilts["right"]) / 2
+        if np.isfinite(trunk):
+            out["lean"] = wrap(out["lean_v"] - trunk)
+    if np.isfinite(trunk):
+        out["left_angle"] = wrap(trunk - tilts["left"]) if np.isfinite(tilts["left"]) else float("nan")
+        out["right_angle"] = wrap(tilts["right"] - trunk) if np.isfinite(tilts["right"]) else float("nan")
+    return out, done
+
+
 def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
     """Predictions with each tree whose mask gave no shape at all replaced by the mean shape.
 
@@ -1144,7 +1257,8 @@ its own marker (validated beside the lined-up run's violet; the markers tell the
 RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE,
               "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H"),
               "segment_lined_up_rerun": ("#1baf7a", "X"), "segment_lined_up_rerun_joined": ("#eda100", "h"),
-              "segment_lined_up_rerun_grown": ("#1baf7a", "*"), "segment_lined_up_rerun_continued": ("#1baf7a", "d")}
+              "segment_lined_up_rerun_grown": ("#1baf7a", "*"), "segment_lined_up_rerun_continued": ("#1baf7a", "d"),
+              "segment_lined_up_completed": ("#1baf7a", "d"), "segment_lined_up_rerun_completed": ("#1baf7a", "d")}
 """The full-size runs (session 12) take the two slots not used by these figures, orange and yellow; their figure
 draws them between the square runs (:data:`FIGURE_RUNS`) so that no two warm colours are adjacent (checked with
 the palette validator)."""
@@ -1157,7 +1271,9 @@ RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
              "segment_lined_up_rerun": "The lined-up U-Net trained again (probabilities saved)",
              "segment_lined_up_rerun_joined": "The same run again, pieces of its masks joined",
              "segment_lined_up_rerun_grown": "The same run again, masks grown into less sure pixels, then joined",
-             "segment_lined_up_rerun_continued": "The same run again, joined, short leaders continued, pruned"}
+             "segment_lined_up_rerun_continued": "The same run again, joined, short leaders continued, pruned",
+             "segment_lined_up_completed": "U-Net on the lined-up masks, joined, short leaders' lines completed",
+             "segment_lined_up_rerun_completed": "The same run again, joined, short leaders' lines completed"}
 
 FIGURE_RUNS = {"segment_lined_up_rerun": ("segment_lined_up", "segment_lined_up_rerun"),
                "segment_lined_up_rerun_joined": ("segment_lined_up_joined", "segment_lined_up_rerun_joined"),
@@ -1165,6 +1281,8 @@ FIGURE_RUNS = {"segment_lined_up_rerun": ("segment_lined_up", "segment_lined_up_
                                                 "segment_lined_up_rerun_grown"),
                "segment_lined_up_rerun_continued": ("segment_lined_up_joined", "segment_lined_up_rerun_joined",
                                                     "segment_lined_up_rerun_continued"),
+               "segment_lined_up_completed": ("segment_lined_up_joined", "segment_lined_up_completed"),
+               "segment_lined_up_rerun_completed": ("segment_lined_up_rerun_joined", "segment_lined_up_rerun_completed"),
                "segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
                "segment_lined_up_480x640_joined": ("segment_lined_up_480x640", "segment_lined_up",
                                                    "segment_lined_up_480x640_joined", "segment_lined_up_joined")}
@@ -1591,6 +1709,52 @@ def continued_run(src: Path, cone: float = CONTINUE_CONE, out: Path | None = Non
     return out, failed
 
 
+def completed_run(src: Path, out: Path | None = None, figures: Path | None = None,
+                  progress: Callable[[str], None] = print) -> tuple[Path, list[str]]:
+    """Score a saved joined run again with its short leaders' lines predicted over the whole stretch.
+
+    The model (:func:`fit_completion`) is fitted on the run's own complete
+    leaders cut short on purpose (:func:`completion_samples`), for each fold
+    on the other folds' trees only, so no tree's prediction uses its own
+    leaders; the fit on all trees is kept for the final test. The masks are
+    not changed. The result goes to ``<run>_completed`` (``_joined`` dropped)
+    and is compared tree by tree with ``src`` and the other saved runs.
+
+    Returns:
+        ``(out, paths that could not be written)``.
+    """
+    src = Path(src)
+    source, info = _read_run(src)
+    masks = load_masks(src / "predicted_masks.npz")
+    trees = [t for t in info if t in masks]
+    out = Path(out) if out else src.parent / f"{src.name.removesuffix('_joined')}_completed"
+    folds = sorted({info[t]["fold"] for t in trees})
+    samples = {f: completion_samples({t: masks[t] for t in trees if info[t]["fold"] != f}) for f in folds}
+    coef = {f: fit_completion(samples[f]) for f in folds}
+    coef_all = fit_completion(completion_samples({t: masks[t] for t in trees}))
+    seg = np.full((len(trees), len(MEASURES)), np.nan)
+    done = np.zeros(len(trees), int)
+    for i, t in enumerate(trees):
+        m, done[i] = complete_measures(masks[t], coef[info[t]["fold"]])
+        seg[i] = [m[k] for k in MEASURES]
+    comp = {"source": str(src), "model": "whole - cut = a*g + c*g*bend (outward line from the vertical)",
+            "fractions": list(COMPLETE_FRACTIONS), "coef_all": [float(v) for v in coef_all],
+            "coef_by_fold": {str(f): [float(v) for v in c] for f, c in coef.items()},
+            "leaders_completed": int(done.sum()), "trees_completed": int((done > 0).sum())}
+    progress(f"Short leaders' lines predicted over the whole stretch in {_n(comp['trees_completed'], 'tree')} "
+             f"({_n(comp['leaders_completed'], 'leader')}); model fitted per fold on the other folds' complete leaders "
+             f"(all trees: a = {coef_all[0]:+.2f}, c = {coef_all[1]:+.3f})")
+    masks_summary, _, pixel = _pixel_columns(src, trees, masks, None)
+    header = ["tree", "row", "fold", "fork_found", "leaders_completed", *MASK_COLUMNS]
+    rows = [[t, info[t]["row"], info[t]["fold"], int(np.isfinite(seg[i]).any()), int(done[i]), *pixel[t]]
+            for i, t in enumerate(trees)]
+    failed = _rescored_run(src, source, info, trees, masks, seg, out,
+                           {"masks": masks_summary, "masks_note": "the masks are not changed", "complete": comp,
+                            "join": source.get("join", {})},
+                           header, rows, figures, None, ((src.name, "segmentation"),), progress)
+    return out, failed
+
+
 def draw_joins(before: dict[str, np.ndarray], after: dict[str, np.ndarray], columns: int = 8, scale: float = 0.5):
     """A contact sheet of joined masks: each tile the mask (grey), the pixels the join added (magenta) and the
     centre lines and fitted lines found after joining; masks whose V opening could be measured only after
@@ -1698,6 +1862,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "and joined (writes DIR_grown); the lower threshold is --grow-low, or chosen on the hand "
                          "masks if the dataset folder(s) are given")
     ap.add_argument("--grow-low", type=float, help="the lower threshold for --grow (default: chosen by clDice)")
+    ap.add_argument("--complete", metavar="DIR",
+                    help="only score a saved joined run again with its short leaders' lines predicted over the "
+                         "whole stretch from complete leaders' shapes (writes <run>_completed)")
     ap.add_argument("--continue", dest="continue_run", metavar="DIR",
                     help="only score a saved joined run's masks again with short leaders continued to pieces on their "
                          "line, and cut down to the trunk and two leaders (writes <run>_continued)")
@@ -1719,6 +1886,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if failed else 0
     if args.grow:
         return _grow_command(args)
+    if args.complete:
+        out, failed = completed_run(Path(args.complete), out=Path(args.out) if args.out else None,
+                                    figures=Path(args.figures))
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
     if args.continue_run:
         out, failed = continued_run(Path(args.continue_run), out=Path(args.out) if args.out else None,
                                     figures=Path(args.figures))
@@ -1726,7 +1899,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Could not write {f}")
         return 1 if failed else 0
     if not args.data_dirs:
-        ap.error("give the dataset folder(s), or --replot, --join, --grow or --continue")
+        ap.error("give the dataset folder(s), or --replot, --join, --grow, --continue or --complete")
     if len(args.size) > 2 or any(v % 32 for v in args.size):
         ap.error(f"--size takes one or two numbers, each divisible by 32; got {args.size}")
     size = args.size[0] if len(args.size) == 1 else (args.size[0], args.size[1])
