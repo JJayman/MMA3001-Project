@@ -95,7 +95,17 @@ error. Each mask is grown into the less sure pixels connected to it
 :data:`GROW_LOWS` whose masks best match the lined-up hand masks' centre
 lines (:func:`cl_dice`); the winter traces play no part. Training runs save
 their probabilities in the masks' frame (``probabilities.npz``) and write
-``<run>_grown`` beside ``<run>_joined``.
+``<run>_grown`` beside ``<run>_joined``. Not adopted: on the re-run it grew
+every mask (a lower threshold of 0.1 chosen), added side branches, and was
+no closer to winter on the V opening.
+
+**Continued leaders** (:func:`continue_leaders`, :func:`continued_run`,
+session 12, the student's next idea): a short leader is joined to a piece
+lying on its line further on (within :data:`CONTINUE_CONE` of its direction
+at the tip, and within the part of the fitted stretch still missing), and
+each mask is then cut down to its trunk and two leaders
+(:func:`prune_to_branches`). The settings come from the hand masks and the
+measures' own stretch, never from winter.
 
 Usage::
 
@@ -107,6 +117,7 @@ Usage::
     python -m treeskel.segment --replot docs/results/segment # figures only
     python -m treeskel.segment --join docs/results/segment_lined_up   # its masks joined: segment_lined_up_joined/
     python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun   # grown, threshold chosen again
+    python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined  # leaders continued, pruned
 """
 
 from __future__ import annotations
@@ -665,7 +676,6 @@ def join_pieces(mask: np.ndarray, gap: float = JOIN_GAP) -> tuple[np.ndarray, in
         ``(joined mask, number of pieces joined)``.
     """
     from scipy import ndimage as ndi
-    from skimage.draw import line as draw_line
     from skimage.morphology import skeletonize
 
     out = np.asarray(mask, bool).copy()
@@ -692,15 +702,23 @@ def join_pieces(mask: np.ndarray, gap: float = JOIN_GAP) -> tuple[np.ndarray, in
         ys, xs = np.nonzero(sk_piece)
         j = int(np.argmin(d[ys, xs]))
         a, b = (int(ys[j]), int(xs[j])), (int(iy[ys[j], xs[j]]), int(ix[ys[j], xs[j]]))
-        line = np.zeros_like(out)
-        line[draw_line(*a, *b)] = True
         width = min(_widest_near(half_width, sk_piece, a, gap), _widest_near(half_width, sk_main, b, gap))
-        band = ndi.distance_transform_edt(~line) < max(1.0, width)
+        band = _band(out.shape, a, b, width)
         out |= band
         main |= piece | band
         rest.remove(k)
         joined += 1
     return out, joined
+
+
+def _band(shape: tuple[int, int], a: tuple[int, int], b: tuple[int, int], width: float) -> np.ndarray:
+    """The pixels within ``width`` (at least 1) of the straight line from ``a`` to ``b``: a join's band."""
+    from scipy import ndimage as ndi
+    from skimage.draw import line as draw_line
+
+    line = np.zeros(shape, bool)
+    line[draw_line(*a, *b)] = True
+    return ndi.distance_transform_edt(~line) < max(1.0, width)
 
 
 def _widest_near(half_width: np.ndarray, skeleton: np.ndarray, point: tuple[int, int], reach: float) -> float:
@@ -803,6 +821,129 @@ def load_probabilities(path: Path) -> dict[str, np.ndarray]:
     """Inverse of :func:`save_probabilities`: ``{tree: (256, 256) float32 in [0, 1]}``."""
     with np.load(path) as z:
         return {str(t): z["prob"][i].astype(np.float32) / 255 for i, t in enumerate(z["ids"])}
+
+
+CONTINUE_CONE = 25.0
+"""Largest angle (degrees) between a short leader's direction at its tip and a piece that
+:func:`continue_leaders` joins to it: the development hand masks' leaders turn by at most 24.8 degrees
+between the two halves of the fitted stretch in 95% of cases (896 leaders), so a piece further off that
+line is more likely another branch than the same leader. Fixed before any continued mask was scored
+(session 12); never tuned on the winter traces."""
+
+
+def _tip_direction(path: np.ndarray, length: float) -> np.ndarray:
+    """Unit ``(row, col)`` direction of a leader at its tip: a line through its last ``length`` px, pointing out."""
+    from treeskel.guided_gt import arc_length
+    from treeskel.shape import line_direction, to_xy
+
+    p = np.asarray(path, float)
+    s = arc_length(p)
+    end = p[s >= s[-1] - length]
+    if len(end) < 2:
+        end = p[-2:]
+    d = line_direction(to_xy(end))                          # (x, y), y up
+    d = np.array([-d[1], d[0]])                            # (row, col)
+    return d if np.dot(d, end[-1] - end[0]) >= 0 else -d
+
+
+def continue_leaders(mask: np.ndarray, cone: float = CONTINUE_CONE, params: ShapeParams = ShapeParams(),
+                     rounds: int = 5) -> tuple[np.ndarray, int]:
+    """Join pieces lying on a short leader's way on, then keep only the trunk and the two leaders.
+
+    The student's idea (session 12): where leaves hide a leader, the mask
+    often stops, and a piece of the same leader lies further along its line,
+    too far for :func:`join_pieces`. Here, for each leader shorter than the
+    stretch the angles are fitted over (``params.reach`` units at
+    :data:`treeskel.shape.MASK_ZOOM`), the pieces of the mask not joined to
+    the tree are searched: one is joined if some pixel of it lies within the
+    part of the stretch still missing (``reach`` minus the leader's length)
+    of the tip and within ``cone`` degrees of the leader's direction at its
+    tip (a line through its last ``params.trunk_reach`` units, the length of
+    the trunk's axis), and it has at least ``params.min_points`` px of
+    centre line. The nearest such piece is joined by a band from the tip to
+    its nearest centre-line point, as :func:`join_pieces` joins; the leaders
+    are found again and the search repeats (a chain of pieces), up to
+    ``rounds`` times. Finally the mask is cut down to the trunk and the two
+    leaders (:func:`prune_to_branches`).
+
+    Args:
+        mask: ``(256, 256)`` bool mask, already joined (:func:`join_pieces`).
+        cone: :data:`CONTINUE_CONE`.
+        params: The shape measures' stretch.
+        rounds: Most joins per leader search.
+
+    Returns:
+        ``(the trunk and leaders, pieces joined)``; a mask with no fork is returned unchanged.
+    """
+    from scipy import ndimage as ndi
+    from skimage.morphology import skeletonize
+
+    from treeskel.guided_gt import arc_length
+    from treeskel.shape import MASK_ZOOM, unit_px
+
+    out = np.asarray(mask, bool).copy()
+    unit = unit_px(0.0, params, MASK_ZOOM)
+    reach, tip_len = params.reach * unit, params.trunk_reach * unit
+    joined = 0
+    br = mask_branches(out)
+    if br is None:
+        return out, 0
+    for _ in range(rounds):
+        filled = ndi.binary_fill_holes(out)
+        lab, n = ndi.label(filled, np.ones((3, 3)))
+        tree = lab[tuple(br["trunk"][-1])]
+        half_width = ndi.distance_transform_edt(filled)
+        best = None                                         # (distance, side, piece label)
+        for side in ("left", "right"):
+            path = br[side]
+            length = float(arc_length(path)[-1]) if len(path) > 1 else 0.0
+            if length >= reach or len(path) < 2:
+                continue
+            tip, d = np.asarray(path[-1], float), _tip_direction(path, tip_len)
+            for k in range(1, n + 1):
+                if k == tree:
+                    continue
+                ys, xs = np.nonzero(lab == k)
+                v = np.stack([ys, xs], 1) - tip
+                dist = np.hypot(v[:, 0], v[:, 1])
+                ok = (dist <= reach - length) & (v @ d >= np.cos(np.radians(cone)) * dist)
+                if not ok.any() or skeletonize(lab == k).sum() < params.min_points:
+                    continue
+                if best is None or dist[ok].min() < best[0]:
+                    best = (float(dist[ok].min()), side, k)
+        if best is None:
+            break
+        _, side, k = best
+        piece = lab == k
+        sk_piece = skeletonize(piece)
+        ys, xs = np.nonzero(sk_piece)
+        tip = tuple(int(v) for v in br[side][-1])
+        j = int(np.argmin(np.hypot(ys - tip[0], xs - tip[1])))
+        b = (int(ys[j]), int(xs[j]))
+        tree_line = np.zeros_like(out)
+        tree_line[tuple(np.asarray(br[side]).T)] = True
+        width = min(_widest_near(half_width, sk_piece, b, JOIN_GAP), _widest_near(half_width, tree_line, tip, JOIN_GAP))
+        out |= _band(out.shape, tip, b, width)
+        joined += 1
+        found = mask_branches(out)
+        if found is None:                                   # cannot happen when joining to the tree; be safe
+            break
+        br = found
+    return prune_to_branches(out, br), joined
+
+
+def prune_to_branches(mask: np.ndarray, br: dict) -> np.ndarray:
+    """The mask cut down to the trunk and the two leaders: its pixels within each path point's own half-width
+    (the distance to the mask's edge there) of the paths :func:`treeskel.shape.mask_branches` found."""
+    from scipy import ndimage as ndi
+
+    filled = ndi.binary_fill_holes(np.asarray(mask, bool))
+    half_width = ndi.distance_transform_edt(filled)
+    pts = np.concatenate([np.asarray(br[p]).reshape(-1, 2) for p in ("trunk", "left", "right")])
+    seeds = np.zeros(filled.shape, bool)
+    seeds[pts[:, 0], pts[:, 1]] = True
+    dist, (iy, ix) = ndi.distance_transform_edt(~seeds, return_indices=True)
+    return filled & (dist < half_width[iy, ix])
 
 
 def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
@@ -1003,7 +1144,7 @@ its own marker (validated beside the lined-up run's violet; the markers tell the
 RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE,
               "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H"),
               "segment_lined_up_rerun": ("#1baf7a", "X"), "segment_lined_up_rerun_joined": ("#eda100", "h"),
-              "segment_lined_up_rerun_grown": ("#1baf7a", "*")}
+              "segment_lined_up_rerun_grown": ("#1baf7a", "*"), "segment_lined_up_rerun_continued": ("#1baf7a", "d")}
 """The full-size runs (session 12) take the two slots not used by these figures, orange and yellow; their figure
 draws them between the square runs (:data:`FIGURE_RUNS`) so that no two warm colours are adjacent (checked with
 the palette validator)."""
@@ -1015,12 +1156,15 @@ RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
              "segment_lined_up_480x640_joined": "U-Net, whole photo at 480x640, pieces of its masks joined",
              "segment_lined_up_rerun": "The lined-up U-Net trained again (probabilities saved)",
              "segment_lined_up_rerun_joined": "The same run again, pieces of its masks joined",
-             "segment_lined_up_rerun_grown": "The same run again, masks grown into less sure pixels, then joined"}
+             "segment_lined_up_rerun_grown": "The same run again, masks grown into less sure pixels, then joined",
+             "segment_lined_up_rerun_continued": "The same run again, joined, short leaders continued, pruned"}
 
 FIGURE_RUNS = {"segment_lined_up_rerun": ("segment_lined_up", "segment_lined_up_rerun"),
                "segment_lined_up_rerun_joined": ("segment_lined_up_joined", "segment_lined_up_rerun_joined"),
                "segment_lined_up_rerun_grown": ("segment_lined_up_joined", "segment_lined_up_rerun_joined",
                                                 "segment_lined_up_rerun_grown"),
+               "segment_lined_up_rerun_continued": ("segment_lined_up_joined", "segment_lined_up_rerun_joined",
+                                                    "segment_lined_up_rerun_continued"),
                "segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
                "segment_lined_up_480x640_joined": ("segment_lined_up_480x640", "segment_lined_up",
                                                    "segment_lined_up_480x640_joined", "segment_lined_up_joined")}
@@ -1397,6 +1541,56 @@ def grown_run(src: Path, low: float, choice: dict | None = None, hands: dict[str
     return out, failed
 
 
+def continued_run(src: Path, cone: float = CONTINUE_CONE, out: Path | None = None, figures: Path | None = None,
+                  progress: Callable[[str], None] = print) -> tuple[Path, list[str]]:
+    """Score a saved joined run's masks again after continuing short leaders and pruning (:func:`continue_leaders`).
+
+    Like :func:`joined_run`, from the run's own files (no photos). ``src`` is a
+    joined run (e.g. ``segment_lined_up_rerun_joined``); the result goes to
+    ``<run>_continued`` beside it (``_joined`` dropped from the name) and is
+    compared tree by tree with ``src`` and the other saved runs. Pixel scores
+    are the run's own, of the masks before the change.
+
+    Returns:
+        ``(out, paths that could not be written)``.
+    """
+    src = Path(src)
+    source, info = _read_run(src)
+    masks = load_masks(src / "predicted_masks.npz")
+    trees = [t for t in info if t in masks]
+    out = Path(out) if out else src.parent / f"{src.name.removesuffix('_joined')}_continued"
+    final, pieces = {}, np.zeros(len(trees), int)
+    for i, t in enumerate(trees):
+        final[t], pieces[i] = continue_leaders(masks[t], cone)
+    seg, seg0 = _measure_all(final, trees), _measure_all(masks, trees)
+    v = MEASURES.index("v_opening")
+    change = np.abs(seg - seg0)
+    change[np.isnan(seg) != np.isnan(seg0)] = np.inf
+    moved = np.nan_to_num(change, nan=0.0).max(axis=1)
+    removed = np.array([int((masks[t] & ~final[t]).sum()) for t in trees])
+    cont = {"source": str(src), "cone": cone, "masks_continued": int((pieces > 0).sum()),
+            "pieces_joined": int(pieces.sum()), "pixels_pruned": int(removed.sum()),
+            "v_opening_before": int(np.isfinite(seg0[:, v]).sum()), "v_opening_after": int(np.isfinite(seg[:, v]).sum()),
+            "masks_whose_measures_changed": int((moved > 0.5).sum())}
+    progress(f"Short leaders continued to pieces on their line (within {cone:g} degrees and the missing stretch) in "
+             f"{_n(cont['masks_continued'], 'mask')} of {len(trees)} ({_n(cont['pieces_joined'], 'piece')}); every mask "
+             f"cut down to its trunk and two leaders ({cont['pixels_pruned']} pixels removed). With a V opening "
+             f"{cont['v_opening_before']} -> {cont['v_opening_after']}; measures moved by more than 0.5 degrees in "
+             f"{cont['masks_whose_measures_changed']}")
+    masks_summary, _, pixel = _pixel_columns(src, trees, final, None)
+    header = ["tree", "row", "fold", "fork_found", "pieces_joined", "pixels_pruned", "largest_change_deg",
+              *(f"{c}_before" for c in MASK_COLUMNS)]
+    rows = [[t, info[t]["row"], info[t]["fold"], int(np.isfinite(seg[i]).any()), int(pieces[i]), int(removed[i]),
+             f"{moved[i]:.2f}", *pixel[t]] for i, t in enumerate(trees)]
+    shown = [t for i, t in enumerate(trees) if pieces[i]] or [trees[i] for i in np.argsort(-moved)[:24]]
+    failed = _rescored_run(src, source, info, trees, final, seg, out,
+                           {"masks": masks_summary, "masks_note": "pixel scores of the masks before continuing and pruning",
+                            "continue": cont, "join": source.get("join", {})},
+                           header, rows, figures, ("masks", {t: masks[t] for t in shown}, {t: final[t] for t in shown}),
+                           ((src.name, "segmentation"),), progress)
+    return out, failed
+
+
 def draw_joins(before: dict[str, np.ndarray], after: dict[str, np.ndarray], columns: int = 8, scale: float = 0.5):
     """A contact sheet of joined masks: each tile the mask (grey), the pixels the join added (magenta) and the
     centre lines and fitted lines found after joining; masks whose V opening could be measured only after
@@ -1504,6 +1698,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "and joined (writes DIR_grown); the lower threshold is --grow-low, or chosen on the hand "
                          "masks if the dataset folder(s) are given")
     ap.add_argument("--grow-low", type=float, help="the lower threshold for --grow (default: chosen by clDice)")
+    ap.add_argument("--continue", dest="continue_run", metavar="DIR",
+                    help="only score a saved joined run's masks again with short leaders continued to pieces on their "
+                         "line, and cut down to the trunk and two leaders (writes <run>_continued)")
     ap.add_argument("--overwrite", action="store_true", help="train even if the results folder holds a run")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
     args = ap.parse_args(argv)
@@ -1522,8 +1719,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if failed else 0
     if args.grow:
         return _grow_command(args)
+    if args.continue_run:
+        out, failed = continued_run(Path(args.continue_run), out=Path(args.out) if args.out else None,
+                                    figures=Path(args.figures))
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
     if not args.data_dirs:
-        ap.error("give the dataset folder(s), or --replot, --join or --grow")
+        ap.error("give the dataset folder(s), or --replot, --join, --grow or --continue")
     if len(args.size) > 2 or any(v % 32 for v in args.size):
         ap.error(f"--size takes one or two numbers, each divisible by 32; got {args.size}")
     size = args.size[0] if len(args.size) == 1 else (args.size[0], args.size[1])

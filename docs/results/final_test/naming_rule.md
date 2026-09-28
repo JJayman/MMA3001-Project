@@ -62,3 +62,30 @@ The final test was not run in between.
 - **If adopted,** `model.json` is rewritten to name `docs/results/segment_lined_up_rerun_grown` (its
   recipe: the re-run's median epochs, the chosen threshold, the same joining gap). **If not,** `model.json`
   stays as it is.
+
+**Applied (re-run on the student's PC):** clDice chose a lower threshold of 0.1, which grew all 449
+masks (604,615 pixels). Against the re-run's joined masks, on the V opening: MAE 4.105° → 4.141°, grown
+closer on 42% of trees (p = 0.003, i.e. significantly *worse* more often). **Not adopted;** `model.json`
+stays as it is. The re-run itself repeated the original closely (V opening +0.72, joined +0.75).
+
+## Addendum, before scoring: continuing short leaders and pruning
+
+Added on 28 September 2026 (session 12), after the growing result and **before any continued mask was
+scored**. The final test was not run in between.
+
+- **The student's idea:** keep only the trunk and the two leaders, and where a leader stops abruptly
+  with a piece further along its path, join that piece (`treeskel.segment.continue_leaders`).
+- **Applied to** the re-run's joined masks (`segment_lined_up_rerun_joined`), no growing; the result goes
+  to `segment_lined_up_rerun_continued`, scored from the saved masks.
+- **Settings, fixed without winter:** only leaders shorter than the fitted stretch (16 units, 158 mask
+  px) are continued; a piece is joined if a pixel of it lies within the part of the stretch still missing
+  and within **25°** of the leader's direction at its tip (the development hand masks' leaders turn by at
+  most 24.8° over the stretch in 95% of cases); the tip's direction is a line through its last 4 units
+  (the trunk axis's length); a piece needs 10 px of centre line (the fewest a line fit takes); up to 5
+  pieces in a chain. Then every mask is cut down to its trunk and two leaders.
+- **The rule:** adopted if `segment_lined_up_rerun_continued` beats `segment_lined_up_rerun_joined` tree by
+  tree on the V opening (lower MAE and Wilcoxon p < 0.05). If adopted, `model.json` names
+  `docs/results/segment_lined_up_rerun_continued` (the re-run's median epochs, 36; joining; continuing and
+  pruning). If not, `model.json` stays as it is.
+- This is the third change tested on the same development trees (joining adopted, growing not); each
+  was fixed before it was scored, and the final test rows are the independent check of whichever is named.

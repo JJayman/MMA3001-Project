@@ -9,7 +9,8 @@ folds. This module runs once, at the end (session 11's third item):
    is committed before this module runs. Its recipe is taken as it stands:
    the network's parameters, the lined-up masks it trained on, whether its
    masks are grown (:func:`treeskel.segment.grow_mask`, with its lower
-   threshold) and joined (:func:`treeskel.segment.join_pieces`, with its gap), and
+   threshold) and joined (:func:`treeskel.segment.join_pieces`, with its gap), whether its short
+   leaders are continued and the masks pruned (:func:`treeskel.segment.continue_leaders`), and
    the number of epochs: the median of the numbers its 5 folds chose (each on
    rows held out inside the training rows, never on a test row).
 2. **One network is trained on all development trees** that the run's folds
@@ -63,6 +64,7 @@ from treeskel.segment import (
     MASK_COLUMNS,
     SegParams,
     UNet,
+    continue_leaders,
     draw_example,
     example_trees,
     fill_failures,
@@ -95,7 +97,8 @@ def named_recipe(model_file: Path) -> dict:
 
     Returns:
         ``{"named": model.json's content, "run": folder, "params": SegParams, "mask_overlay": path or None,
-        "join_gap": gap or None, "grow_low": lower threshold or None, "epochs": int, "fold_epochs": [...],
+        "join_gap": gap or None, "grow_low": lower threshold or None, "continue_cone": cone or None,
+        "epochs": int, "fold_epochs": [...],
         "development": the run's report}``.
     """
     named = json.loads(Path(model_file).read_text())
@@ -110,6 +113,7 @@ def named_recipe(model_file: Path) -> dict:
         raise ValueError(f"{run}/report.json records no epochs chosen by its folds")
     return {"named": named, "run": str(run), "params": SegParams(**p), "mask_overlay": report.get("mask_overlay"),
             "join_gap": (report.get("join") or {}).get("gap"), "grow_low": (report.get("grow") or {}).get("low"),
+            "continue_cone": (report.get("continue") or {}).get("cone"),
             "epochs": int(round(statistics.median(fold_epochs))),
             "fold_epochs": fold_epochs, "development": report}
 
@@ -252,6 +256,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"seed {params.seed}; masks {'lined up (' + recipe['mask_overlay'] + ')' if recipe['mask_overlay'] else 'as drawn'}; "
         f"{'grown into pixels above ' + format(recipe['grow_low'], 'g') + ', ' if recipe['grow_low'] else ''}"
         f"{'pieces joined within ' + format(recipe['join_gap'], 'g') + ' px' if recipe['join_gap'] else 'no joining'}; "
+        f"{'short leaders continued within ' + format(recipe['continue_cone'], 'g') + ' degrees and pruned; ' if recipe['continue_cone'] else ''}"
         f"{recipe['epochs']} epochs (median of the folds' {recipe['fold_epochs']})")
 
     split = json.loads(Path(args.split).read_text())
@@ -349,6 +354,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if recipe["join_gap"]:
             pred[i], k = join_pieces(pred[i], recipe["join_gap"])
             joined += k > 0
+        if recipe["continue_cone"]:
+            pred[i], _ = continue_leaders(pred[i], recipe["continue_cone"])
         meas, _ = mask_shape(pred[i])
         seg[i] = [meas[k] for k in MEASURES]
         hm = hand_mask(records[t])                          # as drawn: the test masks are not lined up
@@ -366,6 +373,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     dev_scores = recipe["development"]["scores"]
     report = {"named": recipe["named"], "run": recipe["run"], "params": asdict(params),
               "mask_overlay": recipe["mask_overlay"], "join_gap": recipe["join_gap"], "grow_low": recipe["grow_low"],
+              "continue_cone": recipe["continue_cone"],
               "epochs": recipe["epochs"],
               "fold_epochs": recipe["fold_epochs"], "seed": params.seed + SEED_OFFSET, "device": device,
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "minutes": minutes,
