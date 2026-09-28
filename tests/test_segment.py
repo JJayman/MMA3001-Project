@@ -16,17 +16,23 @@ from treeskel.segment import (  # noqa: E402
     compare_with,
     cross_validate_seg,
     example_trees,
+    figure_runs,
     fill_failures,
+    input_shape,
+    known_map,
+    load_frames,
     load_masks,
     main,
     mask_scores,
     mask_shape,
+    mask_to_photo,
     predict_masks,
     save_masks,
     seg_loss,
     to_mask_size,
     train_seg,
     variant,
+    whole_photo,
 )
 from treeskel.shape import MEASURES  # noqa: E402
 from treeskel.shape_cnn import normalise  # noqa: E402
@@ -90,6 +96,49 @@ def test_the_mask_stays_on_the_branch_under_crop_rotation_and_mirror():
     assert not torch.allclose(ma, m)                         # it did move
 
 
+def test_the_known_part_stays_with_the_mask_in_a_wide_frame():
+    m = torch.zeros(4, 64, 128)
+    m[:, 20:60, 60:66] = 1
+    known = torch.zeros(64, 128)
+    known[:, 16:112] = 1
+    x = torch.stack([known.expand(4, 64, 128), m, torch.zeros_like(m)], 1)
+    xa, ma, ka = augment_pair(x, m, torch.Generator().manual_seed(5), SegParams(jitter=0.0), known=known)
+    assert ka.shape == (4, 64, 128)
+    assert torch.allclose(xa[:, 0] * 0.229 + 0.485, ka, atol=1e-4)                 # moved with the photo
+    assert torch.allclose(xa[:, 1] * 0.224 + 0.456, ma, atol=1e-4)
+    plain = SegParams(crop=1.0, rotate=0.0, jitter=0.0)
+    _, m1, k1 = augment_pair(x, m, torch.Generator().manual_seed(0), plain, flip_p=1.0, known=known)
+    assert torch.allclose(k1, known.flip(-1).expand(4, 64, 128)) and torch.allclose(m1, m.flip(-1))
+
+
+def test_a_rotation_keeps_a_disc_round_in_a_wide_frame():
+    """The rotation is made in pixels: in a frame twice as wide as high a disc must stay a disc (a rotation made
+    in the grid's [-1, 1] coordinates would shear it into an ellipse)."""
+    yy, xx = torch.meshgrid(torch.arange(64.0), torch.arange(128.0), indexing="ij")
+    disc = ((yy - 32) ** 2 + (xx - 64) ** 2 < 15 ** 2).float().expand(8, 64, 128)
+    x = torch.stack([disc] * 3, 1)
+    _, md = augment_pair(x, disc, torch.Generator().manual_seed(2), SegParams(crop=1.0, rotate=30.0, jitter=0.0))
+    for k in range(8):
+        w = md[k]
+        cy, cx = (w * yy).sum() / w.sum(), (w * xx).sum() / w.sum()
+        cov = torch.tensor([[(w * (yy - cy) ** 2).sum(), (w * (yy - cy) * (xx - cx)).sum()],
+                            [(w * (yy - cy) * (xx - cx)).sum(), (w * (xx - cx) ** 2).sum()]]) / w.sum()
+        ev = torch.linalg.eigvalsh(cov)
+        assert float(ev[1] / ev[0]) < 1.05                                           # round
+        assert float(w.sum()) == pytest.approx(float(disc[0].sum()), rel=0.02)       # same area
+
+
+def test_the_loss_ignores_what_the_masks_do_not_describe():
+    lg = torch.randn(2, 16, 24)
+    t = (torch.rand(2, 16, 24) > 0.8).float()
+    known = torch.zeros(16, 24)
+    known[:, 4:20] = 1
+    t2 = t.clone()
+    t2[..., :4] = 1 - t2[..., :4]                                                    # differs only where unknown
+    assert float(seg_loss(lg, t, known)) == pytest.approx(float(seg_loss(lg, t2, known)), abs=1e-6)
+    assert float(seg_loss(lg, t, torch.ones(16, 24))) == pytest.approx(float(seg_loss(lg, t)), abs=1e-6)
+
+
 def test_colour_jitter_leaves_the_mask_and_depth_alone():
     x, m = torch.rand(4, 4, 32, 32), (torch.rand(4, 32, 32) > 0.5).float()
     xa, ma = augment_pair(x, m, torch.Generator().manual_seed(1), SegParams(crop=1.0, rotate=0.0, jitter=0.5),
@@ -130,6 +179,28 @@ def v_photos(n=16, s=64, seed=0):
         masks[i] = m * 255
         img[i][m] = 230
     return img, masks
+
+
+def test_training_on_whole_photos_counts_only_the_known_columns(monkeypatch):
+    import treeskel.segment as seg
+
+    img, masks = v_photos(n=8, s=64)
+    wide = np.zeros((8, 64, 96, 3), np.uint8)
+    wide[:, :, 16:80] = img                                    # the V photos, with 16 columns either side
+    m = np.zeros((8, 64, 96), np.uint8)
+    m[:, :, 16:80] = masks
+    seen = []
+    real = seg.seg_loss
+    monkeypatch.setattr(seg, "seg_loss", lambda lg, t, known=None: seen.append(known) or real(lg, t, known))
+    params = SegParams(size=(64, 96), batch=4, jitter=0.0)
+    net = UNet(pretrained=False)
+    x, mt = torch.from_numpy(wide.transpose(0, 3, 1, 2).copy()), torch.from_numpy(m)
+    log = train_seg(net, x, mt, 2, params, seed=0, val=(x, mt))
+    assert len(log) == 2 and all(np.isfinite(r["val_loss"]) for r in log)
+    assert all(k is not None for k in seen)                   # every loss knew which columns count
+    a, b = seg.known_columns(96)
+    assert (a, b) == (12, 84) and float(seen[-1][:, :a].abs().sum()) == 0.0
+    assert predict_masks(net, x).shape == (8, 64, 96)
 
 
 def test_training_learns_a_known_mask():
@@ -222,6 +293,21 @@ def test_small_probability_maps_come_back_to_the_masks_frame():
     assert np.array_equal(to_mask_size(m.astype(np.float32)), m)            # already 256: only thresholded
 
 
+def test_a_mask_on_the_whole_photo_and_back():
+    m = v_mask()
+    photo = mask_to_photo(m, (480, 640))
+    assert photo.shape == (480, 640) and photo.dtype == np.uint8
+    assert not photo[:, :80].any() and not photo[:, 560:].any()                     # nothing said outside
+    assert mask_scores(to_mask_size(photo / 255.0, whole=True), m)["dice"] > 0.97
+    small = mask_to_photo(m, (64, 96))
+    assert small.shape == (64, 96) and not small[:, :11].any() and not small[:, 85:].any()   # columns 12-83 known
+    assert mask_scores(to_mask_size(small / 255.0, whole=True), m)["dice"] > 0.8
+    params = SegParams(size=(480, 640))
+    assert whole_photo(params) and input_shape(params) == (480, 640) and not whole_photo(SegParams())
+    k = known_map(params)
+    assert k[:, 80:560].all() and not k[:, :80].any() and not k[:, 560:].any() and known_map(SegParams()) is None
+
+
 def test_masks_without_a_shape_count_as_the_mean():
     pred = np.array([[1.0, 2.0], [np.nan, np.nan], [3.0, np.nan]])
     mean = np.array([[9.0, 9.0], [5.0, 6.0], [7.0, 8.0]])
@@ -260,6 +346,16 @@ def test_run_names():
     assert variant(SegParams(depth=True)) == "segment_depth"
     assert variant(SegParams(encoder="resnet34")) == "segment_resnet34"
     assert variant(SegParams(size=384)) == "segment_384"
+    assert variant(SegParams(size=(480, 640))) == "segment_480x640"
+    assert variant(SegParams(size=(480, 640)), lined_up=True) == "segment_lined_up_480x640"
+
+
+def test_skill_figures_draw_the_runs_that_belong_together():
+    assert figure_runs("segment") == ("shape_cnn", "shape_cnn_480x640", "segment")
+    assert figure_runs("segment_lined_up_joined")[-2:] == ("segment_lined_up", "segment_lined_up_joined")
+    full = figure_runs("segment_lined_up_480x640_joined")
+    assert len(full) == 4 and "shape_cnn" not in full and full[2] == "segment_lined_up_480x640_joined"
+    assert figure_runs("segment_depth") == ("shape_cnn", "shape_cnn_480x640", "segment", "segment_depth")
 
 
 # --- the local trees -----------------------------------------------------------------
@@ -280,6 +376,23 @@ def test_hand_masks_as_predictions_reproduce_their_measures():
             if np.isfinite(table[t][f"hand_{k}"]):
                 assert m[k] == pytest.approx(table[t][f"hand_{k}"], abs=0.01)
         assert mask_scores(to_mask_size(hand.astype(np.float32)), hand)["dice"] == 1.0
+
+
+def test_whole_photos_of_the_local_trees(tmp_path):
+    from treeskel.io import index_dataset
+    from treeskel.summer_gt import load_overlays
+
+    recs = {t.tree_id: t for t in index_dataset(ROOT / "data" / "tuning").trees}
+    ids = sorted(recs)[:3]
+    overlays = load_overlays(ROOT / "annotations" / "mask_overlay.json")
+    img, masks, has = load_frames(recs, ids, (96, 128), progress=lambda m: None, overlays=overlays)
+    assert img.shape == (3, 96, 128, 3) and masks.shape == (3, 96, 128) and has.all()
+    a, b = (16, 112)                                          # columns 80-559 of 640, at 128 wide
+    assert not masks[:, :, :a].any() and not masks[:, :, b:].any() and masks[:, :, a:b].any()
+    sq, sq_masks, _ = load_frames(recs, ids, 96, progress=lambda m: None, overlays=overlays)
+    for i in range(3):                                        # the same mask as in the square frame, placed
+        wide = to_mask_size(masks[i] / 255.0, whole=True)
+        assert mask_scores(wide, to_mask_size(sq_masks[i] / 255.0))["dice"] > 0.85
 
 
 def test_cli_on_the_local_trees(tmp_path, capsys):
@@ -303,3 +416,23 @@ def test_cli_on_the_local_trees(tmp_path, capsys):
         assert (figures / name).exists()
     assert main(["--replot", str(out), "--figures", str(tmp_path / "again")]) == 0
     assert (tmp_path / "again" / "segment_skill.png").exists()
+
+
+def test_cli_on_whole_photos_of_the_local_trees(tmp_path, capsys):
+    data = [str(ROOT / "data" / "sample"), str(ROOT / "data" / "tuning")]
+    results = tmp_path / "results"
+    assert main([*data, "--random-weights", "--device", "cpu", "--size", "64", "96", "--epochs", "1", "--examples",
+                 "0", "--mask-overlay", str(ROOT / "annotations/mask_overlay.json"), "--out",
+                 str(results / "segment_lined_up_64x96"), "--figures", str(tmp_path / "figures"),
+                 "--table", str(ROOT / "data/shape/shape_measures.csv"), "--split", str(ROOT / "splits.json")]) == 0
+    text = capsys.readouterr().out
+    assert "(whole photos) at 64x96" in text and "masks with no fork" in text
+    report = json.loads((results / "segment_lined_up_64x96" / "report.json").read_text())
+    assert report["params"]["size"] == [64, 96] and report["variant"] == "segment_lined_up_64x96"
+    assert report["n_trees"] == 21 and report["masks"]["dice"]["n"] == 21
+    masks = load_masks(results / "segment_lined_up_64x96" / "predicted_masks.npz")
+    assert len(masks) == 21 and next(iter(masks.values())).shape == (256, 256)   # measured in the masks' frame
+    joined = json.loads((results / "segment_lined_up_64x96_joined" / "report.json").read_text())
+    assert joined["variant"] == "segment_lined_up_64x96_joined" and joined["n_trees"] == 21
+    with pytest.raises(SystemExit):
+        main([*data, "--size", "64", "100"])                  # 100 does not divide by 32

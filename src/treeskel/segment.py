@@ -33,6 +33,14 @@ encoder's features at each scale. It sees the masks' frame: the centre
 480x480 of the photo, resized to ``size`` x ``size`` (256, the masks' own
 resolution, by default).
 
+**Full size** (``--size 480 640``, session 12, the one variant agreed at the
+end of session 11): the whole photo at its own resolution, as the angle
+CNN's best run. The hand masks cover only the photo's centre 480 columns, so
+the side columns are unknown to the loss (:func:`known_columns`,
+:func:`seg_loss`), and the predictions are measured in the masks' frame
+(:func:`to_mask_size`), exactly as the square runs'. The rotation of the
+augmentation is made in pixels, so it keeps angles in the wider frame.
+
 **Loss** (:func:`seg_loss`): binary cross-entropy plus the soft Dice loss;
 branch pixels are only about 6% of the frame, and the Dice term keeps the
 thin leaders from being traded for background.
@@ -69,12 +77,23 @@ after the first run): each hand mask moved onto its summer photo with
 and the pixel scores are against the lined-up masks. The shape scores need
 no change: moving a mask does not change its angles.
 
+**Joined masks** (:func:`join_pieces`, :func:`joined_run`, session 12, as
+agreed at the end of session 11): the measuring keeps only a mask's largest
+piece, so a leader cut off by a few pixels of leaves takes the fork with it
+(14 of the lined-up run's 449 masks had no fork). Before measuring, pieces
+within :data:`JOIN_GAP` (about a trunk's width, fixed from the hand masks'
+geometry, never tuned on winter) are joined to the largest. Every run is
+also scored this way, into ``<run>_joined``, and both are reported.
+
 Usage::
 
     python -m treeskel.segment data/raw                      # the student's PC (GPU); docs/results/segment/
     python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # docs/results/segment_lined_up/
+    python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640
+                                                             # docs/results/segment_lined_up_480x640/ (+ _joined/)
     python -m treeskel.segment data/raw --depth              # docs/results/segment_depth/
     python -m treeskel.segment --replot docs/results/segment # figures only
+    python -m treeskel.segment --join docs/results/segment_lined_up   # its masks joined: segment_lined_up_joined/
 """
 
 from __future__ import annotations
@@ -102,8 +121,12 @@ class SegParams:
     """The training recipe, fixed before any result.
 
     Attributes:
-        size: Side of the square input: the photo's centre 480x480, resized.
-            256 is the hand masks' own resolution; it must divide by 32.
+        size: One number: the side of a square input, the photo's centre
+            480x480 (the hand masks' frame) resized; 256 is the masks' own
+            resolution. Two, ``(height, width)``: the whole photo resized,
+            e.g. ``(480, 640)`` at full size (session 12), where the hand
+            masks cover only the centre columns and the rest is unknown to
+            the loss (:func:`known_columns`). Each side must divide by 32.
         encoder: ``"resnet18"`` or ``"resnet34"``.
         epochs: Most epochs tried when choosing the number of epochs.
         batch: Photos per training step.
@@ -119,7 +142,7 @@ class SegParams:
         depth: Also give the network the summer depth, as a fourth channel.
     """
 
-    size: int = 256
+    size: int | tuple[int, int] = 256
     encoder: str = "resnet18"
     epochs: int = 60
     batch: int = 8
@@ -132,6 +155,59 @@ class SegParams:
     threshold: float = 0.5
     seed: int = 0
     depth: bool = False
+
+
+def whole_photo(params: SegParams) -> bool:
+    """True if the network sees the whole photo (``size`` is ``(height, width)``), not the masks' square frame."""
+    return not isinstance(params.size, int)
+
+
+def input_shape(params: SegParams) -> tuple[int, int]:
+    """``(height, width)`` of the network's input."""
+    return (params.size, params.size) if not whole_photo(params) else (int(params.size[0]), int(params.size[1]))
+
+
+def known_columns(width: int) -> tuple[int, int]:
+    """The columns ``[start, stop)`` of a whole photo resized to ``width`` that the hand masks describe (the
+    photo's columns 80-559, :data:`treeskel.io.CROP_COLS`); outside them a mask says nothing.
+
+    Example:
+        >>> known_columns(640), known_columns(320)
+        ((80, 560), (40, 280))
+    """
+    from treeskel.io import CROP_COLS, IMAGE_SHAPE
+
+    return round(CROP_COLS[0] * width / IMAGE_SHAPE[1]), round(CROP_COLS[1] * width / IMAGE_SHAPE[1])
+
+
+def known_map(params: SegParams) -> np.ndarray | None:
+    """``(height, width)`` float32, 1 where the hand masks say something and 0 where they do not; None for the
+    masks' own square frame, where they describe every pixel."""
+    if not whole_photo(params):
+        return None
+    h, w = input_shape(params)
+    out = np.zeros((h, w), np.float32)
+    a, b = known_columns(w)
+    out[:, a:b] = 1.0
+    return out
+
+
+def mask_to_photo(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """A 256x256 hand mask placed on the whole photo (:func:`treeskel.io.mask_to_image_frame`, but resized
+    bilinearly, so soft at the edges as in the square frame) and resized to ``shape`` = ``(height, width)``:
+    uint8 0-255, zero outside the columns it describes."""
+    from PIL import Image
+
+    from treeskel.io import CROP_COLS, IMAGE_SHAPE
+
+    side = IMAGE_SHAPE[0]
+    big = np.asarray(Image.fromarray(np.asarray(mask, bool).astype(np.uint8) * 255).resize((side, side),
+                                                                                            Image.BILINEAR))
+    full = np.zeros(IMAGE_SHAPE, np.uint8)
+    full[:, CROP_COLS[0]:CROP_COLS[1]] = big
+    if tuple(shape) == IMAGE_SHAPE:
+        return full
+    return np.asarray(Image.fromarray(full).resize((shape[1], shape[0]), Image.BILINEAR))
 
 
 # --------------------------------------------------------------------------
@@ -231,45 +307,61 @@ def UNet(encoder: str = "resnet18", pretrained: bool = True, channels: int = 3):
 # Training
 # --------------------------------------------------------------------------
 
-def seg_loss(logits, target):
+def seg_loss(logits, target, known=None):
     """Binary cross-entropy plus soft Dice loss (``1 − 2|P∩T| / (|P| + |T|)``, per photo, smoothed by 1).
 
     Args:
         logits: ``(B, H, W)`` network outputs.
         target: ``(B, H, W)`` masks in [0, 1] (soft at resampled edges).
+        known: Optional ``(B, H, W)`` or ``(H, W)`` weights in [0, 1]: where
+            the masks say something (1) or nothing (0, the whole photo's side
+            columns). Pixels of weight 0 count in neither term; None counts
+            every pixel, exactly as before.
     """
     import torch
     import torch.nn.functional as F
 
-    bce = F.binary_cross_entropy_with_logits(logits, target)
     p = torch.sigmoid(logits)
+    if known is None:
+        bce = F.binary_cross_entropy_with_logits(logits, target)
+    else:
+        known = known.expand_as(target)
+        bce = ((F.binary_cross_entropy_with_logits(logits, target, reduction="none") * known).sum()
+               / known.sum().clamp_min(1.0))
+        p, target = p * known, target * known
     inter = (p * target).sum(dim=(1, 2))
     dice = 1 - (2 * inter + 1) / (p.sum(dim=(1, 2)) + target.sum(dim=(1, 2)) + 1)
     return bce + dice.mean()
 
 
-def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float = 0.5):
+def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float = 0.5, known=None):
     """Random crop, rotation, mirror image and colour jitter, with the mask resampled alike.
 
-    The crop, rotation and mirror are one affine resampling per photo (of a
-    square frame, so a rotation keeps its angles): a square fraction ``f`` of
-    each side (``f² ∈ [crop, 1]`` of the area) at a random position.
+    The crop, rotation and mirror are one affine resampling per photo: a
+    fraction ``f`` of each side (``f² ∈ [crop, 1]`` of the area) at a random
+    position. The rotation is made in pixels, so it keeps angles in a
+    non-square frame too (in a square one the arithmetic is unchanged).
 
     Args:
-        x: ``(B, C, S, S)`` floats in [0, 1] (C = 3, or 4 with the depth last,
+        x: ``(B, C, H, W)`` floats in [0, 1] (C = 3, or 4 with the depth last,
             which is not jittered).
-        m: ``(B, S, S)`` masks in [0, 1].
+        m: ``(B, H, W)`` masks in [0, 1].
         generator: A ``torch.Generator`` on ``x``'s device.
         params: ``crop``, ``rotate`` and ``jitter``.
         flip_p: Chance of the mirror image.
+        known: Optional ``(H, W)`` or ``(B, H, W)`` weights (:func:`seg_loss`),
+            resampled with the mask; pixels brought in from past the edge are
+            the edge's.
 
     Returns:
-        ``(images, masks)``: normalised images and masks in [0, 1], same shapes.
+        ``(images, masks)``: normalised images and masks in [0, 1], same
+        shapes; with ``known``, ``(images, masks, known)``.
     """
     import torch
     import torch.nn.functional as F
 
     b, dev = x.shape[0], x.device
+    aspect = x.shape[-1] / x.shape[-2]                                       # width / height
 
     def uniform(lo, hi):
         return lo + (hi - lo) * torch.rand(b, device=dev, generator=generator)
@@ -280,12 +372,20 @@ def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float
     sx = torch.where(torch.rand(b, device=dev, generator=generator) < flip_p, -f, f)
     theta = torch.zeros(b, 2, 3, device=dev)
     cos, sin = torch.cos(a), torch.sin(a)
-    theta[:, 0, 0], theta[:, 0, 1], theta[:, 0, 2] = cos * sx, -sin * f, tx     # rotation after the mirror and scale
-    theta[:, 1, 0], theta[:, 1, 1], theta[:, 1, 2] = sin * sx, cos * f, ty
-    both = torch.cat([x, m.unsqueeze(1)], dim=1)
+    # Rotation after the mirror and scale, in pixels: in the grid's [-1, 1] coordinates the off-diagonal
+    # terms carry the frame's aspect ratio (1 for a square frame).
+    theta[:, 0, 0], theta[:, 0, 1], theta[:, 0, 2] = cos * sx, -sin * f / aspect, tx
+    theta[:, 1, 0], theta[:, 1, 1], theta[:, 1, 2] = sin * sx * aspect, cos * f, ty
+    parts = [x, m.unsqueeze(1)]
+    if known is not None:
+        parts.append(known.expand(b, *m.shape[-2:]).unsqueeze(1).to(x.dtype))
+    both = torch.cat(parts, dim=1)
     grid = F.affine_grid(theta, list(both.shape), align_corners=False)
     both = F.grid_sample(both, grid, mode="bilinear", padding_mode="border", align_corners=False)
-    x, m = both[:, :-1], both[:, -1].clamp(0, 1)
+    c = x.shape[1]
+    x, m = both[:, :c], both[:, c].clamp(0, 1)
+    if known is not None:
+        known = both[:, c + 1].clamp(0, 1)
     j = params.jitter
     if j > 0:
         rgb, rest = x[:, :3], x[:, 3:]
@@ -295,7 +395,7 @@ def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float
         grey = (0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]).unsqueeze(1)
         rgb = grey + (rgb - grey) * uniform(1 - j, 1 + j).view(b, 1, 1, 1)      # saturation
         x = torch.cat([rgb.clamp(0, 1), rest], dim=1)
-    return normalise(x), m
+    return (normalise(x), m) if known is None else (normalise(x), m, known)
 
 
 def _float(x_uint8):
@@ -311,7 +411,7 @@ def predict_masks(model, x_uint8, batch: int = 16) -> np.ndarray:
         batch: Photos per forward pass.
 
     Returns:
-        ``(N, S, S)`` float32 probabilities.
+        ``(N, H, W)`` float32 probabilities.
     """
     import torch
 
@@ -322,8 +422,7 @@ def predict_masks(model, x_uint8, batch: int = 16) -> np.ndarray:
             x = normalise(_float(x_uint8[i:i + batch]))
             p = (torch.sigmoid(model(x)) + torch.sigmoid(model(x.flip(-1))).flip(-1)) / 2
             out.append(p.float().cpu().numpy())
-    s = x_uint8.shape[-1]
-    return np.concatenate(out) if out else np.zeros((0, s, s), np.float32)
+    return np.concatenate(out) if out else np.zeros((0,) + tuple(x_uint8.shape[-2:]), np.float32)
 
 
 def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int, val: tuple | None = None,
@@ -332,8 +431,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
 
     Args:
         model: The :class:`UNet`, on its device.
-        x_uint8: ``(N, C, S, S)`` uint8 tensor of training photos on the device.
-        m_uint8: ``(N, S, S)`` uint8 tensor of their masks (0–255).
+        x_uint8: ``(N, C, H, W)`` uint8 tensor of training photos on the device.
+        m_uint8: ``(N, H, W)`` uint8 tensor of their masks (0–255).
         epochs: Epochs to train.
         params: The recipe.
         seed: Seed for the batch order and the augmentation.
@@ -348,6 +447,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
 
     dev = x_uint8.device
     torch.manual_seed(seed)
+    km = known_map(params)                                  # None in the masks' own frame
+    known = None if km is None else torch.from_numpy(km).to(dev)
     gen = torch.Generator(device=dev).manual_seed(seed)
     enc, dec = model.groups()
     opt = torch.optim.AdamW([{"params": enc, "lr": params.lr_encoder}, {"params": dec, "lr": params.lr_decoder}],
@@ -364,8 +465,12 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
             idx = order[i:i + params.batch]
             if len(idx) < 2:                                   # batch norm needs two photos
                 continue
-            x, m = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params)
-            loss = seg_loss(model(x), m)
+            if known is None:
+                x, m = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params)
+                loss = seg_loss(model(x), m)
+            else:
+                x, m, k = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params, known=known)
+                loss = seg_loss(model(x), m, k)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -374,7 +479,8 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
         record = {"epoch": epoch, "train_loss": total / max(count, 1), "val_loss": None}
         if val is not None:
             p = torch.as_tensor(predict_masks(model, val[0])).clamp(1e-6, 1 - 1e-6)
-            record["val_loss"] = float(seg_loss(torch.logit(p), _float(val[1]).cpu()))
+            record["val_loss"] = float(seg_loss(torch.logit(p), _float(val[1]).cpu(),
+                                               None if known is None else known.cpu()))
         log.append(record)
         if on_epoch:
             on_epoch(record)
@@ -387,8 +493,8 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
     """Train and predict every tree from the fold that holds its row out (see the module docstring).
 
     Args:
-        images: ``(n, S, S, C)`` uint8 summer photos in the masks' frame, at ``params.size``.
-        masks: ``(n, S, S)`` uint8 hand masks (0–255) at the same size.
+        images: ``(n, H, W, C)`` uint8 summer photos at ``params.size`` (:func:`load_frames`).
+        masks: ``(n, H, W)`` uint8 hand masks (0–255) in the same frame.
         has_mask: ``(n,)`` bool; trees without a hand mask are predicted but never trained on.
         rows: ``(n,)`` orchard rows.
         fold_rows: Each fold's held-out rows (``splits.json``).
@@ -398,7 +504,7 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
         progress: Where progress lines go.
 
     Returns:
-        ``{"prob": (n, S, S) float32, "fold": (n,), "epochs": [...], "log": [...], "device": str}``.
+        ``{"prob": (n, H, W) float32, "fold": (n,), "epochs": [...], "log": [...], "device": str}``.
     """
     import torch
 
@@ -408,8 +514,8 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
     start = copy.deepcopy(base.state_dict())
     x_all = torch.from_numpy(np.ascontiguousarray(images.transpose(0, 3, 1, 2))).to(device)
     m_all = torch.from_numpy(np.ascontiguousarray(masks)).to(device)
-    n, s = len(images), images.shape[1]
-    prob, fold = np.full((n, s, s), np.nan, np.float32), np.full(n, -1)
+    n = len(images)
+    prob, fold = np.full((n,) + images.shape[1:3], np.nan, np.float32), np.full(n, -1)
     chosen, logs = [], []
 
     def fresh():
@@ -456,13 +562,24 @@ def cross_validate_seg(images: np.ndarray, masks: np.ndarray, has_mask: np.ndarr
 # Scoring
 # --------------------------------------------------------------------------
 
-def to_mask_size(prob: np.ndarray, threshold: float = 0.5) -> np.ndarray:
-    """``(S, S)`` probabilities to a 256x256 bool mask (the hand masks' frame), resized bilinearly first."""
+def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) -> np.ndarray:
+    """Probabilities to a 256x256 bool mask in the hand masks' frame, resized bilinearly first.
+
+    Args:
+        prob: ``(S, S)`` probabilities in the masks' frame, or, with ``whole``,
+            ``(H, W)`` over the whole photo, whose centre columns
+            (:func:`known_columns`) are the masks' frame.
+        threshold: Probability above which a pixel is branch.
+        whole: ``prob`` covers the whole photo.
+    """
     from PIL import Image
 
     from treeskel.io import MASK_SHAPE
 
     p = np.asarray(prob, np.float32)
+    if whole:
+        a, b = known_columns(p.shape[1])
+        p = np.ascontiguousarray(p[:, a:b])
     if p.shape != MASK_SHAPE:
         p = np.asarray(Image.fromarray(p).resize(MASK_SHAPE[::-1], Image.BILINEAR))
     return p > threshold
@@ -492,6 +609,83 @@ def mask_shape(mask: np.ndarray, params: ShapeParams = ShapeParams()) -> tuple[d
     if br is None:
         return dict.fromkeys(MEASURES, float("nan")), None
     return shape_measures(br["trunk"], br["left"], br["right"], br["fork_radius"], params, MASK_ZOOM), br
+
+
+JOIN_GAP = 19.3
+"""Largest gap (mask px, nearest pixel centre to nearest pixel centre) that :func:`join_pieces` bridges:
+about a trunk's width. It is twice the development hand masks' median trunk radius at the fork (9.67
+mask px as :func:`treeskel.shape.mask_branches` measures it, the distance from the centre line to the
+nearest background pixel; 448 trees), so up to about 18 background pixels, 36 px of the photo. Fixed
+from that geometry before any joined mask was scored (session 12); never tuned on the winter traces."""
+
+
+def join_pieces(mask: np.ndarray, gap: float = JOIN_GAP) -> tuple[np.ndarray, int]:
+    """Join the pieces of a broken predicted mask to its largest piece across gaps of at most ``gap``.
+
+    :func:`treeskel.shape.mask_branches` keeps only the largest piece, so a
+    leader cut from the trunk by a few pixels of leaves is lost, and with it
+    the fork. Here, starting from the largest piece, the nearest other piece
+    is joined if its nearest pixel is within ``gap`` of the joined mask, and
+    so on until none is (a piece may come within reach through one joined
+    before it). The join is a straight band between the two pieces' nearest
+    centre-line (skeleton) points, as wide as the narrower of the two near
+    there (the widest point of each centre line within ``gap`` of the join),
+    so the centre lines run on through it. Pixels are only added, and a mask
+    in one piece is returned unchanged.
+
+    Args:
+        mask: ``(H, W)`` bool predicted mask.
+        gap: Largest gap bridged (px, nearest pixel centre to nearest pixel
+            centre); 0 joins nothing.
+
+    Returns:
+        ``(joined mask, number of pieces joined)``.
+    """
+    from scipy import ndimage as ndi
+    from skimage.draw import line as draw_line
+    from skimage.morphology import skeletonize
+
+    out = np.asarray(mask, bool).copy()
+    filled = ndi.binary_fill_holes(out)
+    lab, n = ndi.label(filled, np.ones((3, 3)))
+    if n < 2 or gap <= 0:
+        return out, 0
+    sizes = ndi.sum(filled, lab, range(1, n + 1))
+    first = int(np.argmax(sizes)) + 1
+    main = lab == first
+    rest = [k for k in range(1, n + 1) if k != first]
+    half_width = ndi.distance_transform_edt(filled)        # at a centre-line point: the piece's half-width
+    joined = 0
+    while rest:
+        to_main = ndi.distance_transform_edt(~main)         # distance to the nearest pixel of the joined mask
+        near = {k: float(to_main[lab == k].min()) for k in rest}
+        k = min(near, key=near.get)
+        if near[k] > gap:
+            break
+        piece = lab == k
+        # The two nearest centre-line points: one on the piece, one on the joined mask.
+        sk_main, sk_piece = skeletonize(main), skeletonize(piece)
+        d, (iy, ix) = ndi.distance_transform_edt(~sk_main, return_indices=True)
+        ys, xs = np.nonzero(sk_piece)
+        j = int(np.argmin(d[ys, xs]))
+        a, b = (int(ys[j]), int(xs[j])), (int(iy[ys[j], xs[j]]), int(ix[ys[j], xs[j]]))
+        line = np.zeros_like(out)
+        line[draw_line(*a, *b)] = True
+        width = min(_widest_near(half_width, sk_piece, a, gap), _widest_near(half_width, sk_main, b, gap))
+        band = ndi.distance_transform_edt(~line) < max(1.0, width)
+        out |= band
+        main |= piece | band
+        rest.remove(k)
+        joined += 1
+    return out, joined
+
+
+def _widest_near(half_width: np.ndarray, skeleton: np.ndarray, point: tuple[int, int], reach: float) -> float:
+    """The largest half-width on a centre line within ``reach`` of ``point``: the branch's own half-width
+    near a join, not the smaller one where the centre line ends short of a cut face."""
+    ys, xs = np.nonzero(skeleton)
+    near = np.hypot(ys - point[0], xs - point[1]) <= max(reach, 1.0)
+    return float(half_width[ys[near], xs[near]].max())
 
 
 def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
@@ -566,39 +760,44 @@ def hand_mask(rec, overlays: dict | None = None) -> np.ndarray | None:
     return move_mask(load_mask(rec.paths[("summer", "mask")]), ov)
 
 
-def load_frames(records: dict, ids: Sequence[str], size: int, depth: bool = False,
+def load_frames(records: dict, ids: Sequence[str], size: int | tuple[int, int], depth: bool = False,
                 progress: Callable[[str], None] = print,
                 overlays: dict | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The summer photos and hand masks of ``ids`` in the masks' frame (centre 480x480), at ``size``.
+    """The summer photos and hand masks of ``ids``: in the masks' frame (centre 480x480) at ``size`` x ``size``,
+    or, for ``size = (height, width)``, the whole photo at that size with each mask on its centre columns
+    (:func:`mask_to_photo`).
 
     With ``overlays`` (the mask line-up file), each mask is moved onto its photo
     (:func:`hand_mask`), and trees not lined up count as having none.
 
     Returns:
-        ``(images, masks, has_mask)``: ``(n, size, size, 3 or 4)`` uint8 (depth
+        ``(images, masks, has_mask)``: ``(n, H, W, 3 or 4)`` uint8 (depth
         last, nearest-neighbour so no-reading zeros are not blended),
-        ``(n, size, size)`` uint8 masks (0–255, bilinear, so soft at the edges;
-        zero where there is none) and ``(n,)`` bool.
+        ``(n, H, W)`` uint8 masks (0–255, bilinear, so soft at the edges;
+        zero where there is none, and on a whole photo's side columns) and ``(n,)`` bool.
     """
     from PIL import Image
 
     from treeskel.io import CROP_COLS, load_tree
 
-    images = np.zeros((len(ids), size, size, 4 if depth else 3), np.uint8)
-    masks = np.zeros((len(ids), size, size), np.uint8)
+    whole = not isinstance(size, int)
+    h, w = (int(size[0]), int(size[1])) if whole else (size, size)
+    images = np.zeros((len(ids), h, w, 4 if depth else 3), np.uint8)
+    masks = np.zeros((len(ids), h, w), np.uint8)
     has = np.zeros(len(ids), bool)
     step = max(1, len(ids) // 10)
     for i, t in enumerate(ids):
         summer = load_tree(records[t], "summer")
-        crop = slice(CROP_COLS[0], CROP_COLS[1])
+        crop = slice(0, None) if whole else slice(CROP_COLS[0], CROP_COLS[1])
         images[i, ..., :3] = np.asarray(Image.fromarray(np.ascontiguousarray(summer["rgb"][:, crop]))
-                                        .resize((size, size), Image.BILINEAR))
+                                        .resize((w, h), Image.BILINEAR))
         if depth:
             images[i, ..., 3] = np.asarray(Image.fromarray(np.ascontiguousarray(summer["depth"][:, crop]))
-                                           .resize((size, size), Image.NEAREST))
+                                           .resize((w, h), Image.NEAREST))
         hm = hand_mask(records[t], overlays)
         if hm is not None:
-            masks[i] = np.asarray(Image.fromarray(hm.astype(np.uint8) * 255).resize((size, size), Image.BILINEAR))
+            masks[i] = (mask_to_photo(hm, (h, w)) if whole else
+                        np.asarray(Image.fromarray(hm.astype(np.uint8) * 255).resize((w, h), Image.BILINEAR)))
             has[i] = True
         if (i + 1) % step == 0 or i + 1 == len(ids):
             progress(f"  {i + 1}/{len(ids)} photos loaded")
@@ -680,8 +879,28 @@ deficiencies) and its own marker."""
 LINED_UP_STYLE = ("#4a3aa7", "X")
 """The run on the lined-up masks: the slot after it, and its own marker."""
 
+JOINED_STYLE = ("#e34948", "h")
+"""The run on the lined-up masks with the pieces of its masks joined (:func:`joined_run`): the last slot, and
+its own marker (validated beside the lined-up run's violet; the markers tell the two apart)."""
+
+RUN_STYLES = {"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE, "segment_lined_up_joined": JOINED_STYLE,
+              "segment_lined_up_480x640": ("#eb6834", "p"), "segment_lined_up_480x640_joined": ("#eda100", "H")}
+"""The full-size runs (session 12) take the two slots not used by these figures, orange and yellow; their figure
+draws them between the square runs (:data:`FIGURE_RUNS`) so that no two warm colours are adjacent (checked with
+the palette validator)."""
+
 RUN_NAMES = {"segment": "U-Net on the hand masks as drawn, its masks measured",
-             "segment_lined_up": "U-Net on the lined-up hand masks, its masks measured"}
+             "segment_lined_up": "U-Net on the lined-up hand masks, its masks measured",
+             "segment_lined_up_joined": "U-Net on the lined-up hand masks, pieces of its masks joined",
+             "segment_lined_up_480x640": "U-Net on the lined-up hand masks, whole photo at 480x640",
+             "segment_lined_up_480x640_joined": "U-Net, whole photo at 480x640, pieces of its masks joined"}
+
+FIGURE_RUNS = {"segment_lined_up_480x640": ("segment_lined_up_480x640", "segment_lined_up"),
+               "segment_lined_up_480x640_joined": ("segment_lined_up_480x640", "segment_lined_up",
+                                                   "segment_lined_up_480x640_joined", "segment_lined_up_joined")}
+"""The runs drawn (after the hand masks, in this order) in a run's skill figure, where not the default: the
+angle CNN's two runs, the U-Net on the masks as drawn, the lined-up run and its joined one, up to the run
+itself. The full-size figures compare the U-Net variants only, so that no more than six series share a row."""
 
 
 def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tuple[str, dict]] = ()) -> None:
@@ -689,15 +908,16 @@ def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tup
     from treeskel.shape_cnn import plot_comparison
 
     scores = report["scores"]
-    key = "segment_lined_up" if report.get("mask_overlay") else "segment"
+    key = report.get("variant") or ("segment_lined_up" if report.get("mask_overlay") else "segment")
     series = [("hand masks", {k: v["hand masks"] for k, v in scores.items()})]
-    series += [o for o in others if o[0] != key]
-    series.append((key, {k: v["segmentation"] for k, v in scores.items()}))
-    plot_comparison(series, path, failed, names=RUN_NAMES,
-                    styles={"segment": SEGMENT_STYLE, "segment_lined_up": LINED_UP_STYLE},
+    have = dict(others)
+    have[key] = {k: v["segmentation"] for k, v in scores.items()}
+    series += [(name, have[name]) for name in figure_runs(key) if name in have]
+    what = f"masks joined, {report['no_fork']}" if report.get("join") else _n(report["no_fork"], "U-Net mask")
+    plot_comparison(series, path, failed, names=RUN_NAMES, styles=RUN_STYLES,
                     title="A U-Net trained on the hand masks, its masks measured against the winter traces",
                     subtitle=f"{report['n_trees']} trees, each from the fold that held its row out; "
-                             f"{_n(report['no_fork'], 'U-Net mask')} with no fork count as the mean shape")
+                             f"{what} with no fork count as the mean shape")
 
 
 def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str]) -> None:
@@ -708,14 +928,22 @@ def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
                   ylabel="Loss (cross-entropy + Dice)")
 
 
-def _other_runs(results: Path) -> list[tuple[str, dict]]:
-    """The angle CNN's saved runs and the segmentation on the masks as drawn, for the comparison figure."""
+def figure_runs(key: str) -> tuple[str, ...]:
+    """The runs drawn in ``key``'s skill figure, in order (:data:`FIGURE_RUNS`), ``key`` included."""
+    if key in FIGURE_RUNS:
+        return FIGURE_RUNS[key]
+    base = ("shape_cnn", "shape_cnn_480x640", "segment", "segment_lined_up", "segment_lined_up_joined")
+    return base[:base.index(key) + 1] if key in base else base[:3] + (key,)
+
+
+def _other_runs(results: Path, key: str) -> list[tuple[str, dict]]:
+    """The saved runs beside ``key``'s that its skill figure draws (:func:`figure_runs`)."""
     out = []
-    for name, model in (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"),
-                        ("segment", "segmentation")):
+    for name in figure_runs(key):
         p = results / name / "report.json"
-        if p.exists():
+        if name != key and p.exists():
             rep = json.loads(p.read_text())
+            model = "cnn fine-tuned" if name.startswith("shape_cnn") else "segmentation"
             out.append((name, {k: v[model] for k, v in rep["scores"].items()}))
     return out
 
@@ -725,9 +953,11 @@ def replot(out: Path, figures: Path) -> list[str]:
     failed: list[str] = []
     figures.mkdir(parents=True, exist_ok=True)
     report = json.loads((out / "report.json").read_text())
-    plot_skill(report, figures / f"{out.name}_skill.png", failed, _other_runs(out.parent))
-    with open(out / "training_log.csv", newline="") as f:
-        plot_learning(list(csv.DictReader(f)), report["epochs"], figures / f"{out.name}_training.png", failed)
+    key = report.get("variant") or ("segment_lined_up" if report.get("mask_overlay") else "segment")
+    plot_skill(report, figures / f"{out.name}_skill.png", failed, _other_runs(out.parent, key))
+    if (out / "training_log.csv").exists():                 # a joined run has none: it trained nothing
+        with open(out / "training_log.csv", newline="") as f:
+            plot_learning(list(csv.DictReader(f)), report["epochs"], figures / f"{out.name}_training.png", failed)
     return failed
 
 
@@ -737,6 +967,8 @@ def variant(params: SegParams, lined_up: bool = False) -> str:
     name = "segment" + ("_lined_up" if lined_up else "") + ("_depth" if params.depth else "")
     if params.encoder != SegParams.encoder:
         name += f"_{params.encoder}"
+    if whole_photo(params):
+        return f"{name}_{input_shape(params)[0]}x{input_shape(params)[1]}"
     return name if params.size == SegParams.size else f"{name}_{params.size}"
 
 
@@ -745,6 +977,199 @@ def variant(params: SegParams, lined_up: bool = False) -> str:
 # --------------------------------------------------------------------------
 
 MASK_COLUMNS = ("iou", "dice", "precision", "recall")
+
+OTHER_RUNS = (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"), ("segment", "segmentation"),
+              ("segment_lined_up", "segmentation"), ("segment_lined_up_joined", "segmentation"))
+"""The saved runs a new run is compared with tree by tree (results folder, predictions column)."""
+
+
+def against_runs(out: Path, others: Sequence[tuple[str, str]] = OTHER_RUNS) -> dict:
+    """A run's predictions (``out/predictions.csv``) against each other saved run beside it that exists,
+    tree by tree (:func:`compare_with`)."""
+    mine = read_predictions(out / "predictions.csv", "segmentation")
+    got = {}
+    for name, column in dict(others).items():
+        p = out.parent / name / "predictions.csv"
+        if p.exists() and p.resolve() != (out / "predictions.csv").resolve():
+            got[name] = compare_with(mine, read_predictions(p, column))
+    return got
+
+
+def print_against(runs: dict) -> None:
+    """Print :func:`against_runs`."""
+    for name, measures in runs.items():
+        print(f"\nAgainst {name}, tree by tree (MAE: {name} -> segmentation; trees predicted more closely; "
+              "Wilcoxon p):")
+        for k, c in measures.items():
+            print(f"  {k:12s} {c['mae_other']:5.1f} -> {c['mae_seg']:5.1f}   {c['closer']:4.0%}   "
+                  f"p {c['wilcoxon_p']:.1e}")
+
+
+def _value(text: str) -> float:
+    return float(text) if text else float("nan")
+
+
+def joined_run(src: Path, gap: float = JOIN_GAP, out: Path | None = None, figures: Path | None = None,
+               progress: Callable[[str], None] = print) -> tuple[Path, list[str]]:
+    """Score a saved run's masks again after joining their pieces (:func:`join_pieces`).
+
+    Everything comes from the run's own files, so no photos are needed:
+    ``predicted_masks.npz``, and ``predictions.csv`` for each tree's row, fold,
+    winter and hand-mask measures and its fold's mean shape. The result is a
+    run like any other (``report.json``, ``predictions.csv``,
+    ``mask_scores.csv``, ``predicted_masks.npz``), in ``<run>_joined`` (or
+    ``<run>_joined_<gap>`` for another gap), compared tree by tree with the
+    run it came from and the other saved runs. Its pixel scores are the
+    run's own, of the masks before joining (the hand masks are not needed
+    here); ``mask_scores.csv`` lists the pieces joined and pixels added per tree.
+
+    Args:
+        src: The saved run's folder.
+        gap: Largest gap joined (:data:`JOIN_GAP`, fixed from geometry).
+        out: Results folder (default: beside ``src``, as above).
+        figures: Where the skill figure and the joins' contact sheet go (None: no figures).
+        progress: Where the printed summary goes.
+
+    Returns:
+        ``(out, paths that could not be written)``.
+    """
+    src = Path(src)
+    source = json.loads((src / "report.json").read_text())
+    masks = load_masks(src / "predicted_masks.npz")
+    info: dict[str, dict] = {}
+    with open(src / "predictions.csv", newline="") as f:
+        for r in csv.DictReader(f):
+            t = info.setdefault(r["tree"], {"row": int(r["row"]), "fold": int(r["fold"])})
+            t[r["measure"]] = (_value(r["winter"]), _value(r["mean shape"]), _value(r["hand masks"]))
+    trees = [t for t in info if t in masks]
+    out = Path(out) if out else src.parent / (f"{src.name}_joined" if gap == JOIN_GAP else f"{src.name}_joined_{gap:g}")
+    y, mean, hand = (np.array([[info[t][k][c] for k in MEASURES] for t in trees]) for c in range(3))
+    folds = np.array([info[t]["fold"] for t in trees])
+    seg, seg0 = np.full((len(trees), len(MEASURES)), np.nan), np.full((len(trees), len(MEASURES)), np.nan)
+    joined, pieces, added = {}, np.zeros(len(trees), int), np.zeros(len(trees), int)
+    for i, t in enumerate(trees):
+        joined[t], pieces[i] = join_pieces(masks[t], gap)
+        added[i] = int((joined[t] & ~masks[t]).sum())
+        m, _ = mask_shape(joined[t])
+        seg[i] = [m[k] for k in MEASURES]
+        seg0[i] = [mask_shape(masks[t])[0][k] for k in MEASURES] if pieces[i] else seg[i]   # unchanged: once
+    before, after = np.isfinite(seg0).any(axis=1), np.isfinite(seg).any(axis=1)   # as main: no measure = no fork
+    v = MEASURES.index("v_opening")
+    seg_filled = fill_failures(seg, mean)
+
+    report = {k: source[k] for k in ("n_masks", "mask_overlay", "params", "device", "weights", "epochs", "minutes")
+              if k in source}
+    report.update(n_trees=len(trees), variant=out.name, no_fork=int((~after).sum()),
+                  masks=source.get("masks", {}), masks_note="pixel scores of the masks before joining",
+                  join={"source": str(src), "gap": gap, "masks_joined": int((pieces > 0).sum()),
+                        "pieces_joined": int(pieces.sum()), "pixels_added": int(added.sum()),
+                        "no_fork_before": int((~before).sum()), "no_fork_after": int((~after).sum()),
+                        "v_opening_before": int(np.isfinite(seg0[:, v]).sum()),
+                        "v_opening_after": int(np.isfinite(seg[:, v]).sum()),
+                        "forks_found_by_joining": [t for i, t in enumerate(trees) if after[i] and not before[i]],
+                        "forks_lost_by_joining": [t for i, t in enumerate(trees) if before[i] and not after[i]]},
+                  scores={}, against_runs={})
+    for j, k in enumerate(MEASURES):
+        base = mean[:, j]
+        mean_shape = evaluate(y[:, j], base, base, folds)
+        mean_shape["r"] = None
+        report["scores"][k] = {"mean shape": mean_shape, "hand masks": evaluate(y[:, j], hand[:, j], base, folds),
+                               "segmentation": evaluate(y[:, j], seg_filled[:, j], base, folds),
+                               "segmentation, forks found": evaluate(y[:, j], seg[:, j], base, folds)}
+    jn = report["join"]
+    progress(f"Joined pieces within {gap:g} px in {_n(jn['masks_joined'], 'mask')} of {len(trees)} "
+             f"({_n(jn['pieces_joined'], 'piece')}, {jn['pixels_added']} pixels added); masks with no fork "
+             f"{jn['no_fork_before']} -> {jn['no_fork_after']}; with a V opening {jn['v_opening_before']} -> "
+             f"{jn['v_opening_after']}")
+    for title, names in (("Headline (no reference direction)", HEADLINE), ("From the trunk's axis", TRUNK_RELATIVE),
+                         ("From the photo's vertical (camera roll adds to these)", VERTICAL)):
+        progress(f"\n{title}:")
+        print_scores(report, names)
+
+    failed: list[str] = []
+    out.mkdir(parents=True, exist_ok=True)
+
+    def write(path: Path, fn) -> None:
+        try:
+            fn(path)
+        except OSError as e:                                # e.g. open in a viewer on Windows
+            failed.append(f"{path}: {e.strerror or e}")
+
+    def predictions(path):
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["tree", "row", "fold", "measure", "winter", "mean shape", "hand masks", "segmentation"])
+            for i, t in enumerate(trees):
+                for j, k in enumerate(MEASURES):
+                    w.writerow([t, info[t]["row"], info[t]["fold"], k]
+                               + ["" if not np.isfinite(v) else f"{v:.2f}"
+                                  for v in (y[i, j], mean[i, j], hand[i, j], seg_filled[i, j])])
+
+    pixel = {}
+    if (src / "mask_scores.csv").exists():
+        with open(src / "mask_scores.csv", newline="") as f:
+            pixel = {r["tree"]: r for r in csv.DictReader(f)}
+
+    def mask_table(path):
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["tree", "row", "fold", "fork_found", "fork_found_before", "pieces_joined", "pixels_added",
+                        *(f"{c}_before_joining" for c in MASK_COLUMNS)])
+            for i, t in enumerate(trees):
+                w.writerow([t, info[t]["row"], info[t]["fold"], int(after[i]), int(before[i]), int(pieces[i]),
+                            int(added[i]), *(pixel.get(t, {}).get(c, "") for c in MASK_COLUMNS)])
+
+    write(out / "predictions.csv", predictions)
+    write(out / "mask_scores.csv", mask_table)
+    write(out / "predicted_masks.npz", lambda p: save_masks(p, trees, np.stack([joined[t] for t in trees])))
+    if (out / "predictions.csv").exists():
+        report["against_runs"] = against_runs(out, OTHER_RUNS + ((src.name, "segmentation"),))
+        print_against(report["against_runs"])
+    write(out / "report.json", lambda p: p.write_text(json.dumps(report, indent=2)))
+    if figures is not None:
+        figures = Path(figures)
+        figures.mkdir(parents=True, exist_ok=True)
+        if (out / "report.json").exists():
+            failed += replot(out, figures)
+        changed = [t for i, t in enumerate(trees) if pieces[i] > 0]
+        if changed:
+            write(figures / f"{out.name}_masks.png",
+                  lambda p: draw_joins({t: masks[t] for t in changed}, {t: joined[t] for t in changed}).save(p))
+    progress(f"\nSaved {out}/ (report.json, predictions.csv, mask_scores.csv, predicted_masks.npz)")
+    return out, failed
+
+
+def draw_joins(before: dict[str, np.ndarray], after: dict[str, np.ndarray], columns: int = 8, scale: float = 0.5):
+    """A contact sheet of joined masks: each tile the mask (grey), the pixels the join added (magenta) and the
+    centre lines and fitted lines found after joining; masks whose V opening could be measured only after
+    joining come first, labelled. A PIL image; needs no photos."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    from treeskel.shape import draw_shape, fitted_lines
+
+    params = ShapeParams()
+    order = sorted(before, key=lambda t: (np.isfinite(mask_shape(before[t])[0]["v_opening"]), t))
+    size = round(256 * scale)
+    rows = math.ceil(len(order) / columns)
+    sheet = Image.new("RGB", (columns * size, rows * size), (20, 20, 20))
+    font = ImageFont.load_default(size=11)
+    for i, t in enumerate(order):
+        b, a = np.asarray(before[t], bool), np.asarray(after[t], bool)
+        rgb = np.full(b.shape + (3,), 20, np.uint8)
+        rgb[b] = (150, 150, 150)
+        rgb[a & ~b] = (235, 80, 235)
+        br = mask_branches(a)
+        if br is None:
+            im = draw_shape(rgb, (), {})
+        else:
+            lines = fitted_lines(br["trunk"], br["left"], br["right"], br["fork_radius"], params, MASK_ZOOM)
+            im = draw_shape(rgb, [br[p] for p in ("trunk", "left", "right")], lines)
+        tile = im.resize((size, size), Image.BILINEAR)
+        found = not np.isfinite(mask_shape(b)[0]["v_opening"]) and np.isfinite(mask_shape(a)[0]["v_opening"])
+        ImageDraw.Draw(tile).text((4, 3), t + ("  V measured" if found else ""), fill=(255, 255, 0), font=font,
+                                  stroke_width=1, stroke_fill=(0, 0, 0))
+        sheet.paste(tile, ((i % columns) * size, (i // columns) * size))
+    return sheet
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -759,7 +1184,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--figures", default="docs/figures", help="folder for the figures")
     ap.add_argument("--device", help="cuda or cpu (default: the GPU if there is one)")
     ap.add_argument("--epochs", type=int, default=SegParams.epochs, help="most epochs tried")
-    ap.add_argument("--size", type=int, default=SegParams.size, help="side of the input (divisible by 32)")
+    ap.add_argument("--size", type=int, nargs="+", default=[SegParams.size], metavar="N",
+                    help="one number: side of the square input, the masks' frame (default 256); two, H W: the "
+                         "whole photo at that size, e.g. 480 640 (each divisible by 32)")
     ap.add_argument("--encoder", default=SegParams.encoder, choices=("resnet18", "resnet34"))
     ap.add_argument("--depth", action="store_true", help="also give the network the summer depth")
     ap.add_argument("--mask-overlay", metavar="JSON",
@@ -770,6 +1197,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=SegParams.seed)
     ap.add_argument("--examples", type=int, default=6, help="trees in the example figure")
     ap.add_argument("--replot", metavar="DIR", help="only redraw the figures from this results folder")
+    ap.add_argument("--join", metavar="DIR",
+                    help="only score a saved run's masks again with their pieces joined (writes DIR_joined)")
+    ap.add_argument("--join-gap", type=float, default=JOIN_GAP,
+                    help=f"largest gap joined, mask px (default {JOIN_GAP:g}: about a trunk's width, fixed)")
     ap.add_argument("--random-weights", action="store_true", help="skip the ImageNet weights (tests only)")
     args = ap.parse_args(argv)
 
@@ -779,14 +1210,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         for f in failed:
             print(f"Could not write {f}")
         return 1 if failed else 0
+    if args.join:
+        out, failed = joined_run(Path(args.join), args.join_gap, Path(args.out) if args.out else None,
+                                 Path(args.figures))
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
     if not args.data_dirs:
-        ap.error("give the dataset folder(s), or --replot")
-    if args.size % 32:
-        ap.error(f"--size must divide by 32, got {args.size}")
+        ap.error("give the dataset folder(s), or --replot or --join")
+    if len(args.size) > 2 or any(v % 32 for v in args.size):
+        ap.error(f"--size takes one or two numbers, each divisible by 32; got {args.size}")
+    size = args.size[0] if len(args.size) == 1 else (args.size[0], args.size[1])
 
     from treeskel.io import index_dataset
 
-    params = SegParams(size=args.size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
+    params = SegParams(size=size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
                        depth=args.depth)
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
@@ -807,7 +1245,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"PyTorch and torchvision are needed: {e}")
         return 1
     what = "photos, depth and hand masks" if params.depth else "photos and hand masks"
-    print(f"{len(trees)} development trees; loading the summer {what} at {params.size}x{params.size}...", flush=True)
+    frame = "whole photos" if whole_photo(params) else "masks' frame"
+    print(f"{len(trees)} development trees; loading the summer {what} ({frame}) at "
+          f"{input_shape(params)[0]}x{input_shape(params)[1]}...", flush=True)
     overlays = None
     if args.mask_overlay:
         from treeskel.summer_gt import load_overlays
@@ -843,7 +1283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for i, t in enumerate(trees):
         if not done[i]:
             continue
-        pred_masks[i] = to_mask_size(cv["prob"][i], params.threshold)
+        pred_masks[i] = to_mask_size(cv["prob"][i], params.threshold, whole_photo(params))
         m, _ = mask_shape(pred_masks[i])
         seg[i] = [m[k] for k in MEASURES]
         if has[i]:
@@ -932,19 +1372,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                                                             pred_masks[done]))
     # Tree by tree against the other runs, on the same trees and folds.
     if (out / "predictions.csv").exists():
-        mine = read_predictions(out / "predictions.csv", "segmentation")
-        # the angle CNN's runs, and the segmentation on the masks as drawn (for a lined-up run)
-        for name, column in (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-tuned"),
-                             ("segment", "segmentation")):
-            p = out.parent / name / "predictions.csv"
-            if p.exists() and p.resolve() != (out / "predictions.csv").resolve():
-                report["against_runs"][name] = compare_with(mine, read_predictions(p, column))
-        for name, measures in report["against_runs"].items():
-            print(f"\nAgainst {name}, tree by tree (MAE: {name} -> segmentation; trees predicted more closely; "
-                  "Wilcoxon p):")
-            for k, c in measures.items():
-                print(f"  {k:12s} {c['mae_other']:5.1f} -> {c['mae_seg']:5.1f}   {c['closer']:4.0%}   "
-                      f"p {c['wilcoxon_p']:.1e}")
+        report["against_runs"] = against_runs(out)
+        print_against(report["against_runs"])
     write(out / "report.json", lambda p: p.write_text(json.dumps(report, indent=2)))
 
     figures = Path(args.figures)
@@ -972,6 +1401,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             write(figures / f"{out.name}_examples.jpg", lambda p: sheet.save(p, quality=85))
     print(f"\nTrained in {minutes} min on {cv['device']}. Saved {out}/ (report.json, predictions.csv, "
           f"mask_scores.csv, training_log.csv, predicted_masks.npz) and the figures in {figures}/")
+    if (out / "predictions.csv").exists() and (out / "predicted_masks.npz").exists():
+        print(f"\n--- The same masks with their pieces joined (gaps up to {args.join_gap:g} px) ---")
+        failed += joined_run(out, args.join_gap, figures=figures)[1]
     for f in failed:
         print(f"Could not write {f}")
     return 0
