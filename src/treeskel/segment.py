@@ -1059,6 +1059,55 @@ def complete_measures(mask: np.ndarray, coef: Sequence[float], params: ShapePara
     return out, done
 
 
+def draw_completion(mask: np.ndarray, coef: Sequence[float], params: ShapeParams = ShapeParams()
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """The mask with each short leader drawn on over the missing part of the stretch, as :func:`complete_measures`
+    predicts it: from the tip, along the leader's predicted line, as wide as the leader near its tip.
+
+    For showing the prediction (a leader that goes on through the leaves, not a stub); the scores come
+    from :func:`complete_measures`.
+
+    Returns:
+        ``(mask with the continuations, the continuations alone)``.
+    """
+    from scipy import ndimage as ndi
+
+    from treeskel.guided_gt import arc_length
+    from treeskel.shape import MASK_ZOOM, unit_px
+
+    out = np.asarray(mask, bool).copy()
+    added = np.zeros_like(out)
+    m, br = mask_shape(out, params)
+    if br is None:
+        return out, added
+    reach = params.reach * unit_px(0.0, params, MASK_ZOOM)
+    a, c = coef
+    half_width = ndi.distance_transform_edt(ndi.binary_fill_holes(out))
+    h, w = out.shape
+    for side in ("left", "right"):
+        path = np.asarray(br[side])
+        length = float(arc_length(path)[-1]) if len(path) > 1 else 0.0
+        if length >= reach or not np.isfinite(m[f"{side}_tilt"]):
+            continue
+        g = 1 - length / reach
+        line, bend = _outward(path, side, params)
+        whole = line + a * g + c * g * (0.0 if not np.isfinite(bend) else bend)
+        angle = np.radians(whole if side == "right" else -whole)
+        d = np.array([-np.cos(angle), np.sin(angle)])     # (row, col), upwards
+        tip = path[-1].astype(float)
+        steps = np.arange(0.0, reach - length, 0.5)
+        pts = tip + steps[:, None] * d
+        inside = (pts[:, 0] >= 0) & (pts[:, 0] <= h - 1) & (pts[:, 1] >= 0) & (pts[:, 1] <= w - 1)
+        if not inside.any():
+            continue
+        end = tuple(int(round(v)) for v in pts[np.nonzero(inside)[0][-1]])
+        leader = np.zeros_like(out)
+        leader[path[:, 0], path[:, 1]] = True
+        width = _widest_near(half_width, leader, tuple(int(v) for v in tip), JOIN_GAP)
+        added |= _band(out.shape, tuple(int(v) for v in tip), end, width) & ~out
+    return out | added, added
+
+
 def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
     """Predictions with each tree whose mask gave no shape at all replaced by the mean shape.
 
@@ -1200,10 +1249,11 @@ def example_trees(dice: dict[str, float], k: int = 6) -> list[str]:
 
 
 def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: float = 0.5,
-                 overlays: dict | None = None):
+                 overlays: dict | None = None, continuation: np.ndarray | None = None):
     """One tree as a row of three: the winter trace, the hand mask and the predicted mask, each with the
     lines :func:`treeskel.shape.shape_measures` fits (PIL image, resized by ``scale``, then labelled). With
-    ``overlays``, the hand mask is shown lined up (:func:`hand_mask`)."""
+    ``overlays``, the hand mask is shown lined up (:func:`hand_mask`); ``continuation`` (from
+    :func:`draw_completion`) is shown in orange on the predicted mask."""
     from PIL import Image, ImageDraw, ImageFont
 
     from treeskel.io import load_tree, mask_to_image_frame
@@ -1212,10 +1262,13 @@ def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: f
     params = ShapeParams()
     s = load_tree(rec, "summer")["rgb"]
 
-    def on_summer(mask, name, colour):
+    def on_summer(mask, name, colour, extra=None):
         img = s.copy()
         full, _ = mask_to_image_frame(np.asarray(mask, bool))
         img[full] = (0.45 * img[full] + 0.55 * np.array(colour)).astype(np.uint8)
+        if extra is not None and np.any(extra):
+            more, _ = mask_to_image_frame(np.asarray(extra, bool))
+            img[more] = (0.3 * img[more] + 0.7 * np.array((255, 150, 0))).astype(np.uint8)
         br = mask_branches(mask)
         if br is None:
             return draw_shape(img, (), {}), f"{name}: no fork found"
@@ -1231,7 +1284,9 @@ def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: f
     hand = hand_mask(rec, overlays)
     tiles.append(on_summer(hand, "hand mask, lined up" if overlays is not None else "hand mask", (60, 120, 255))
                  if hand is not None else (draw_shape(s, (), {}), "no hand mask used"))
-    tiles.append(on_summer(pred, "predicted mask", (0, 200, 0)))
+    shown = continuation is not None and np.any(continuation)
+    tiles.append(on_summer(pred, "predicted mask" + (" (orange: predicted on)" if shown else ""), (0, 200, 0),
+                           continuation))
     size = (round(tiles[0][0].width * scale), round(tiles[0][0].height * scale))
     out = Image.new("RGB", (size[0] * len(tiles), size[1]))
     dr = ImageDraw.Draw(out)

@@ -124,3 +124,17 @@ leader completed (a = -2.78, c = +0.69 on all trees). On the V opening, tree by 
 `segment_lined_up_joined`: MAE 4.100° → 4.102°, p = 0.78; on the 31 trees it changed, 8.33° → 8.36°
 (12 closer, 15 farther). **Not adopted;** `model.json` stays as it is. The re-run replicate agrees (4.105°
 → 4.133°, p = 0.65).
+
+## A secondary result, declared before the final test
+
+Added on 28 September 2026 (session 12), **before the final test was run**, at the student's request: a
+leader that stops though the leaves go on should be predicted on, not left short. On the development
+trees that prediction was as accurate as leaving the leaders short (above: 8.36° against 8.33° on the 31
+trees it changed), so it is no reason to change the named model, but it is the more useful output (a
+leader that goes on through the leaves rather than a stub).
+
+- **The headline stays the named model** (`model.json`'s `run`, as fixed above).
+- **Also reported, as a secondary result:** the same test masks with short leaders' lines completed by
+  the model fitted on all development trees (`segment_lined_up_completed`: a = -2.78, c = +0.69), and
+  the continuations drawn into `predicted_masks_completed.npz` and the example figure (orange).
+  `model.json`'s `secondary.complete_from` names it; `treeskel.final_test` scores both in its one run.

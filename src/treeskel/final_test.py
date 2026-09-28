@@ -33,6 +33,10 @@ folds. This module runs once, at the end (session 11's third item):
    those masks are not lined up (they sit tens of pixels off the branch, as
    the development ones did), so Dice is given as drawn and after the best
    shift (an upper estimate).
+5. **A secondary result, declared before the test** (``model.json``'s ``secondary.complete_from``): the
+   same test masks with short leaders' lines completed and drawn on
+   (:func:`treeskel.segment.complete_measures`, :func:`treeskel.segment.draw_completion`, with the model a
+   development run fitted on all its trees). Reported beside the named model, not instead of it.
 
 It refuses to run if the output folder already holds a report: one final
 evaluation, not one per try. Outputs (``docs/results/final_test/`` by
@@ -68,6 +72,7 @@ from treeskel.segment import (
     UNet,
     complete_measures,
     continue_leaders,
+    draw_completion,
     draw_example,
     example_trees,
     fill_failures,
@@ -119,8 +124,18 @@ def named_recipe(model_file: Path) -> dict:
             "join_gap": (report.get("join") or {}).get("gap"), "grow_low": (report.get("grow") or {}).get("low"),
             "continue_cone": (report.get("continue") or {}).get("cone"),
             "complete_coef": (report.get("complete") or {}).get("coef_all"),
+            "secondary_complete_coef": _secondary_coef(named),
             "epochs": int(round(statistics.median(fold_epochs))),
             "fold_epochs": fold_epochs, "development": report}
+
+
+def _secondary_coef(named: dict) -> list[float] | None:
+    """The completion model of the run ``model.json``'s ``secondary.complete_from`` names (fitted on all its
+    development trees), for the declared secondary result; None if there is none."""
+    src = (named.get("secondary") or {}).get("complete_from")
+    if not src:
+        return None
+    return json.loads((Path(src) / "report.json").read_text())["complete"]["coef_all"]
 
 
 def bootstrap_skill(truth: np.ndarray, pred: np.ndarray, base: np.ndarray, n: int = 2000,
@@ -179,11 +194,12 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
     fig, ax = plt.subplots(figsize=(7.8, 5.6), dpi=150)
     fig.patch.set_facecolor(SURFACE)
     _style(ax)
-    series = (("hand masks", "Hand masks of the test rows (a person's reading)", "#2a78d6", "o", 0.12),
-              ("model", "The named U-Net on the test rows", "#e34948", "h", -0.12))
+    series = (("hand masks", "Hand masks of the test rows (a person's reading)", "#2a78d6", "o", 0.16),
+              ("model", "The named U-Net on the test rows", "#e34948", "h", 0.0),
+              ("model, leaders completed", "The same, short leaders predicted on (secondary)", "#1baf7a", "d", -0.16))
     for key, name, colour, marker, off in series:
         for k, y0 in rows_y.items():
-            sc = report["scores"][k][key]
+            sc = report["scores"][k].get(key, {})
             if sc.get("n", 0) < 3:
                 continue
             lo, hi = sc.get("ci95", (None, None))
@@ -194,7 +210,7 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
     for k, y0 in rows_y.items():
         dev = report["scores"][k].get("development")
         if dev is not None:
-            ax.plot(dev, y0 - 0.12, marker="h", ms=5.5, mfc="none", mec="#e34948", mew=1.0, ls="none", zorder=3,
+            ax.plot(dev, y0, marker="h", ms=8.5, mfc="none", mec="#e34948", mew=1.0, ls="none", zorder=3,
                     label="The same run in development (5 folds)" if k == HEADLINE[0] else None)
     ax.axvline(0, color=AXIS, lw=1.0, zorder=1)
     ax.set_yticks(list(rows_y.values()), labels, fontsize=8, color=SECONDARY)
@@ -218,6 +234,89 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
     plt.close(fig)
 
 
+def secondary_from_saved(out: Path, figures: Path, progress: Callable[[str], None] = print) -> list[str]:
+    """The declared secondary result, from a finished final test's saved files only.
+
+    The same calculation as the one run makes when ``model.json`` declares a
+    secondary result (:func:`treeskel.segment.complete_measures` and
+    :func:`treeskel.segment.draw_completion` on the saved, joined test masks,
+    with the completion model fitted on the development trees), for a run
+    that was made before the declaration reached the code (session 12). No
+    network is trained, no photo or winter trace is read again, and the
+    headline ``report.json`` is left as it is. Writes ``secondary_report.json``,
+    ``secondary_output.txt`` and ``predicted_masks_completed.npz``, and redraws
+    the skill figure with the secondary series.
+
+    Returns:
+        Paths that could not be written.
+    """
+    from treeskel.segment import compare_with, load_masks, read_predictions
+
+    out = Path(out)
+    report = json.loads((out / "report.json").read_text())
+    named = json.loads((out / "model.json").read_text())
+    coef = _secondary_coef(named)
+    if coef is None:
+        raise ValueError(f"{out / 'model.json'} declares no secondary result")
+    masks = load_masks(out / "predicted_masks.npz")
+    truth = {r["tree"]: r for r in load_table(out / "test_shape_measures.csv")}
+    test = [t for t in masks if t in truth]
+    test_rows = report["test_rows"]
+    y = np.array([[truth[t][f"winter_{k}"] for k in MEASURES] for t in test], float)
+    base = np.broadcast_to(np.array([report["mean_shape"][k] for k in MEASURES], float), y.shape)
+    row_index = np.array([test_rows.index(int(truth[t]["row"])) for t in test])
+    seg2 = np.full(y.shape, np.nan)
+    drawn, added = {}, {}
+    for i, t in enumerate(test):
+        seg2[i] = [complete_measures(masks[t], coef)[0][k] for k in MEASURES]
+        drawn[t], added[t] = draw_completion(masks[t], coef)
+    seg2 = fill_failures(seg2, np.array(base))
+    sec = {"what": "the named model's test masks with short leaders' lines completed (declared before the test; "
+                   "computed from the saved masks)", "complete_coef": coef,
+           "trees_completed": int(sum(a.any() for a in added.values())), "scores": {}, "against_named": {}}
+    for j, k in enumerate(MEASURES):
+        sc = evaluate(y[:, j], seg2[:, j], base[:, j], row_index)
+        if sc.get("n", 0) >= 3:
+            sc["ci95"] = bootstrap_skill(y[:, j], seg2[:, j], base[:, j])
+        sec["scores"][k] = sc
+    # Against the named model's saved predictions, with their own winter values and rounding (2 decimals), so
+    # that the trees the completion leaves alone tie exactly.
+    named_pred = read_predictions(out / "predictions.csv", "model")
+    mine = {(t, k): (named_pred[(t, k)][0], round(float(seg2[i, j]), 2)) for i, t in enumerate(test)
+            for j, k in enumerate(MEASURES) if (t, k) in named_pred and np.isfinite(seg2[i, j])}
+    sec["against_named"] = compare_with(mine, named_pred)
+    lines = [f"Secondary result: {sec['what']}", f"  short leaders completed in {sec['trees_completed']} of {len(test)} "
+             f"test trees (a = {coef[0]:+.2f}, c = {coef[1]:+.3f})",
+             "  measure      skill  [95% interval]   (the named model)   tree by tree against it: MAE, closer, p"]
+    for k in MEASURES:
+        sc, c = sec["scores"][k], sec["against_named"].get(k)
+        if sc.get("n", 0) < 3:
+            continue
+        head = report["scores"][k]["model"]["skill"]
+        vs = (f"{c['mae_other']:5.2f} -> {c['mae_seg']:5.2f}  {c['closer']:4.0%}  p {c['wilcoxon_p']:.2f}" if c else "")
+        lines.append(f"  {k:12s} {sc['skill']:+.2f}  [{sc['ci95'][0]:+.2f}, {sc['ci95'][1]:+.2f}]   ({head:+.2f})"
+                     f"            {vs}")
+    for line in lines:
+        progress(line)
+    failed: list[str] = []
+
+    def write(path: Path, fn) -> None:
+        try:
+            fn(path)
+        except OSError as e:                                # e.g. open in a viewer on Windows
+            failed.append(f"{path}: {e.strerror or e}")
+
+    write(out / "secondary_report.json", lambda p: p.write_text(json.dumps(sec, indent=2)))
+    write(out / "secondary_output.txt", lambda p: p.write_text("\n".join(lines) + "\n"))
+    write(out / "predicted_masks_completed.npz", lambda p: save_masks(p, test, np.stack([drawn[t] for t in test])))
+    both = json.loads(json.dumps(report))
+    for k in MEASURES:
+        both["scores"][k]["model, leaders completed"] = sec["scores"][k]
+    Path(figures).mkdir(parents=True, exist_ok=True)
+    plot_final(both, Path(figures) / "final_test_skill.png", failed)
+    return failed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Train the named model on all development trees and score it once on the test rows."""
     from concurrent.futures import ProcessPoolExecutor
@@ -227,7 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from treeskel.shape import ShapeParams, measure_tree, save_traces
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.final_test", description=__doc__.splitlines()[0])
-    ap.add_argument("data_dirs", nargs="+", help="dataset folder(s)")
+    ap.add_argument("data_dirs", nargs="*", help="dataset folder(s) (not needed with --secondary-from-saved)")
     ap.add_argument("--out", default="docs/results/final_test", help="results folder; its model.json names the model")
     ap.add_argument("--model", help="the naming file (default: <out>/model.json)")
     ap.add_argument("--figures", default="docs/figures")
@@ -237,10 +336,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--device", help="cuda or cpu (default: the GPU if there is one)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="test trees traced in parallel")
     ap.add_argument("--examples", type=int, default=6, help="test trees in the example figure")
+    ap.add_argument("--secondary-from-saved", action="store_true",
+                    help="only compute the declared secondary result from a finished test's saved files")
     ap.add_argument("--random-weights", action="store_true", help=argparse.SUPPRESS)          # tests only
     args = ap.parse_args(argv)
 
     out = Path(args.out)
+    if args.secondary_from_saved:
+        if not (out / "report.json").exists():
+            print(f"No {out / 'report.json'}: run the final test first.")
+            return 1
+        failed = secondary_from_saved(out, Path(args.figures))
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
+    if not args.data_dirs:
+        ap.error("give the dataset folder(s)")
     model_file = Path(args.model) if args.model else out / "model.json"
     if not model_file.exists():
         print(f"No {model_file}: name the model first (commit it), then run this once.")
@@ -350,6 +461,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     n = len(test)
     pred = np.zeros((n,) + MASK_SHAPE, bool)
     seg = np.full((n, len(MEASURES)), np.nan)
+    second = recipe["secondary_complete_coef"]              # declared before the test: short leaders predicted on
+    seg2 = np.full((n, len(MEASURES)), np.nan)
+    drawn = np.zeros((n,) + MASK_SHAPE, bool)
+    added = np.zeros((n,) + MASK_SHAPE, bool)
     pixel = {}
     joined = 0
     for i, t in enumerate(test):
@@ -365,6 +480,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         meas = (complete_measures(pred[i], recipe["complete_coef"])[0] if recipe["complete_coef"]
                 else mask_shape(pred[i])[0])
         seg[i] = [meas[k] for k in MEASURES]
+        if second is not None:
+            seg2[i] = [complete_measures(pred[i], second)[0][k] for k in MEASURES]
+            drawn[i], added[i] = draw_completion(pred[i], second)
         hm = hand_mask(records[t])                          # as drawn: the test masks are not lined up
         if hm is not None:
             pixel[t] = {**mask_scores(pred[i], hm), "dice_best_shift": best_shift_dice(pred[i], hm)}
@@ -376,6 +494,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     base = np.broadcast_to(mean, y.shape)
     no_fork = int((~np.isfinite(seg).any(axis=1)).sum())
     seg_filled = fill_failures(seg, np.array(base))
+    seg2_filled = fill_failures(seg2, np.array(base))
     row_index = np.array([test_rows.index(records[t].row) for t in test])
     dev_scores = recipe["development"]["scores"]
     report = {"named": recipe["named"], "run": recipe["run"], "params": asdict(params),
@@ -386,6 +505,9 @@ def main(argv: Sequence[str] | None = None) -> int:
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "minutes": minutes,
               "code": git_head(), "test_rows": test_rows, "n_trees": n, "n_dev": int(has.sum()),
               "no_fork": no_fork, "masks_joined": joined, "mean_shape": dict(zip(MEASURES, map(float, mean))),
+              "secondary": ({"what": "the same masks with short leaders' lines completed (declared before the test)",
+                             "complete_coef": second, "trees_completed": int(added.any(axis=(1, 2)).sum())}
+                            if second is not None else None),
               "scores": {}, "masks": {}}
     for j, k in enumerate(MEASURES):
         entry = {"mean shape": evaluate(y[:, j], base[:, j], base[:, j], row_index),
@@ -393,8 +515,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                  "model": evaluate(y[:, j], seg_filled[:, j], base[:, j], row_index),
                  "model, forks found": evaluate(y[:, j], seg[:, j], base[:, j], row_index),
                  "development": dev_scores.get(k, {}).get("segmentation", {}).get("skill")}
+        if second is not None:
+            entry["model, leaders completed"] = evaluate(y[:, j], seg2_filled[:, j], base[:, j], row_index)
         entry["mean shape"]["r"] = None
-        for key, p in (("hand masks", hand[:, j]), ("model", seg_filled[:, j])):
+        for key, p in (("hand masks", hand[:, j]), ("model", seg_filled[:, j]),
+                       ("model, leaders completed", seg2_filled[:, j])):
+            if key not in entry:
+                continue
             if entry[key].get("n", 0) >= 3:
                 entry[key]["ci95"] = bootstrap_skill(y[:, j], p, base[:, j])
         report["scores"][k] = entry
@@ -411,14 +538,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                          ("From the photo's vertical", VERTICAL)):
         say(f"\n{title}:")
         for k in names:
-            for key in ("hand masks", "model"):
+            for key in ("hand masks", "model", "model, leaders completed"):
+                if key not in report["scores"][k]:
+                    continue
                 sc = report["scores"][k][key]
                 if sc.get("n", 0) < 3:
                     continue
                 lo, hi = sc.get("ci95", (float("nan"), float("nan")))
                 rowsk = " ".join("   -" if v is None else f"{v:+.2f}" for v in sc.get("fold_skill", []))
                 dev_k = report["scores"][k]["development"] if key == "model" else None
-                say(f"  {k:12s} {key:10s} n {sc['n']:3d}  MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f} "
+                say(f"  {k:12s} {key:24s} n {sc['n']:3d}  MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f} "
                     f"[{lo:+.2f}, {hi:+.2f}]  r {sc['r']:.2f}  better than the mean {sc['improved']:4.0%}  "
                     f"rows {rowsk}" + (f"  (development {dev_k:+.2f})" if dev_k is not None else ""))
     say("\nPixels against the test rows' hand masks as drawn (not lined up; secondary), median:")
@@ -429,11 +558,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     def predictions(path):
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["tree", "row", "measure", "winter", "mean shape", "hand masks", "model"])
+            w.writerow(["tree", "row", "measure", "winter", "mean shape", "hand masks", "model",
+                        "model, leaders completed"])
             for i, t in enumerate(test):
                 for j, k in enumerate(MEASURES):
                     w.writerow([t, records[t].row, k] + ["" if not np.isfinite(v) else f"{v:.2f}"
-                                                         for v in (y[i, j], base[i, j], hand[i, j], seg_filled[i, j])])
+                                                         for v in (y[i, j], base[i, j], hand[i, j], seg_filled[i, j],
+                                                                   seg2_filled[i, j])])
 
     def mask_table(path):
         with open(path, "w", newline="") as f:
@@ -448,6 +579,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     write(out / "predictions.csv", predictions)
     write(out / "mask_scores.csv", mask_table)
     write(out / "predicted_masks.npz", lambda p: save_masks(p, test, pred))
+    if second is not None:
+        write(out / "predicted_masks_completed.npz", lambda p: save_masks(p, test, drawn))
     figures = Path(args.figures)
     figures.mkdir(parents=True, exist_ok=True)
     plot_final(report, figures / "final_test_skill.png", failed)
@@ -463,7 +596,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             tr = dict(zip(("trunk", "left", "right", "fork_radius"), (traces[i][p] for p in
                                                                       ("trunk", "left", "right", "fork_radius"))))
             label = f"{t}  V {seg_filled[i, v]:.0f} deg, winter {y[i, v]:.0f}"
-            tiles.append(draw_example(records[t], pred[i], tr, label))
+            tiles.append(draw_example(records[t], pred[i], tr, label,
+                                      continuation=added[i] if second is not None else None))
         if tiles:
             sheet = Image.new("RGB", (max(im.width for im in tiles), sum(im.height for im in tiles)))
             top = 0

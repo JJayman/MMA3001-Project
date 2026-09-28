@@ -140,41 +140,44 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 11:
+See the latest file in `docs/progress/`. As of session 12:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
 - **The tree's shape, alignment-free** (session 10, `docs/results/shape/`):
-  - The winter traces are measured as angles (`treeskel.shape`): the V
-    opening, each leader's angle from the trunk and from the vertical, the
-    V's lean and each leader's bend.
-  - The lines are fitted over a fixed stretch of 25–264 px up each leader in
-    the winter photo (×1.12 in the summer view). The unit is pixels, not trunk
-    radii (the student's choice after the outlier check).
-  - Measures, summer ResNet-18 features and the winter traces are committed
-    in `data/shape/`.
-  - **Scores** (skill over the mean shape, 5 folds, V opening): hand masks
-    +0.87; ridge on fixed features +0.10; fine-tuned ResNet-18 +0.16 (480x640:
-    +0.18; trunk tilt +0.38); depth adds nothing.
-  - The hand masks are in the summer view and have the winter shape (448 of
-    448 within 8 px). Every winter trace checked in the outlier review was
-    right.
-- **Session 11:** segmentation trained on the hand masks (`treeskel.segment`,
-  U-Net with a ResNet-18 encoder, 5 row-grouped folds; `docs/results/segment/`).
-  On the masks as drawn it scored +0.06 (V opening). The student lined all 449
-  development masks up on their summer photos (`annotations/mask_overlay.json`,
-  repeatable to about 2 px); on those it scores **+0.72** (hand masks +0.87,
-  best angle CNN +0.18), better on every measure tree by tree.
-  14 of its masks have no fork: about half are cut by only 2–12 px.
-- **Next (agreed with the student at the end of session 11):**
-  1. Join nearly-joined predicted masks before measuring, with a gap limit
-     fixed from geometry (about a trunk's width), never tuned on winter.
-  2. One variant: the lined-up U-Net at full-size input (all runs reported,
-     not the best picked on the same folds).
-  3. Then one final evaluation on the test rows, the model named first (the
-     test masks are not lined up; the headline is the shape against winter).
+  angles from the winter traces (`treeskel.shape`: V opening, each leader's
+  angle from the trunk and from the vertical, the V's lean, bends), fitted
+  over a fixed stretch of 25–264 px up each leader (×1.12 in the summer view).
+- **The model (sessions 11–12):** a U-Net (ResNet-18 encoder) trained on the
+  development rows' hand masks, lined up by the student
+  (`annotations/mask_overlay.json`), at 256x256; its masks' pieces within
+  19.3 mask px (about a trunk's width) are joined before measuring
+  (`join_pieces`). Development (5 folds): V opening +0.75 (hand masks +0.87).
+  Tried and not adopted, each by a rule committed before its result
+  (`docs/results/final_test/naming_rule.md`): the whole photo at 480x640;
+  growing masks into less sure pixels; continuing short leaders and pruning;
+  completing short leaders' lines from the leaders' shapes.
+- **The final test is done** (session 12, `docs/results/final_test/`): the
+  named model on test rows 3, 12, 16, once: V opening **+0.88** [+0.81, +0.92]
+  (hand masks +0.91), within the hand masks' interval on all ten measures.
+  **The test rows are now used:** nothing more may be chosen on them; any new
+  method (e.g. 3D) is developed on the development rows and, at most, reported
+  once on the test rows with that caveat.
+- **Known limit:** 7% of trees have a leader that stops short under the leaves;
+  they carry about half the V opening's error, and no completion helped.
+- **Next (agreed with the student at the end of session 12; the report is due
+  about 19 October 2026):**
+  1. Score the automatic winter baseline (`treeskel.winter_gt`) against the
+     guided ground truth; compare the models' runtime and memory.
+  2. The 3D estimate: calibrate the 8-bit depth to metres (0.6 m tree
+     spacing; D435 nominal intrinsics with a sensitivity range), fit each
+     tree's plane by least squares, back-project the skeleton; V opening in
+     the tree's plane, its lean, leader lengths, trunk diameter; validate
+     summer against winter per tree on the development rows. A first look
+     (21 trees): winter traces lie within about 5 cm of a plane, leaning
+     towards the camera.
+  3. The report.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
-- Still open: the crotch; the colour fit's window dependence; scoring the
-  automatic winter baseline; which season was photographed first; the summer
-  depth registration.
+- Still open: the crotch; the colour fit's window dependence; which season
+  was photographed first; the summer depth registration.

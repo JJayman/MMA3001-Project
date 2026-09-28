@@ -91,3 +91,20 @@ def test_a_saved_joined_run_is_scored_again_with_its_leader_lines_completed(tmp_
     saved = load_masks(out / "predicted_masks.npz")
     assert all(np.array_equal(saved[t], trees[t]) for t in trees)     # the masks are not changed
     assert (tmp_path / "figures" / "segment_lined_up_completed_skill.png").exists()
+
+
+def test_short_leaders_are_drawn_on_along_their_predicted_line():
+    from treeskel.guided_gt import arc_length
+    from treeskel.segment import draw_completion
+
+    coef = fit_completion(completion_samples(family()))
+    short = curved_v(18.0, -0.08, cut=95)
+    drawn, added = draw_completion(short, coef)
+    assert added.any() and not (added & short).any() and np.array_equal(drawn, short | added)
+    _, br = mask_shape(drawn)
+    assert arc_length(br["right"])[-1] > 140                   # the right leader now runs (nearly) the stretch
+    whole = curved_v(18.0, -0.08)
+    ys, xs = np.nonzero(added)                                 # the drawn part lies near the true leader's course
+    assert np.mean(ndi.distance_transform_edt(~whole)[ys, xs]) < 8
+    assert not draw_completion(whole, coef)[1].any()           # whole leaders: nothing drawn
+    assert not draw_completion(np.zeros((256, 256), bool), coef)[1].any()
