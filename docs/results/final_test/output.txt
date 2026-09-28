@@ -1,0 +1,53 @@
+Named model: docs\results\segment_lined_up_joined (the full-size joined run did not beat it tree by tree on the V opening (MAE 4.0 -> 4.3 degrees, Wilcoxon p = 0.89), so the simpler 256 joined run is named)
+  recipe: size 256, encoder resnet18, depth False, batch 8, seed 0; masks lined up (annotations/mask_overlay.json); pieces joined within 19.3 px; 34 epochs (median of the folds' [46, 32, 33, 35, 34])
+
+Measuring the winter traces and hand masks of 92 test trees (rows [3, 12, 16])...
+  done in 39 s
+
+Loading 449 development trees' summer photos and hand masks...
+  449 have a hand mask to train on
+Training on 449 trees for 34 epochs on cuda...
+  epoch   1: train 1.382
+  epoch   5: train 0.645
+  epoch  10: train 0.366
+  epoch  15: train 0.308
+  epoch  20: train 0.271
+  epoch  25: train 0.249
+  epoch  30: train 0.235
+  trained in 2.0 min
+
+Test rows [3, 12, 16]: 92 trees; 1 predicted masks with no fork (the mean shape); 18 masks joined
+Skill over the development mean shape [95% bootstrap interval over trees] (per test row; the same run's development skill):
+
+Headline (no reference direction):
+  v_opening    hand masks n  92  MAE  2.86  skill +0.91 [+0.87, +0.94]  r 0.96  better than the mean  84%  rows +0.93 +0.90 +0.89
+  v_opening    model      n  92  MAE  3.37  skill +0.88 [+0.81, +0.92]  r 0.94  better than the mean  79%  rows +0.88 +0.86 +0.89  (development +0.75)
+  left_bend    hand masks n  92  MAE  4.52  skill +0.67 [+0.48, +0.81]  r 0.84  better than the mean  77%  rows +0.56 +0.61 +0.83
+  left_bend    model      n  92  MAE  4.98  skill +0.66 [+0.51, +0.79]  r 0.81  better than the mean  75%  rows +0.63 +0.77 +0.61  (development +0.60)
+  right_bend   hand masks n  92  MAE  5.47  skill +0.65 [+0.50, +0.76]  r 0.83  better than the mean  72%  rows +0.56 +0.71 +0.66
+  right_bend   model      n  92  MAE  5.32  skill +0.62 [+0.46, +0.75]  r 0.79  better than the mean  72%  rows +0.52 +0.72 +0.60  (development +0.53)
+
+From the trunk's axis:
+  left_angle   hand masks n  91  MAE  6.08  skill +0.68 [+0.43, +0.82]  r 0.87  better than the mean  79%  rows +0.57 +0.74 +0.84
+  left_angle   model      n  91  MAE  6.10  skill +0.69 [+0.56, +0.80]  r 0.86  better than the mean  73%  rows +0.65 +0.76 +0.70  (development +0.64)
+  right_angle  hand masks n  91  MAE  6.25  skill +0.71 [+0.54, +0.81]  r 0.89  better than the mean  74%  rows +0.61 +0.68 +0.85
+  right_angle  model      n  91  MAE  6.57  skill +0.70 [+0.53, +0.81]  r 0.87  better than the mean  75%  rows +0.63 +0.60 +0.84  (development +0.72)
+  lean         hand masks n  91  MAE  5.99  skill +0.65 [+0.40, +0.79]  r 0.86  better than the mean  75%  rows +0.52 +0.67 +0.84
+  lean         model      n  91  MAE  6.13  skill +0.66 [+0.50, +0.78]  r 0.85  better than the mean  77%  rows +0.59 +0.64 +0.77  (development +0.68)
+
+From the photo's vertical:
+  trunk_tilt   hand masks n  91  MAE  5.38  skill +0.57 [+0.25, +0.75]  r 0.80  better than the mean  62%  rows +0.49 +0.51 +0.76
+  trunk_tilt   model      n  91  MAE  5.01  skill +0.62 [+0.44, +0.76]  r 0.80  better than the mean  73%  rows +0.60 +0.47 +0.79  (development +0.64)
+  left_tilt    hand masks n  92  MAE  2.75  skill +0.86 [+0.80, +0.91]  r 0.95  better than the mean  75%  rows +0.86 +0.85 +0.90
+  left_tilt    model      n  92  MAE  3.14  skill +0.82 [+0.75, +0.87]  r 0.92  better than the mean  73%  rows +0.82 +0.81 +0.82  (development +0.68)
+  right_tilt   hand masks n  92  MAE  3.01  skill +0.81 [+0.71, +0.87]  r 0.94  better than the mean  77%  rows +0.88 +0.50 +0.89
+  right_tilt   model      n  92  MAE  3.36  skill +0.77 [+0.67, +0.84]  r 0.92  better than the mean  75%  rows +0.82 +0.52 +0.87  (development +0.66)
+  lean_v       hand masks n  92  MAE  2.54  skill +0.76 [+0.64, +0.84]  r 0.93  better than the mean  70%  rows +0.79 +0.55 +0.90
+  lean_v       model      n  92  MAE  2.74  skill +0.72 [+0.60, +0.80]  r 0.90  better than the mean  66%  rows +0.74 +0.54 +0.83  (development +0.58)
+
+Pixels against the test rows' hand masks as drawn (not lined up; secondary), median:
+  iou              0.128
+  dice             0.227
+  precision        0.233
+  recall           0.227
+  dice_best_shift  0.823
