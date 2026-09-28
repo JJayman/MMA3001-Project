@@ -107,6 +107,12 @@ def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
         assert (out / name).exists()
     for name in ("final_test_skill.png", "final_test_examples.jpg"):
         assert (tmp_path / "figures" / name).exists()
+    # The declared secondary result, recomputed from the saved files only, matches the run's own.
+    assert main(["--secondary-from-saved", *args[2:]]) == 0                  # no dataset folders needed
+    sec = json.loads((out / "secondary_report.json").read_text())
+    for k in ("v_opening", "left_angle"):
+        a, b = sec["scores"][k], report["scores"][k]["model, leaders completed"]
+        assert a["n"] == b["n"] and (a.get("skill") == pytest.approx(b.get("skill")) or a["n"] < 3)
     # Once only; and never without a named model.
     assert main(args) == 1 and "run once" in capsys.readouterr().out
     (out / "model.json").unlink()

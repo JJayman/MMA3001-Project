@@ -234,6 +234,89 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
     plt.close(fig)
 
 
+def secondary_from_saved(out: Path, figures: Path, progress: Callable[[str], None] = print) -> list[str]:
+    """The declared secondary result, from a finished final test's saved files only.
+
+    The same calculation as the one run makes when ``model.json`` declares a
+    secondary result (:func:`treeskel.segment.complete_measures` and
+    :func:`treeskel.segment.draw_completion` on the saved, joined test masks,
+    with the completion model fitted on the development trees), for a run
+    that was made before the declaration reached the code (session 12). No
+    network is trained, no photo or winter trace is read again, and the
+    headline ``report.json`` is left as it is. Writes ``secondary_report.json``,
+    ``secondary_output.txt`` and ``predicted_masks_completed.npz``, and redraws
+    the skill figure with the secondary series.
+
+    Returns:
+        Paths that could not be written.
+    """
+    from treeskel.segment import compare_with, load_masks, read_predictions
+
+    out = Path(out)
+    report = json.loads((out / "report.json").read_text())
+    named = json.loads((out / "model.json").read_text())
+    coef = _secondary_coef(named)
+    if coef is None:
+        raise ValueError(f"{out / 'model.json'} declares no secondary result")
+    masks = load_masks(out / "predicted_masks.npz")
+    truth = {r["tree"]: r for r in load_table(out / "test_shape_measures.csv")}
+    test = [t for t in masks if t in truth]
+    test_rows = report["test_rows"]
+    y = np.array([[truth[t][f"winter_{k}"] for k in MEASURES] for t in test], float)
+    base = np.broadcast_to(np.array([report["mean_shape"][k] for k in MEASURES], float), y.shape)
+    row_index = np.array([test_rows.index(int(truth[t]["row"])) for t in test])
+    seg2 = np.full(y.shape, np.nan)
+    drawn, added = {}, {}
+    for i, t in enumerate(test):
+        seg2[i] = [complete_measures(masks[t], coef)[0][k] for k in MEASURES]
+        drawn[t], added[t] = draw_completion(masks[t], coef)
+    seg2 = fill_failures(seg2, np.array(base))
+    sec = {"what": "the named model's test masks with short leaders' lines completed (declared before the test; "
+                   "computed from the saved masks)", "complete_coef": coef,
+           "trees_completed": int(sum(a.any() for a in added.values())), "scores": {}, "against_named": {}}
+    for j, k in enumerate(MEASURES):
+        sc = evaluate(y[:, j], seg2[:, j], base[:, j], row_index)
+        if sc.get("n", 0) >= 3:
+            sc["ci95"] = bootstrap_skill(y[:, j], seg2[:, j], base[:, j])
+        sec["scores"][k] = sc
+    # Against the named model's saved predictions, with their own winter values and rounding (2 decimals), so
+    # that the trees the completion leaves alone tie exactly.
+    named_pred = read_predictions(out / "predictions.csv", "model")
+    mine = {(t, k): (named_pred[(t, k)][0], round(float(seg2[i, j]), 2)) for i, t in enumerate(test)
+            for j, k in enumerate(MEASURES) if (t, k) in named_pred and np.isfinite(seg2[i, j])}
+    sec["against_named"] = compare_with(mine, named_pred)
+    lines = [f"Secondary result: {sec['what']}", f"  short leaders completed in {sec['trees_completed']} of {len(test)} "
+             f"test trees (a = {coef[0]:+.2f}, c = {coef[1]:+.3f})",
+             "  measure      skill  [95% interval]   (the named model)   tree by tree against it: MAE, closer, p"]
+    for k in MEASURES:
+        sc, c = sec["scores"][k], sec["against_named"].get(k)
+        if sc.get("n", 0) < 3:
+            continue
+        head = report["scores"][k]["model"]["skill"]
+        vs = (f"{c['mae_other']:5.2f} -> {c['mae_seg']:5.2f}  {c['closer']:4.0%}  p {c['wilcoxon_p']:.2f}" if c else "")
+        lines.append(f"  {k:12s} {sc['skill']:+.2f}  [{sc['ci95'][0]:+.2f}, {sc['ci95'][1]:+.2f}]   ({head:+.2f})"
+                     f"            {vs}")
+    for line in lines:
+        progress(line)
+    failed: list[str] = []
+
+    def write(path: Path, fn) -> None:
+        try:
+            fn(path)
+        except OSError as e:                                # e.g. open in a viewer on Windows
+            failed.append(f"{path}: {e.strerror or e}")
+
+    write(out / "secondary_report.json", lambda p: p.write_text(json.dumps(sec, indent=2)))
+    write(out / "secondary_output.txt", lambda p: p.write_text("\n".join(lines) + "\n"))
+    write(out / "predicted_masks_completed.npz", lambda p: save_masks(p, test, np.stack([drawn[t] for t in test])))
+    both = json.loads(json.dumps(report))
+    for k in MEASURES:
+        both["scores"][k]["model, leaders completed"] = sec["scores"][k]
+    Path(figures).mkdir(parents=True, exist_ok=True)
+    plot_final(both, Path(figures) / "final_test_skill.png", failed)
+    return failed
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Train the named model on all development trees and score it once on the test rows."""
     from concurrent.futures import ProcessPoolExecutor
@@ -243,7 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from treeskel.shape import ShapeParams, measure_tree, save_traces
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.final_test", description=__doc__.splitlines()[0])
-    ap.add_argument("data_dirs", nargs="+", help="dataset folder(s)")
+    ap.add_argument("data_dirs", nargs="*", help="dataset folder(s) (not needed with --secondary-from-saved)")
     ap.add_argument("--out", default="docs/results/final_test", help="results folder; its model.json names the model")
     ap.add_argument("--model", help="the naming file (default: <out>/model.json)")
     ap.add_argument("--figures", default="docs/figures")
@@ -253,10 +336,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--device", help="cuda or cpu (default: the GPU if there is one)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="test trees traced in parallel")
     ap.add_argument("--examples", type=int, default=6, help="test trees in the example figure")
+    ap.add_argument("--secondary-from-saved", action="store_true",
+                    help="only compute the declared secondary result from a finished test's saved files")
     ap.add_argument("--random-weights", action="store_true", help=argparse.SUPPRESS)          # tests only
     args = ap.parse_args(argv)
 
     out = Path(args.out)
+    if args.secondary_from_saved:
+        if not (out / "report.json").exists():
+            print(f"No {out / 'report.json'}: run the final test first.")
+            return 1
+        failed = secondary_from_saved(out, Path(args.figures))
+        for f in failed:
+            print(f"Could not write {f}")
+        return 1 if failed else 0
+    if not args.data_dirs:
+        ap.error("give the dataset folder(s)")
     model_file = Path(args.model) if args.model else out / "model.json"
     if not model_file.exists():
         print(f"No {model_file}: name the model first (commit it), then run this once.")
