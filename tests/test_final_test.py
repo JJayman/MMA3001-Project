@@ -38,7 +38,11 @@ def named_run(tmp_path, size=(64, 96), join=True, grow=None, cont=None):
     (run / "report.json").write_text(json.dumps(report))
     out = tmp_path / "final"
     out.mkdir()
-    (out / "model.json").write_text(json.dumps({"run": str(run), "why": "named in a test"}))
+    completed = tmp_path / "results" / "segment_lined_up_completed"
+    completed.mkdir()
+    (completed / "report.json").write_text(json.dumps({"complete": {"coef_all": [-2.8, 0.7]}}))
+    (out / "model.json").write_text(json.dumps({"run": str(run), "why": "named in a test",
+                                                "secondary": {"complete_from": str(completed)}}))
     split = tmp_path / "split.json"
     split.write_text(json.dumps({"test_rows": [15, 20]}))
     return out, split
@@ -90,8 +94,11 @@ def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
     assert report["n_dev"] == 19                              # the 21 local development trees minus rows 15 and 20
     assert report["epochs"] == 1 and report["seed"] == 1000 and report["join_gap"] == JOIN_GAP
     assert report["grow_low"] == 0.2
+    assert report["secondary"]["complete_coef"] == [-2.8, 0.7]
+    assert "model, leaders completed" in report["scores"]["v_opening"]
+    assert (out / "predicted_masks_completed.npz").exists()
     assert set(report["scores"]["v_opening"]) == {"mean shape", "hand masks", "model", "model, forks found",
-                                                  "development"}
+                                                  "development", "model, leaders completed"}
     assert report["scores"]["v_opening"]["development"] == 0.5
     assert set(load_masks(out / "predicted_masks.npz")) == {"R15N05", "R20N06"}
     rows = (out / "test_shape_measures.csv").read_text().splitlines()
