@@ -786,11 +786,11 @@ def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tup
     series = [("hand masks", {k: v["hand masks"] for k, v in scores.items()})]
     series += [o for o in others if o[0] != key]
     series.append((key, {k: v["segmentation"] for k, v in scores.items()}))
-    joined = f" after joining pieces within {report['join']['gap']:g} px" if report.get("join") else ""
+    what = f"masks joined, {report['no_fork']}" if report.get("join") else _n(report["no_fork"], "U-Net mask")
     plot_comparison(series, path, failed, names=RUN_NAMES, styles=RUN_STYLES,
                     title="A U-Net trained on the hand masks, its masks measured against the winter traces",
                     subtitle=f"{report['n_trees']} trees, each from the fold that held its row out; "
-                             f"{_n(report['no_fork'], 'U-Net mask')} with no fork{joined} count as the mean shape")
+                             f"{what} with no fork count as the mean shape")
 
 
 def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str]) -> None:

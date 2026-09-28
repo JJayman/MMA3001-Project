@@ -1,0 +1,51 @@
+1. The 70 masks the join changed (of 449)
+   measure        n closer farther same   MAE before -> after   Wilcoxon p
+   v_opening     63     27      16   20    6.50 ->  4.61        1.3e-02
+   left_angle    64     14      15   35    9.36 ->  8.10        6.0e-01
+   right_angle   64     19       6   39   10.09 ->  7.59        1.4e-02
+   lean          63     23      19   21    9.06 ->  6.98        1.5e-01
+   left_bend     68     16      17   35    7.77 ->  7.09        2.2e-01
+   right_bend    63     13      12   38    8.06 ->  6.48        2.6e-01
+   trunk_tilt    65     11       1   53    7.97 ->  6.98        2.8e-02
+   left_tilt     69     20      15   34    4.74 ->  3.76        1.1e-01
+   right_tilt    64     13      12   39    3.99 ->  3.92        7.5e-01
+   lean_v        63     22      19   22    3.37 ->  3.35        1.0e+00
+   (closer / farther: by more than 0.05 degrees; 'no fork' trees count as the fold's mean shape before)
+   V opening measured only after joining (winter; before: the mean shape or not measured; after):
+   R01N14  winter  58.0  before 53.25 (mean shape)  after  57.7
+   R01N22  winter  48.8  before 53.25 (mean shape)  after  55.9
+   R02N03  winter  71.8  before 51.33 (mean shape)  after  62.9
+   R02N07  winter  68.5  before 51.33 (mean shape)  after  67.4
+   R05N04  winter  79.9  before 52.71 (mean shape)  after  50.2
+   R07N18  winter  56.2  before 53.59 (mean shape)  after  53.8
+   R10N23  winter  44.6  before     - (not measured)  after  47.0
+   R13N11  winter  47.3  before     - (not measured)  after  45.2
+   R14N25  winter  42.9  before     - (not measured)  after  44.2
+   R14N28  winter  57.0  before 52.71 (mean shape)  after  58.2
+   R14N29  winter  55.0  before     - (not measured)  after  47.4
+   R14N30  winter  63.9  before 52.71 (mean shape)  after  67.1
+   R15N24  winter  56.8  before     - (not measured)  after  59.4
+   R17N07  winter  61.2  before 53.59 (mean shape)  after  65.9
+   R18N18  winter  59.3  before 52.71 (mean shape)  after  61.2
+   V opening, the largest changes of error (winter, before, after, change of |error|):
+   R10N28  fold 1   63.8   84.5   62.9  -19.8
+   R02N07  fold 1   68.5   51.3   67.4  -16.1
+   R18N20  fold 3   65.2   47.9   67.1  -15.4
+   R09N18  fold 2   58.6   73.8   57.1  -13.7
+   R05N34  fold 3   40.4   21.1   46.7  -12.9
+   R20N01  fold 1   46.4   50.5   53.2   +2.7
+   R18N04  fold 3   42.1   44.5   49.9   +5.3
+   R05N28  fold 3   68.5   64.0   58.3   +5.7
+   R06N12  fold 2   53.8   55.7   39.5  +12.4
+   R01N06  fold 0   26.7   58.3   74.2  +15.8
+2. Skill over the mean shape at other gaps (chosen: 19.3 mask px, fixed before scoring)
+     gap joined no fork   v_opening  left_angle right_angle        lean   left_bend  right_bend  trunk_tilt   left_tilt  right_tilt      lean_v
+    none      0      14      +0.720      +0.613      +0.674      +0.633      +0.572      +0.470      +0.622      +0.623      +0.687      +0.580
+    9.65     39       6      +0.736      +0.637      +0.704      +0.663      +0.580      +0.519      +0.645      +0.670      +0.666      +0.594
+    19.3     70       2      +0.750      +0.641      +0.715      +0.675      +0.598      +0.527      +0.644      +0.679      +0.660      +0.583
+    38.6     85       1      +0.756      +0.644      +0.717      +0.671      +0.585      +0.423      +0.644      +0.681      +0.623      +0.591
+   V opening per fold:
+    none +0.56 +0.79 +0.81 +0.69 +0.77
+    9.65 +0.48 +0.85 +0.83 +0.69 +0.87
+    19.3 +0.50 +0.85 +0.82 +0.75 +0.87
+    38.6 +0.49 +0.85 +0.82 +0.79 +0.87
