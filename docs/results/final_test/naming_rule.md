@@ -62,3 +62,65 @@ The final test was not run in between.
 - **If adopted,** `model.json` is rewritten to name `docs/results/segment_lined_up_rerun_grown` (its
   recipe: the re-run's median epochs, the chosen threshold, the same joining gap). **If not,** `model.json`
   stays as it is.
+
+**Applied (re-run on the student's PC):** clDice chose a lower threshold of 0.1, which grew all 449
+masks (604,615 pixels). Against the re-run's joined masks, on the V opening: MAE 4.105° → 4.141°, grown
+closer on 42% of trees (p = 0.003, i.e. significantly *worse* more often). **Not adopted;** `model.json`
+stays as it is. The re-run itself repeated the original closely (V opening +0.72, joined +0.75).
+
+## Addendum, before scoring: continuing short leaders and pruning
+
+Added on 28 September 2026 (session 12), after the growing result and **before any continued mask was
+scored**. The final test was not run in between.
+
+- **The student's idea:** keep only the trunk and the two leaders, and where a leader stops abruptly
+  with a piece further along its path, join that piece (`treeskel.segment.continue_leaders`).
+- **Applied to** the re-run's joined masks (`segment_lined_up_rerun_joined`), no growing; the result goes
+  to `segment_lined_up_rerun_continued`, scored from the saved masks.
+- **Settings, fixed without winter:** only leaders shorter than the fitted stretch (16 units, 158 mask
+  px) are continued; a piece is joined if a pixel of it lies within the part of the stretch still missing
+  and within **25°** of the leader's direction at its tip (the development hand masks' leaders turn by at
+  most 24.8° over the stretch in 95% of cases); the tip's direction is a line through its last 4 units
+  (the trunk axis's length); a piece needs 10 px of centre line (the fewest a line fit takes); up to 5
+  pieces in a chain. Then every mask is cut down to its trunk and two leaders.
+- **The rule:** adopted if `segment_lined_up_rerun_continued` beats `segment_lined_up_rerun_joined` tree by
+  tree on the V opening (lower MAE and Wilcoxon p < 0.05). If adopted, `model.json` names
+  `docs/results/segment_lined_up_rerun_continued` (the re-run's median epochs, 36; joining; continuing and
+  pruning). If not, `model.json` stays as it is.
+- This is the third change tested on the same development trees (joining adopted, growing not); each
+  was fixed before it was scored, and the final test rows are the independent check of whichever is named.
+
+**Applied (scored from the saved masks, after the commit above):** 9 masks had a piece to continue to;
+pruning changed some measure by more than 0.5° in 344. Against the re-run's joined masks, on the V
+opening: MAE 4.105° → 4.129°, closer on 45% of trees, p = 0.21. **Not adopted;** `model.json` stays as it
+is (`docs/results/segment_lined_up_joined`). Details: `docs/results/segment_lined_up_rerun/README.md`.
+
+## Addendum, before scoring: completing short leaders' lines from the leaders' shapes
+
+Added on 28 September 2026 (session 12), after the continuing result and **before any completed
+measure was scored**. The final test was not run in between.
+
+- **The student's idea:** where a leader stops though the leaves go on, predict where it goes from the
+  shape of the leaders the model has seen (`treeskel.segment.complete_measures`).
+- **The model:** a short leader's line over the whole fitted stretch differs from its line over the
+  visible part by `a·g + c·g·bend` (outwards; `g` the missing fraction of the stretch, `bend` the visible
+  part's bend). `a` and `c` are fitted by least squares on the run's own **complete** leaders, cut on
+  purpose at 40-95% of the stretch; for each fold only on the other folds' trees, so no tree's prediction
+  uses its own leaders; the fit on all trees is kept for the final test. The masks are not changed; the
+  bends stay as measured. Nothing comes from the winter traces. (Checked beforehand on the complete
+  leaders themselves, row-grouped: cutting a leader moves its line by 2.72° on average, 1.95° after the
+  model.)
+- **Applied to the named run itself:** `segment_lined_up_joined` → `segment_lined_up_completed`. The rule:
+  adopted if it beats `segment_lined_up_joined` tree by tree on the V opening (lower MAE and Wilcoxon
+  p < 0.05); then `model.json` names `docs/results/segment_lined_up_completed` (the named recipe, with the
+  model fitted on all its development trees). Otherwise `model.json` stays as it is.
+- **The re-run** (`segment_lined_up_rerun_joined` → `segment_lined_up_rerun_completed`) is scored the same
+  way as a replicate; it is reported, not used to decide.
+- **The leaf check** (`docs/results/leaf_prior/leaf_check.py`, the student's PC) describes where the leaves
+  lie around the hand-mask leaders; it decides nothing here.
+
+**Applied (scored from the saved masks, after the commit above):** the named run: 31 trees had a short
+leader completed (a = -2.78, c = +0.69 on all trees). On the V opening, tree by tree against
+`segment_lined_up_joined`: MAE 4.100° → 4.102°, p = 0.78; on the 31 trees it changed, 8.33° → 8.36°
+(12 closer, 15 farther). **Not adopted;** `model.json` stays as it is. The re-run replicate agrees (4.105°
+→ 4.133°, p = 0.65).

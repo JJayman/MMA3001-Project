@@ -97,6 +97,7 @@ python -m treeskel.annotate_mask data/raw --dev-only       # line up each hand m
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # U-Net on the lined-up masks
 python -m treeskel.segment --join docs/results/segment_lined_up   # a saved run's masks, pieces joined (no photos needed)
 python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun   # masks grown into less sure pixels, joined
+python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined   # short leaders continued, pruned
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640   # whole photo, full size
 python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
 pdoc -o docs/_build src/treeskel           # build HTML documentation
