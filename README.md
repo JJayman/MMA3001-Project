@@ -35,7 +35,10 @@ src/treeskel/    Python package
   shape_model.py predicts the winter shape from the summer features (ridge regression, row-grouped folds)
   shape_cnn.py   fine-tunes a CNN (ResNet-18) to predict the winter shape from the summer photo (GPU)
   segment.py     trains a U-Net on the hand masks to segment the main branches in summer; its masks
-                 are measured like the hand masks and scored against the winter traces (GPU)
+                 are measured like the hand masks and scored against the winter traces (GPU); joins
+                 masks broken by a gap of up to a trunk's width before measuring
+  final_test.py  the one final evaluation on the test rows: the named U-Net, trained on all development
+                 trees, scored against the test trees' winter traces (GPU; runs once)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -92,6 +95,9 @@ python -m treeskel.shape_cnn data/raw                      # fine-tune a CNN on 
 python -m treeskel.segment data/raw                        # U-Net on the hand masks, scored against winter (5 folds, GPU)
 python -m treeskel.annotate_mask data/raw --dev-only       # line up each hand mask on its summer photo
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json   # U-Net on the lined-up masks
+python -m treeskel.segment --join docs/results/segment_lined_up   # a saved run's masks, pieces joined (no photos needed)
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640   # whole photo, full size
+python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
