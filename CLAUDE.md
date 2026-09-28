@@ -177,6 +177,19 @@ See the latest file in `docs/progress/`. As of session 12:
      (21 trees): winter traces lie within about 5 cm of a plane, leaning
      towards the camera.
   3. The report.
+  4. **Before submission: the repository requirements** (checked at the end of
+     session 12 on `main` 8b35744; do this near the end, so that the docs and
+     the test report match the final code):
+
+     | Requirement | Status (session 12) | To do |
+     |---|---|---|
+     | ReadMe | yes | refresh: the sample has 9 trees (it says 8); drop "work in progress"; link the HTML docs and the test report |
+     | HTML documentation | **missing** | `pdoc -o docs/html src/treeskel` and commit `docs/html/` (`docs/_build/` is git-ignored); it builds cleanly for all 19 modules |
+     | Licence | yes | `LICENSE`, GNU GPL v3 |
+     | Source code, functional `main` | yes | 387 passed, 1 skipped |
+     | Docstrings and inline comments | mostly | 349 of 358 public functions, classes and methods have docstrings; add the 9 (`__init__` and `tree` in `annotate.py`, `annotate_mask.py`, `annotate_overlay.py`, `annotate_pairs.py`; `__init__` in `shape_model.py`); only about 3% of lines carry an inline comment, so add a few more in the longer functions |
+     | Test functions | yes | 23 files in `tests/` |
+     | Test report | **missing** | on the student's PC (so the torch tests run): `pip install pytest-html`, then `pytest --html=docs/test_report.html --self-contained-html` (or `--junitxml=docs/test_report.xml`); commit it |
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
