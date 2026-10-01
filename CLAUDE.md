@@ -100,7 +100,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                shape_cnn.py (fine-tuning a CNN on the winter shape; the student's GPU),
                segment.py (U-Net on the hand masks, scored against winter; the student's GPU;
                joining broken masks, session 12), final_test.py (the one test-row evaluation),
-               score_baseline.py (the automatic winter baseline against the guided ground truth)
+               score_baseline.py (the automatic winter baseline against the guided ground truth),
+               benchmark.py (run time and memory of every method)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
