@@ -19,6 +19,7 @@ src/treeskel/    Python package
   io.py          filename parsing, dataset indexing, image loading
   splits.py      row-grouped hold-out and k-fold cross-validation splits
   winter_gt.py   automatic main-branch extraction from winter depth (baseline)
+  score_baseline.py  scores the automatic baseline against the guided ground truth (paths, quality check, shape)
   guided_gt.py   click-guided main-branch ground truth: cost map + minimal-path tracing
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
@@ -79,6 +80,7 @@ python -m treeskel.splits data/sample      # dataset summary and splits
 python -m treeskel.splits data/raw --check-images --save splits.json   # make the split (once)
 python -m treeskel.splits data/raw --load splits.json                   # reuse it
 python -m treeskel.winter_gt data/raw --out outputs/winter_gt --figure outputs/winter_gt.png   # automatic baseline
+python -m treeskel.score_baseline data/raw                 # score the baseline against the guided ground truth (development rows)
 python -m treeskel.annotate data/raw --dev-only            # click tool (development rows first)
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
