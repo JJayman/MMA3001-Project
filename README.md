@@ -41,6 +41,7 @@ src/treeskel/    Python package
   final_test.py  the one final evaluation on the test rows: the named U-Net, trained on all development
                  trees, scored against the test trees' winter traces (GPU; runs once)
   benchmark.py   run time and memory of every method (ground truths, mean shape, ridge, angle CNN, U-Net)
+  depth3d.py     the 3D estimate: first, how the 8-bit depth maps to distance (its zero, from the ground)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -104,6 +105,7 @@ python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640   # whole photo, full size
 python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
 python -m treeskel.benchmark                               # run time and memory of every method (GPU and CPU)
+python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 
