@@ -1,4 +1,4 @@
-"""The 3D estimate from the 8-bit depth: first, how the depth values map to distance.
+"""The 3D estimate from the 8-bit depth: how the depth values map to distance, and the camera.
 
 The depth images hold 8-bit values (brighter = nearer, 0 = no reading), not
 distances, and no calibration came with the data. Session 2 guessed a linear
@@ -39,6 +39,10 @@ the depth is aligned, has a 69.4° x 42.5° field of view at 1920x1080; its
 (fields of view 55° x 43°), centred at (320, 240). Its range of sensitivity
 is :data:`FOCAL_RANGE`.
 
+**The camera** (:class:`Camera`): the zero chosen from the ground
+(:data:`ZERO`), the focal length, and pixel-to-3D. The tree's 3D shape is in
+:mod:`treeskel.tree3d`.
+
 Usage (development rows only)::
 
     python -m treeskel.depth3d data/raw --calibrate      # -> docs/results/depth3d/
@@ -52,6 +56,7 @@ import json
 import os
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +72,68 @@ CENTRE = (240.0, 320.0)
 
 SESSION2_ZERO = 255.0
 """Session 2's guess at the zero: ``Z = 4 m · (1 − v / 255)``."""
+
+ZERO = 300.0
+"""The zero used for the 3D estimate: the median of the per-tree estimates from the ground on the 449
+development trees (session 13, ``docs/results/depth3d/``; quartiles 262–366, pooled 325)."""
+
+ZERO_RANGE = (262.0, 366.0)
+"""The quartiles of the per-tree estimates, for the sensitivity of the 3D measures."""
+
+DISTANCE_M = 2.0
+"""Metres from the camera to the median development tree's fork, which sets the scale: the middle of the
+1.8–2.2 m from camera to canopy documented for this orchard and camera (Chen et al., 2020). Nothing in the
+photos fixes the scale; it affects sizes only, never angles."""
+
+DISTANCE_RANGE = (1.8, 2.2)
+"""The documented range, for the sensitivity of the sizes."""
+
+
+@dataclass(frozen=True)
+class Camera:
+    """The camera and depth map: pixel ``(row, col)`` and depth value ``v`` to a 3D point.
+
+    Distances are in *units of the scale* (``Z = zero − v``); multiply by the metres per unit
+    (:func:`metres_per_unit`) for metres. Angles do not depend on the scale.
+
+    Attributes:
+        zero: The depth value at zero distance.
+        focal: Focal length (px).
+        centre: Principal point ``(row, col)``.
+    """
+
+    zero: float = ZERO
+    focal: float = FOCAL_PX
+    centre: tuple[float, float] = CENTRE
+
+    def distance(self, values: np.ndarray) -> np.ndarray:
+        """Distance along the optical axis (units) of depth values (NaN stays NaN)."""
+        return self.zero - np.asarray(values, float)
+
+    def rays(self, rc: np.ndarray) -> np.ndarray:
+        """``(N, 3)`` ray directions ``(x, y, 1)`` through ``(N, 2)`` ``(row, col)`` pixels (``y`` down).
+
+        Example:
+            >>> Camera(focal=100.0).rays(np.array([[240.0, 420.0]])).tolist()
+            [[1.0, 0.0, 1.0]]
+        """
+        p = np.asarray(rc, float).reshape(-1, 2)
+        return np.stack([(p[:, 1] - self.centre[1]) / self.focal, (p[:, 0] - self.centre[0]) / self.focal,
+                         np.ones(len(p))], 1)
+
+    def points(self, rc: np.ndarray, values: np.ndarray) -> np.ndarray:
+        """``(N, 3)`` points ``(X, Y, Z)`` (units; ``Y`` down) of pixels with depth values."""
+        return self.rays(rc) * self.distance(values)[:, None]
+
+
+def metres_per_unit(fork_distance_units: float, distance_m: float = DISTANCE_M) -> float:
+    """The scale: metres per unit that put a fork ``fork_distance_units`` away at ``distance_m``.
+
+    Example:
+        >>> metres_per_unit(180.0)
+        0.011111111111111112
+    """
+    return distance_m / fork_distance_units
 
 ZEROS = tuple(float(v) for v in np.concatenate([np.arange(190, 400, 5), np.arange(400, 1000, 25),
                                                  np.arange(1000, 5001, 250)]))
