@@ -1,0 +1,6 @@
+The depth map's zero from the ground (flat ground: 1/(v0 - v) affine in the pixel's position); zeros tried 190-5000:
+  blocks of value >= 10: 435 of 449 trees fitted (12 at the grid's edge); zero median 300 [262, 366], pooled 325
+    RMS error (depth units, median over trees): best zero 3.16, session 2's 255 3.46, linear in disparity 4.51; the best zero fits better than disparity on 98% of trees
+  all ground blocks: 434 of 449 trees fitted (13 at the grid's edge); zero median 302 [264, 368], pooled 325
+    RMS error (depth units, median over trees): best zero 3.17, session 2's 255 3.47, linear in disparity 4.57; the best zero fits better than disparity on 98% of trees
+  by orchard row (median of trees / pooled): 1 381/500, 2 297/335, 5 281/305, 6 303/310, 7 320/325, 8 293/320, 9 323/305, 10 267/265, 11 293/320, 13 289/305, 14 344/320, 15 265/320, 17 297/290, 18 344/385, 19 242/265, 20 303/310

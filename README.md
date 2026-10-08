@@ -19,6 +19,7 @@ src/treeskel/    Python package
   io.py          filename parsing, dataset indexing, image loading
   splits.py      row-grouped hold-out and k-fold cross-validation splits
   winter_gt.py   automatic main-branch extraction from winter depth (baseline)
+  score_baseline.py  scores the automatic baseline against the guided ground truth (paths, quality check, shape)
   guided_gt.py   click-guided main-branch ground truth: cost map + minimal-path tracing
   annotate.py    click tool for guided ground truth (opens a window)
   tune_cost.py   tunes the tracing cost map against corrected annotations
@@ -39,6 +40,10 @@ src/treeskel/    Python package
                  masks broken by a gap of up to a trunk's width before measuring
   final_test.py  the one final evaluation on the test rows: the named U-Net, trained on all development
                  trees, scored against the test trees' winter traces (GPU; runs once)
+  benchmark.py   run time and memory of every method (ground truths, mean shape, ridge, angle CNN, U-Net)
+  depth3d.py     how the 8-bit depth maps to distance (its zero, from the ground) and the camera
+  tree3d.py      the tree in 3D: its plane, the V in that plane, its lean and sizes; summer against winter
+  model3d.py     a summer RGB-D photo as a 3D model to open and turn in a browser (and .ply files)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -79,6 +84,7 @@ python -m treeskel.splits data/sample      # dataset summary and splits
 python -m treeskel.splits data/raw --check-images --save splits.json   # make the split (once)
 python -m treeskel.splits data/raw --load splits.json                   # reuse it
 python -m treeskel.winter_gt data/raw --out outputs/winter_gt --figure outputs/winter_gt.png   # automatic baseline
+python -m treeskel.score_baseline data/raw                 # score the baseline against the guided ground truth (development rows)
 python -m treeskel.annotate data/raw --dev-only            # click tool (development rows first)
 python -m treeskel.guided_gt data/raw --overlays           # render guided ground truth from the clicks
 python -m treeskel.tune_cost data/tuning                   # tune the cost map on annotated trees
@@ -100,6 +106,11 @@ python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun  
 python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined   # short leaders continued, pruned
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640   # whole photo, full size
 python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
+python -m treeskel.benchmark                               # run time and memory of every method (GPU and CPU)
+python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
+python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
+python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
+python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 

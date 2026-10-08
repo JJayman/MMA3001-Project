@@ -1,0 +1,26 @@
+Machine: Intel64 Family 6 Model 158 Stepping 12, GenuineIntel; NVIDIA GeForce GTX 1080 Ti; PyTorch 2.14.0+cu126; 8 CPU threads.
+
+Ground truths, per winter tree (8 development trees; seconds median / slowest, peak Python+NumPy memory):
+  winter baseline          0.155 / 0.225 s      12.6 MB
+  guided tracing           1.185 / 1.235 s      42.1 MB
+  guided tracing also needs the clicks: about 15 s per tree (session 5)
+
+Networks (random weights; prediction = photo + mirror image, batch 1; training step at the recipe's batch; GPU peaks include the weights):
+  network                          params     MB |   cuda predict ms  peak MB train step s  peak MB |    cpu predict ms  peak MB train step s  peak MB
+  ResNet-18 features (ridge)   11,176,512   44.7 |               5.9       75 - - |              51.2 - - -
+  angle CNN 240x320            11,181,642   44.7 |               6.1       83        0.049      799 |              52.6 -        1.116 -
+  angle CNN 480x640            11,181,642   44.7 |               7.7      110        0.162     2460 |             181.4 -        4.551 -
+  U-Net 256x256 (named)        14,328,081   57.3 |               9.7      109        0.062      934 |             116.1 -        1.292 -
+  U-Net 480x640                14,328,081   57.3 |              18.7      191        0.261     3662 |             463.2 -        5.965 -
+
+Training time (minutes): the development run (5 folds with inner folds, as recorded), and one network on all 449 trees estimated from the measured step at the run's median epochs:
+  angle CNN 240x320            recorded    6.2 (cuda), median epochs 30.0, estimated one network   0.71 on cuda
+  angle CNN 480x640            recorded   19.2 (cuda), median epochs 25.0, estimated one network   1.96 on cuda
+  U-Net 256x256 (named)        recorded   20.4 (cuda), median epochs 34.0, estimated one network   2.00 on cuda
+  U-Net 480x640                recorded   69.7 (cuda), median epochs 24.0, estimated one network   5.94 on cuda
+  final test: the named U-Net trained once on 449 trees, 34 epochs: recorded 2.0 min; estimated 2.00 min
+
+Ridge: 5-fold training with nested penalty choice 70.9 s on 449 trees; 30,730 parameters (2560 features)
+  its features (photo and mirror image) for 449 trees: about 3 s on the CUDA; a prediction is the features (5.9 ms) and one product with the weights
+U-Net mask: joining pieces and measuring the shape 14.2 ms per mask (slowest 21.9), peak 3.1 MB (20 saved masks)
+Mean shape: training 50 us, 10 parameters; prediction is a constant

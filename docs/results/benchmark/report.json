@@ -1,0 +1,169 @@
+{
+  "machine": {
+    "cpu": "Intel64 Family 6 Model 158 Stepping 12, GenuineIntel",
+    "system": "Windows-11-10.0.26200-SP0",
+    "threads": 8,
+    "cpu_count": 8,
+    "gpu": "NVIDIA GeForce GTX 1080 Ti",
+    "torch": "2.14.0+cu126",
+    "python": "3.12.4"
+  },
+  "repeats": 10,
+  "ground_truths": {
+    "winter baseline": {
+      "seconds": 0.15483564999885857,
+      "seconds_max": 0.22459440003149211,
+      "peak_mb": 12.600428,
+      "n_trees": 8
+    },
+    "guided tracing": {
+      "seconds": 1.185155700019095,
+      "seconds_max": 1.2348236000398174,
+      "peak_mb": 42.090598,
+      "n_trees": 8
+    }
+  },
+  "networks": {
+    "cuda": {
+      "ResNet-18 features (ridge)": {
+        "parameters": 11176512,
+        "weights_mb": 44.706048,
+        "predict_s": 0.005943049967754632,
+        "predict_peak_mb": 74.66496,
+        "train_step_s": null,
+        "train_peak_mb": null
+      },
+      "angle CNN 240x320": {
+        "parameters": 11181642,
+        "weights_mb": 44.726568,
+        "predict_s": 0.006132500013336539,
+        "predict_peak_mb": 83.205632,
+        "train_step_s": 0.048838699993211776,
+        "train_peak_mb": 798.785536
+      },
+      "angle CNN 480x640": {
+        "parameters": 11181642,
+        "weights_mb": 44.726568,
+        "predict_s": 0.007685550022870302,
+        "predict_peak_mb": 109.547008,
+        "train_step_s": 0.16204470000229776,
+        "train_peak_mb": 2460.053504
+      },
+      "U-Net 256x256 (named)": {
+        "parameters": 14328081,
+        "weights_mb": 57.312324,
+        "predict_s": 0.009700599999632686,
+        "predict_peak_mb": 108.705792,
+        "train_step_s": 0.06200575002003461,
+        "train_peak_mb": 933.523968
+      },
+      "U-Net 480x640": {
+        "parameters": 14328081,
+        "weights_mb": 57.312324,
+        "predict_s": 0.01868280000053346,
+        "predict_peak_mb": 191.013376,
+        "train_step_s": 0.2606052500195801,
+        "train_peak_mb": 3661.565952
+      }
+    },
+    "cpu": {
+      "ResNet-18 features (ridge)": {
+        "parameters": 11176512,
+        "weights_mb": 44.706048,
+        "predict_s": 0.05116234999150038,
+        "predict_peak_mb": null,
+        "train_step_s": null,
+        "train_peak_mb": null
+      },
+      "angle CNN 240x320": {
+        "parameters": 11181642,
+        "weights_mb": 44.726568,
+        "predict_s": 0.05257224995875731,
+        "predict_peak_mb": null,
+        "train_step_s": 1.1164210499846376,
+        "train_peak_mb": null
+      },
+      "angle CNN 480x640": {
+        "parameters": 11181642,
+        "weights_mb": 44.726568,
+        "predict_s": 0.18138604995328933,
+        "predict_peak_mb": null,
+        "train_step_s": 4.551274349971209,
+        "train_peak_mb": null
+      },
+      "U-Net 256x256 (named)": {
+        "parameters": 14328081,
+        "weights_mb": 57.312324,
+        "predict_s": 0.116058100014925,
+        "predict_peak_mb": null,
+        "train_step_s": 1.2920284499996342,
+        "train_peak_mb": null
+      },
+      "U-Net 480x640": {
+        "parameters": 14328081,
+        "weights_mb": 57.312324,
+        "predict_s": 0.4632312500034459,
+        "predict_peak_mb": null,
+        "train_step_s": 5.9648987000691704,
+        "train_peak_mb": null
+      }
+    }
+  },
+  "training": {
+    "angle CNN 240x320": {
+      "run": "shape_cnn",
+      "minutes_5_folds": 6.2,
+      "device": "cuda",
+      "median_epochs": 30,
+      "estimated_minutes": 0.708,
+      "estimated_on": "cuda"
+    },
+    "angle CNN 480x640": {
+      "run": "shape_cnn_480x640",
+      "minutes_5_folds": 19.2,
+      "device": "cuda",
+      "median_epochs": 25,
+      "estimated_minutes": 1.958,
+      "estimated_on": "cuda"
+    },
+    "U-Net 256x256 (named)": {
+      "run": "segment_lined_up",
+      "minutes_5_folds": 20.4,
+      "device": "cuda",
+      "median_epochs": 34,
+      "estimated_minutes": 2.003,
+      "estimated_on": "cuda"
+    },
+    "U-Net 480x640": {
+      "run": "segment_lined_up_480x640",
+      "minutes_5_folds": 69.7,
+      "device": "cuda",
+      "median_epochs": 24,
+      "estimated_minutes": 5.942,
+      "estimated_on": "cuda"
+    }
+  },
+  "final_training": {
+    "minutes": 2.0,
+    "epochs": 34,
+    "batch": 8,
+    "n_trees": 449,
+    "estimated_minutes": 2.003
+  },
+  "ridge": {
+    "seconds_5_folds": 70.86295610002708,
+    "n_trees": 449,
+    "n_features": 2560,
+    "parameters": 30730
+  },
+  "post_processing": {
+    "seconds": 0.014154199976474047,
+    "seconds_max": 0.021944299922324717,
+    "peak_mb": 3.148208,
+    "n_masks": 20
+  },
+  "mean_shape": {
+    "train_s": 4.9950031097978354e-05,
+    "parameters": 10
+  }
+}

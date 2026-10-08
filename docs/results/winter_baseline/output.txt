@@ -1,0 +1,48 @@
+Winter baseline against the guided ground truth: 449 development trees.
+Quality check: 340 passed, 109 flagged (21 with no fork).
+    59  right leader rises too little
+    50  left leader rises too little
+    21  could not find a (non-post) leader on each side
+
+Paths (median [quartiles]; traced = F1 at least the level):
+  trees             n                F1             found         on branch  fork px  traced 0.9   0.8
+  all             449 0.86 [0.67, 0.95] 0.81 [0.55, 0.95] 0.94 [0.84, 0.98]     11.2         43%   60%
+  passed          340 0.91 [0.82, 0.96] 0.91 [0.76, 0.96] 0.95 [0.89, 0.98]      9.5         57%   78%
+  flagged         109 0.52 [0.22, 0.68] 0.40 [0.18, 0.54] 0.86 [0.51, 0.93]     79.3          0%    3%
+  by part, all trees (median found / on branch): trunk 0.97 / 1.00, left 0.89 / 0.95, right 0.92 / 0.96
+  at fixed distances, all trees (mean found / on branch): 5 px 0.68 / 0.82, 10 px 0.74 / 0.89, 20 px 0.76 / 0.91
+  masks (median): IoU 0.53, Dice 0.69, precision 0.72, recall 0.69
+
+The quality check as a test of the result:
+  at F1 0.9: 147 passed trees not traced (43% of passed); 0 flagged trees traced (0% of flagged)
+  at F1 0.8: 75 passed trees not traced (22% of passed); 3 flagged trees traced (3% of flagged)
+  F1 passed against flagged: Mann-Whitney p 9.2e-43
+
+The student's session-4 verdicts (rows 1, 7, 9; traced at F1 0.9):
+  judged wrong                       n  38, F1 median 0.67, fork 21.8 px, traced 5%, passed QC 22
+  the others                         n  72, F1 median 0.93, fork 13.0 px, traced 58%, passed QC 66
+    stops part-way                   n  12, F1 median 0.79, fork 8.2 px, traced 17%, passed QC 7
+    jumps to another branch or tree  n   7, F1 median 0.68, fork 11.2 px, traced 0%, passed QC 7
+    a post                           n   7, F1 median 0.53, fork 6.7 px, traced 0%, passed QC 3
+    straight unbranched tree         n   3, F1 median 0.34, fork 150.6 px, traced 0%, passed QC 1
+    wrong fork                       n   7, F1 median 0.31, fork 299.2 px, traced 0%, passed QC 2
+    three main branches              n   2, F1 median 0.55, fork 33.5 px, traced 0%, passed QC 2
+  F1 judged wrong against the others: Mann-Whitney p 5.4e-10
+
+Seconds per tree (median): baseline 0.22, guided tracing 2.00 (plus about 15 s of clicking, session 5).
+
+Shape: skill over the mean shape (MAE in degrees), 449 trees; the baseline's 21 trees with no fork count as the mean shape:
+  measure             winter baseline baseline, gaps as mean winter baseline, passed QC            clicks only             hand masks          U-Net (named)
+  v_opening         -1.97 (8.6) n 423      -1.84 (8.7) n 449      +0.34 (4.6) n 340      +0.36 (8.0) n 449      +0.87 (3.3) n 448      +0.75 (4.1) n 444
+  left_angle       -0.11 (10.5) n 419     -0.10 (10.6) n 448      +0.22 (8.4) n 337      +0.84 (5.1) n 448      +0.75 (6.3) n 447      +0.64 (7.2) n 445
+  right_angle      -0.32 (11.5) n 420     -0.31 (11.6) n 448      +0.21 (9.1) n 337      +0.79 (6.4) n 448      +0.75 (6.4) n 447      +0.72 (6.9) n 444
+  lean             -0.10 (10.1) n 417     -0.10 (10.2) n 448      +0.20 (8.4) n 337      +0.88 (4.1) n 448      +0.73 (6.1) n 447      +0.68 (6.6) n 443
+  left_bend         -1.10 (8.5) n 426      -1.00 (8.7) n 449      +0.01 (6.0) n 340      +0.10 (8.9) n 449      +0.70 (5.1) n 448      +0.60 (5.5) n 448
+  right_bend        -2.53 (9.3) n 429      -2.41 (9.3) n 449      -0.17 (5.8) n 340      -0.06 (9.0) n 449      +0.61 (5.2) n 448      +0.53 (5.6) n 445
+  trunk_tilt        -0.08 (9.2) n 432      -0.08 (9.2) n 448      +0.16 (7.8) n 337      +0.93 (2.4) n 448      +0.70 (5.7) n 447      +0.64 (6.3) n 446
+  left_tilt         -0.51 (4.7) n 432      -0.48 (4.8) n 449      +0.47 (2.5) n 340      +0.58 (4.5) n 449      +0.80 (3.1) n 448      +0.68 (3.7) n 448
+  right_tilt        -1.42 (5.5) n 430      -1.37 (5.5) n 449      +0.20 (3.2) n 340      +0.38 (5.4) n 449      +0.73 (3.1) n 448      +0.66 (3.5) n 445
+  lean_v            -0.76 (3.8) n 423      -0.72 (3.8) n 449      +0.33 (2.3) n 340      +0.63 (2.9) n 449      +0.66 (2.7) n 448      +0.58 (3.0) n 444
+  baseline against the U-Net, tree by tree (share of trees the baseline is closer, p):
+  v_opening 56% (p 8.2e-01), left_angle 48% (p 8.9e-03), right_angle 47% (p 1.4e-03), lean 45% (p 1.3e-04), left_bend 55% (p 6.2e-01), right_bend 52% (p 4.7e-01), trunk_tilt 47% (p 1.7e-03), left_tilt 65% (p 2.9e-06), right_tilt 61% (p 4.9e-03), lean_v 62% (p 5.0e-04)
+  check: guided traces measured here against the committed winter measures, max |diff| 0.006 deg (0 trees over 0.01)
