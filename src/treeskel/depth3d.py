@@ -88,6 +88,11 @@ photos fixes the scale; it affects sizes only, never angles."""
 DISTANCE_RANGE = (1.8, 2.2)
 """The documented range, for the sensitivity of the sizes."""
 
+METRES_PER_UNIT = 0.01197
+"""The scale with :data:`ZERO` and :data:`DISTANCE_M`: the 449 development trees' winter forks put at a
+median 2.0 m (``docs/results/tree3d/report.json``, setting ``main``: 0.011972). For a single photo, where
+no median can be taken (:mod:`treeskel.model3d`)."""
+
 
 @dataclass(frozen=True)
 class Camera:

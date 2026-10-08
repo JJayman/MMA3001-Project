@@ -14,3 +14,6 @@ venv/
 
 # Generated documentation and reports (rebuilt from source)
 docs/_build/
+
+# Trained network weights (made by python -m treeskel.model3d train; about 57 MB)
+models/

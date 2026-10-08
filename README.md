@@ -43,6 +43,7 @@ src/treeskel/    Python package
   benchmark.py   run time and memory of every method (ground truths, mean shape, ridge, angle CNN, U-Net)
   depth3d.py     how the 8-bit depth maps to distance (its zero, from the ground) and the camera
   tree3d.py      the tree in 3D: its plane, the V in that plane, its lean and sizes; summer against winter
+  model3d.py     a summer RGB-D photo as a 3D model to open and turn in a browser (and .ply files)
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -108,6 +109,8 @@ python -m treeskel.final_test data/raw                     # once, after naming 
 python -m treeskel.benchmark                               # run time and memory of every method (GPU and CPU)
 python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
+python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
+python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
 pdoc -o docs/_build src/treeskel           # build HTML documentation
 ```
 

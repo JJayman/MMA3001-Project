@@ -103,7 +103,9 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                score_baseline.py (the automatic winter baseline against the guided ground truth),
                benchmark.py (run time and memory of every method),
                depth3d.py (the depth map's zero from the ground; the camera),
-               tree3d.py (the tree's plane, V in the plane, lean, sizes; summer against winter)
+               tree3d.py (the tree's plane, V in the plane, lean, sizes; summer against winter),
+               model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
+               named U-Net to the git-ignored models/)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
