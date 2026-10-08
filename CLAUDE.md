@@ -84,6 +84,15 @@ camera, different (autumn) capture.
   root is cut flat too where its round end would lie wholly in the image
   (`flat_root`). Reach 0 and `flat_root=False` restore the round ends.
 
+- **3D calibration** (session 13; proposed by the assistant and taken as the
+  work moved on, so for the student to confirm): the 8-bit depth is linear in
+  distance, `Z = scale × (zero − v)`, with **zero 300** (median of per-tree
+  fits to the ground on all 449 development trees; quartiles 262–366, the
+  sensitivity range), focal length **616 px** (D435 colour, ±5%), and the
+  scale putting the median fork at **2.0 m** (Chen et al.'s 1.8–2.2 m):
+  0.01197 m per unit (`treeskel.depth3d`). Angles need only the zero and focal
+  length; sizes rest on the 2.0 m. See `docs/results/depth3d/`, `tree3d/`.
+
 ## Where things are
 
 ```
@@ -146,7 +155,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 12:
+See the latest file in `docs/progress/`. As of session 13:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -161,41 +170,50 @@ See the latest file in `docs/progress/`. As of session 12:
   (`join_pieces`). Development (5 folds): V opening +0.75 (hand masks +0.87).
   Tried and not adopted, each by a rule committed before its result
   (`docs/results/final_test/naming_rule.md`): the whole photo at 480x640;
-  growing masks into less sure pixels; continuing short leaders and pruning;
-  completing short leaders' lines from the leaders' shapes.
-- **The final test is done** (session 12, `docs/results/final_test/`): the
-  named model on test rows 3, 12, 16, once: V opening **+0.88** [+0.81, +0.92]
-  (hand masks +0.91), within the hand masks' interval on all ten measures.
-  **The test rows are now used:** nothing more may be chosen on them; any new
-  method (e.g. 3D) is developed on the development rows and, at most, reported
-  once on the test rows with that caveat.
+  growing masks; continuing short leaders and pruning; shape completion.
+- **The final test is done** (session 12, `docs/results/final_test/`): V
+  opening **+0.88** [+0.81, +0.92] on test rows 3, 12, 16 (hand masks +0.91).
+  **The test rows are now used:** nothing more may be chosen on them; a new
+  method is developed on the development rows and, at most, reported once on
+  the test rows with that caveat.
 - **Known limit:** 7% of trees have a leader that stops short under the leaves;
   they carry about half the V opening's error, and no completion helped.
-- **Next (agreed with the student at the end of session 12; the report is due
-  about 19 October 2026):**
-  1. Score the automatic winter baseline (`treeskel.winter_gt`) against the
-     guided ground truth; compare the models' runtime and memory.
-  2. The 3D estimate: calibrate the 8-bit depth to metres (0.6 m tree
-     spacing; D435 nominal intrinsics with a sensitivity range), fit each
-     tree's plane by least squares, back-project the skeleton; V opening in
-     the tree's plane, its lean, leader lengths, trunk diameter; validate
-     summer against winter per tree on the development rows. A first look
-     (21 trees): winter traces lie within about 5 cm of a plane, leaning
-     towards the camera.
-  3. The report.
-  4. **Before submission: the repository requirements** (checked at the end of
-     session 12 on `main` 8b35744; do this near the end, so that the docs and
-     the test report match the final code):
+- **Session 13 (all on the 449 development trees, PR #50):**
+  - *Automatic winter baseline* (`score_baseline`, `docs/results/winter_baseline/`):
+    traces 43% of trees (F1 ≥ 0.9); its quality check passes 147 untraced
+    trees; more than 20° off on the V opening on 14% of trees, so its skill is
+    −1.97 against the U-Net's +0.75. The student's session-4 verdicts agree.
+  - *Run time and memory* (`benchmark`, `docs/results/benchmark/`): the named
+    U-Net predicts a photo in 9.7 ms (GPU) / 116 ms (CPU) and trains in
+    2.0 min, about the cost of the much weaker angle CNN.
+  - *3D* (`depth3d`, `tree3d`): trees flat to a median 1.7 cm; the 2D V is
+    2.3° wider than the V in the tree's plane (97% of trees, 1.5–3.4° over the
+    calibration range; the 9° lean towards the camera explains it), so the 2D
+    results stand; summer agrees with winter better in the plane than in the
+    photo (61% of trees); the lean from the vertical cannot be determined.
+    Summaries are medians and rank correlations (6 failed planes swamped
+    Pearson's r at first).
+  - *A summer photo as a 3D model* (`model3d`, `docs/results/model3d/`): HTML
+    viewer (no internet) and `.ply`; `train` must be run once on the
+    student's PC before `build` can use the network on a new photo.
+- **Next (the report is due about 19 October 2026):**
+  1. On the student's PC: `python -m treeskel.model3d train data/raw`, then
+     build and look at a few trees.
+  2. The report.
+  3. **Before submission: the repository requirements** (counts as of session
+     13 on the PR #50 branch; do this near the end, so that the docs and the
+     test report match the final code):
 
-     | Requirement | Status (session 12) | To do |
+     | Requirement | Status (session 13) | To do |
      |---|---|---|
-     | ReadMe | yes | refresh: the sample has 9 trees (it says 8); drop "work in progress"; link the HTML docs and the test report |
-     | HTML documentation | **missing** | `pdoc -o docs/html src/treeskel` and commit `docs/html/` (`docs/_build/` is git-ignored); it builds cleanly for all 19 modules |
+     | ReadMe | yes | refresh: the sample has 9 trees (it says 8); drop "work in progress"; link the HTML docs, the test report and the 3D viewer example |
+     | HTML documentation | **missing** | `pdoc -o docs/html src/treeskel` and commit `docs/html/` (`docs/_build/` is git-ignored); 24 modules |
      | Licence | yes | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | yes | 387 passed, 1 skipped |
-     | Docstrings and inline comments | mostly | 349 of 358 public functions, classes and methods have docstrings; add the 9 (`__init__` and `tree` in `annotate.py`, `annotate_mask.py`, `annotate_overlay.py`, `annotate_pairs.py`; `__init__` in `shape_model.py`); only about 3% of lines carry an inline comment, so add a few more in the longer functions |
-     | Test functions | yes | 23 files in `tests/` |
-     | Test report | **missing** | on the student's PC (so the torch tests run): `pip install pytest-html`, then `pytest --html=docs/test_report.html --self-contained-html` (or `--junitxml=docs/test_report.xml`); commit it |
+     | Source code, functional `main` | yes, once PR #50 is merged | 464 passed, 1 skipped |
+     | Docstrings and inline comments | mostly | 431 of 440 public functions, classes and methods have docstrings; add the 9 (`__init__` and `tree` in `annotate.py`, `annotate_mask.py`, `annotate_overlay.py`, `annotate_pairs.py`; `__init__` in `shape_model.py`); add a few more inline comments in the longer functions |
+     | Test functions | yes | 27 test files in `tests/` |
+     | Test report | **missing** | on the student's PC (so the torch tests run): `pip install pytest-html`, then `pytest --html=docs/test_report.html --self-contained-html`; commit it |
+  4. Optional: the 3D step once on the test rows (with the caveat).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
