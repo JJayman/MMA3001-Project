@@ -10,6 +10,7 @@ from test_depth3d import ground_depth
 from treeskel.depth3d import Camera
 from treeskel.tree3d import (
     SETTINGS,
+    TURNED,
     angle,
     depth_along,
     fit_plane,
@@ -17,11 +18,13 @@ from treeskel.tree3d import (
     main,
     on_plane,
     paired,
+    plane_against_photo,
     scales,
     stretch,
     summarise,
     to_metres,
     tree_measures,
+    turned,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -178,6 +181,38 @@ def test_paired_and_summary():
     assert rep["winter"]["main"]["v_opening_3d"]["median"] == 55.0
     assert rep["summer"]["U-Net"]["against_winter"]["lean_camera"]["bias"] == pytest.approx(-1.0)
     assert rep["summer"]["hand masks"]["n_trees"] == 0
+    assert p["spearman"] == pytest.approx(1.0)                  # same order in both seasons
+
+
+def test_rank_correlation_resists_a_failed_fit():
+    rows = _rows()
+    for i in range(3, 40):                                      # more trees, summer = winter + small noise
+        for src, v in (("winter", 40.0 + i), ("U-Net", 40.0 + i + (0.5 if i % 2 else -0.5))):
+            rows.append({**rows[0], "tree": f"R02N{i:02d}", "source": src, "setting": "main", "v_opening_3d": v})
+    good = paired(rows, "U-Net", "v_opening_3d")
+    rows.append({**rows[0], "tree": "R02N99", "source": "winter", "setting": "main", "v_opening_3d": 50.0})
+    rows.append({**rows[0], "tree": "R02N99", "source": "U-Net", "setting": "main", "v_opening_3d": 150.0})
+    bad = paired(rows, "U-Net", "v_opening_3d")
+    assert bad["r"] < good["r"] - 0.3                           # one failed fit wrecks Pearson's r ...
+    assert bad["spearman"] > 0.9                                # ... not the rank correlation
+    assert bad["median_abs"] == pytest.approx(good["median_abs"], abs=0.5)
+
+
+def test_plane_against_photo_counts_trees_where_the_plane_agrees_better():
+    rows = []
+    for i, (w3, s3, w2, s2) in enumerate(((50, 51, 52, 55), (40, 44, 42, 43), (60, 60.5, 62, 64), (45, 46, 47, 49))):
+        for src, v3, v2 in (("winter", w3, w2), ("hand masks", s3, s2)):
+            rows.append({"tree": f"R01N{i:02d}", "row": 1, "source": src, "setting": "main",
+                         "v_opening_3d": float(v3), "v_opening_2d": float(v2)})
+    pp = plane_against_photo(rows, "hand masks")
+    assert pp["n"] == 4 and pp["plane_closer"] == 0.75
+    assert pp["median_plane"] == pytest.approx(1.0) and pp["median_photo"] == pytest.approx(2.0)
+
+
+def test_turned_lists_planes_far_from_facing_the_camera():
+    rows = [{"tree": t, "source": "winter", "setting": "main", "turn": v}
+            for t, v in (("R01N01", -4.0), ("R01N02", TURNED + 5), ("R01N03", -(TURNED + 1)), ("R01N04", float("nan")))]
+    assert turned(rows, "winter") == ["R01N02", "R01N03"]
 
 
 def test_cli_on_the_sample(sample_dir, tmp_path, capsys):
@@ -185,11 +220,13 @@ def test_cli_on_the_sample(sample_dir, tmp_path, capsys):
     assert main([str(sample_dir), "--out", str(out), "--jobs", "1", "--split", str(ROOT / "splits.json"),
                  "--traces", str(ROOT / "data/shape/winter_traces.npz"),
                  "--mask-overlay", str(ROOT / "annotations/mask_overlay.json"),
-                 "--unet", str(ROOT / "docs/results/segment_lined_up_joined/predicted_masks.npz")]) == 0
+                 "--unet", str(ROOT / "docs/results/segment_lined_up_joined/predicted_masks.npz"),
+                 "--figure", str(tmp_path / "fig.png")]) == 0
     rep = json.loads((out / "report.json").read_text())
     assert rep["n_trees"] == 4                                  # R01N01, R01N02, R15N05, R20N06: no test rows
     assert rep["summer"]["U-Net"]["n_trees"] == 4
     text = capsys.readouterr().out
-    assert "V opening in the plane" in text and "Sensitivity" in text
-    assert main(["--from-saved", str(out), "--out", str(tmp_path / "again")]) == 0
+    assert "V opening in the plane" in text and "Sensitivity" in text and "plane against photo" in text
+    assert (tmp_path / "fig.png").exists()
+    assert main(["--from-saved", str(out), "--out", str(tmp_path / "again"), "--figure", ""]) == 0
     assert json.loads((tmp_path / "again" / "report.json").read_text()) == rep

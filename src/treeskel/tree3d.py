@@ -40,8 +40,11 @@ zero's range (262 and 366), at session 2's 255, and at ±5% focal length
 **Summer against winter, tree by tree** (development rows): the same from
 the summer depth, along the skeletons of the lined-up hand masks and of the
 named U-Net's masks. The V opening in the plane needs no common frame, so it
-can be compared directly; the lean relative to the camera also carries the
-change of the camera's pitch between the seasons.
+can be compared directly, and tree by tree against the V in the photo
+(:func:`plane_against_photo`); the lean and turn relative to the camera also
+carry the change of the camera's pose between the seasons. A few plane fits
+fail (planes turned far from the camera, :data:`TURNED`), so the summaries
+are medians and rank correlations.
 
 Usage (development rows only)::
 
@@ -335,8 +338,22 @@ def _q(values) -> dict:
             "p95_abs": float(np.percentile(np.abs(v), 95))}
 
 
+TURNED = 20.0
+"""A plane turned more than this (degrees) from facing the camera is listed as a likely failed fit (median
+turn −4.4°, quartiles −6.3° to −2.4°). Set after seeing the 449-tree run, so it only describes: no
+summary leaves those trees out; the summaries are medians and rank correlations, which a few failed fits
+barely move."""
+
+
 def paired(rows: Sequence[dict], source: str, measure: str, setting: str = "main") -> dict:
-    """A summer source against winter, tree by tree, on one measure: error and agreement."""
+    """A summer source against winter, tree by tree, on one measure: error and agreement.
+
+    Returns:
+        ``{"n", "mae", "median_abs", "bias", "r", "spearman"}``: the mean and median absolute difference,
+        the mean difference (summer − winter), and the Pearson and Spearman (rank) correlations. A few
+        failed plane fits dominate the mean and Pearson's r, so the median and the rank correlation are
+        the ones to read.
+    """
     from scipy import stats
 
     w = {r["tree"]: r[measure] for r in rows if r["source"] == "winter" and r["setting"] == setting}
@@ -346,8 +363,46 @@ def paired(rows: Sequence[dict], source: str, measure: str, setting: str = "main
         return {"n": len(t)}
     a, b = np.array([w[k] for k in t]), np.array([s[k] for k in t])
     e = b - a
+    varied = np.std(b) > 0 and np.std(a) > 0
     return {"n": len(t), "mae": float(np.mean(np.abs(e))), "median_abs": float(np.median(np.abs(e))),
-            "bias": float(np.mean(e)), "r": float(stats.pearsonr(a, b)[0]) if np.std(b) > 0 else None}
+            "bias": float(np.mean(e)), "r": float(stats.pearsonr(a, b)[0]) if varied else None,
+            "spearman": float(stats.spearmanr(a, b)[0]) if varied else None}
+
+
+def plane_against_photo(rows: Sequence[dict], source: str, setting: str = "main") -> dict:
+    """Does summer agree with winter better in the tree's plane than in the photo? Tree by tree.
+
+    For each tree with both: ``|summer − winter|`` of the V opening in the plane against the same in the
+    photo. The in-plane V does not depend on where the camera stood, which changed between the seasons.
+
+    Returns:
+        ``{"n", "plane_closer", "wilcoxon_p", "median_plane", "median_photo"}``.
+    """
+    from scipy import stats
+
+    by = {(r["tree"], r["source"]): r for r in rows if r["setting"] == setting}
+    e3, e2 = [], []
+    for (tree, src), r in by.items():
+        w = by.get((tree, "winter"))
+        if src != source or w is None:
+            continue
+        vals = (r["v_opening_3d"], w["v_opening_3d"], r["v_opening_2d"], w["v_opening_2d"])
+        if all(np.isfinite(v) for v in vals):
+            e3.append(abs(vals[0] - vals[1]))
+            e2.append(abs(vals[2] - vals[3]))
+    if len(e3) < 3:
+        return {"n": len(e3)}
+    e3, e2 = np.array(e3), np.array(e2)
+    d = e2 - e3
+    return {"n": int(len(e3)), "plane_closer": float(np.mean(d > 0)),
+            "wilcoxon_p": float(stats.wilcoxon(d).pvalue) if np.any(d != 0) else 1.0,
+            "median_plane": float(np.median(e3)), "median_photo": float(np.median(e2))}
+
+
+def turned(rows: Sequence[dict], source: str, setting: str = "main") -> list[str]:
+    """The trees whose plane is turned more than :data:`TURNED` from the camera (likely failed fits)."""
+    return sorted(r["tree"] for r in rows if r["source"] == source and r["setting"] == setting
+                  and np.isfinite(r["turn"]) and abs(r["turn"]) > TURNED)
 
 
 def summarise(rows: Sequence[dict]) -> dict:
@@ -368,7 +423,10 @@ def summarise(rows: Sequence[dict]) -> dict:
             "measures": {k: _q([r[k] for r in sub]) for k in MEASURES},
             "against_winter": {k: paired(rows_m, source, k) for k in
                                ("v_opening_3d", "v_opening_2d", "correction", "lean_camera", "turn")},
+            "plane_against_photo": plane_against_photo(rows_m, source),
+            "turned": turned(rows_m, source),
         }
+    report["winter_turned"] = turned(rows_m, "winter")
     return report
 
 
@@ -401,6 +459,8 @@ def report_lines(report: dict) -> list[str]:
                        f"{unit}  (n {q['n']})")
     corr = main["correction"]
     out.append(f"  |3D correction|, 95th percentile: {_f(corr['p95_abs'])} deg")
+    out.append(f"  planes turned more than {TURNED:g} deg from the camera (likely failed fits; not left out): "
+               f"{len(report['winter_turned'])} ({', '.join(report['winter_turned']) or 'none'})")
     out += ["", "Sensitivity (winter medians under each setting):"]
     keys = ("v_opening_3d", "correction", "lean_camera", "lean_vertical", "flatness_rms", "trunk_diameter",
             "left_length")
@@ -412,7 +472,8 @@ def report_lines(report: dict) -> list[str]:
             cells.append(_f(None if med is None else med * LABELS[k][2], ".2f" if k == "correction" else ".1f"))
         out.append(f"  {setting:22s} {report['settings'][setting]['metres_per_unit']:8.4f} "
                    + " ".join(f"{c:>15s}" for c in cells))
-    out += ["", "Summer against winter, tree by tree (main setting; MAE, median |error|, bias, r):"]
+    out += ["", "Summer against winter, tree by tree (main setting; mean and median |summer - winter|, mean of "
+                "summer - winter, Pearson r, Spearman rank correlation; a few failed fits dominate the mean and r):"]
     for source, s in report["summer"].items():
         out.append(f"  {source} ({s['n_trees']} trees; skeleton points with depth "
                    f"{_f(s['measures']['depth_share']['median'] * 100 if s['measures']['depth_share']['median'] is not None else None, '.0f')}%, "
@@ -420,8 +481,102 @@ def report_lines(report: dict) -> list[str]:
         for k, a in s["against_winter"].items():
             if a.get("n", 0) >= 3:
                 out.append(f"    {LABELS[k][0]:34s} n {a['n']:3d}  MAE {a['mae']:5.1f}  median {a['median_abs']:5.1f}  "
-                           f"bias {a['bias']:+5.1f}  r {_f(a['r'], '.2f')}")
+                           f"bias {a['bias']:+5.1f}  r {_f(a['r'], '.2f')}  rank {_f(a['spearman'], '.2f')}")
+        pp = s["plane_against_photo"]
+        if pp.get("n", 0) >= 3:
+            out.append(f"    V opening, plane against photo: |summer - winter| median {pp['median_plane']:.2f} against "
+                       f"{pp['median_photo']:.2f} deg; the plane closer on {pp['plane_closer']:.0%} of {pp['n']} trees "
+                       f"(Wilcoxon p {pp['wilcoxon_p']:.1e})")
+        out.append(f"    planes turned more than {TURNED:g} deg: {len(s['turned'])}")
     return out
+
+
+# --------------------------------------------------------------------------
+# The figure
+# --------------------------------------------------------------------------
+
+SUMMER_STYLE = {"hand masks": ("#2a78d6", "o"), "U-Net": ("#e34948", "h")}
+"""The summer sources' colours and markers, as in the project's other figures."""
+
+
+def plot_figure(rows: Sequence[dict], path: Path, failed: list[str]) -> None:
+    """Three panels: winter's V opening in the plane against the photo's; the 3D correction under every
+    camera setting (median and quartiles); and summer's correction against winter's, tree by tree."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy import stats
+
+    from treeskel.shape_model import AXIS, INK, MUTED, SECONDARY, SURFACE, _save, _style
+
+    win = {r["tree"]: r for r in rows if r["source"] == "winter" and r["setting"] == "main"}
+    fig, axes = plt.subplots(1, 3, figsize=(11.5, 3.9), gridspec_kw={"width_ratios": [1, 1.05, 1]})
+    fig.patch.set_facecolor(SURFACE)
+
+    # A: the V in the plane against the V in the photo.
+    ax = axes[0]
+    v2 = np.array([r["v_opening_2d"] for r in win.values()])
+    v3 = np.array([r["v_opening_3d"] for r in win.values()])
+    ok = np.isfinite(v2) & np.isfinite(v3)
+    lo, hi = 15.0, 100.0
+    shown = ok & (v3 >= lo) & (v3 <= hi) & (v2 >= lo) & (v2 <= hi)
+    med = float(np.median(v3[ok] - v2[ok]))
+    ax.plot([lo, hi], [lo, hi], color=AXIS, lw=1.2, zorder=1)
+    ax.plot([lo, hi], [lo + med, hi + med], color=MUTED, lw=1, ls="--", zorder=1)
+    ax.scatter(v2[shown], v3[shown], s=10, color=SECONDARY, alpha=0.55, linewidths=0, zorder=2)
+    ax.text(hi - 1, lo + 3, f"dashed: {med:+.1f}° (median)\n{int((ok & ~shown).sum())} trees off the axes",
+            ha="right", va="bottom", fontsize=7.5, color=SECONDARY)
+    ax.set_xlim(lo, hi), ax.set_ylim(lo, hi)
+    ax.set_xlabel("V opening in the photo (°)", fontsize=8, color=SECONDARY)
+    ax.set_ylabel("V opening in the tree's plane (°)", fontsize=8, color=SECONDARY)
+    ax.set_title("Winter: the V in 3D is a little narrower", fontsize=9, color=INK, loc="left")
+
+    # B: the correction under every camera setting.
+    ax = axes[1]
+    names = list(SETTINGS)
+    for i, name in enumerate(names):
+        c = np.array([r["correction"] for r in rows if r["source"] == "winter" and r["setting"] == name])
+        c = c[np.isfinite(c)]
+        q1, m, q3 = np.percentile(c, [25, 50, 75])
+        y = len(names) - 1 - i
+        ax.plot([q1, q3], [y, y], color=SECONDARY, lw=2, solid_capstyle="round")
+        ax.scatter([m], [y], s=46, color=INK if name == "main" else SURFACE, edgecolors=INK, linewidths=1.2, zorder=3)
+        ax.text(q3 + 0.15, y, f"{m:+.1f}", va="center", fontsize=7.5, color=SECONDARY)
+    ax.axvline(0, color=AXIS, lw=1.2)
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels([n.replace("main", "chosen: zero 300, focal 616") for n in names[::-1]], fontsize=7.5)
+    ax.set_xlim(-4.5, 0.8)
+    ax.set_xlabel("3D correction: plane − photo (°), median and quartiles", fontsize=8, color=SECONDARY)
+    ax.set_title("Same sign for every calibration", fontsize=9, color=INK, loc="left")
+
+    # C: summer's correction against winter's, tree by tree.
+    ax = axes[2]
+    lim = (-7.0, 3.0)
+    ax.plot(lim, lim, color=AXIS, lw=1.2, zorder=1)
+    for source, (colour, marker) in SUMMER_STYLE.items():
+        s = {r["tree"]: r["correction"] for r in rows if r["source"] == source and r["setting"] == "main"}
+        t = [k for k in s if k in win and np.isfinite(s[k]) and np.isfinite(win[k]["correction"])]
+        x, y = np.array([win[k]["correction"] for k in t]), np.array([s[k] for k in t])
+        r = stats.spearmanr(x, y)[0] if len(t) > 2 else float("nan")
+        inside = (x >= lim[0]) & (x <= lim[1]) & (y >= lim[0]) & (y <= lim[1])
+        ax.scatter(x[inside], y[inside], s=12, color=colour, marker=marker, alpha=0.5, linewidths=0,
+                   label=f"{source} (rank correlation {r:.2f})", zorder=2)
+    ax.set_xlim(lim), ax.set_ylim(lim)
+    ax.set_xlabel("winter correction (°)", fontsize=8, color=SECONDARY)
+    ax.set_ylabel("summer correction (°)", fontsize=8, color=SECONDARY)
+    ax.legend(fontsize=7.5, frameon=False, loc="upper left", labelcolor=SECONDARY)
+    ax.set_title("Summer repeats it in part, tree by tree", fontsize=9, color=INK, loc="left")
+
+    for ax in axes:
+        _style(ax)
+        ax.spines["left"].set_visible(True)
+        ax.spines["left"].set_color(AXIS)
+    fig.suptitle(f"The trees in 3D ({len(win)} development trees; winter traces, summer masks)",
+                 x=0.01, ha="left", fontsize=10, color=INK, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    _save(fig, path, failed)
+    plt.close(fig)
 
 
 # --------------------------------------------------------------------------
@@ -467,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--trees", nargs="+", help="only these trees")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--from-saved", metavar="DIR", help="re-summarise a saved run's trees.csv (no images)")
+    ap.add_argument("--figure", default="docs/figures/tree3d.png", help="the figure ('' for none)")
     args = ap.parse_args(argv)
 
     if args.from_saved:
@@ -509,8 +665,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OSError as e:
         print(f"Could not write {out / 'output.txt'}: {e.strerror or e}")
         return 1
-    print(f"\nSaved {out / 'trees.csv'}, report.json and output.txt")
-    return 0
+    failed: list[str] = []
+    if args.figure:
+        Path(args.figure).parent.mkdir(parents=True, exist_ok=True)
+        plot_figure(rows, Path(args.figure), failed)
+    saved = "report.json and output.txt" if args.from_saved else f"{out / 'trees.csv'}, report.json and output.txt"
+    print(f"\nSaved {saved} in {out}" + (f", and {args.figure}" if args.figure else ""))
+    for f in failed:
+        print(f"Could not write {f}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

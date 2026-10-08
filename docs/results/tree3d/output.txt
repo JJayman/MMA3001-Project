@@ -14,6 +14,7 @@
   fork distance                          2.0 [2.0, 2.0] m  (n 449)
   skeleton points with depth            97.0 [91.7, 99.7] %  (n 449)
   |3D correction|, 95th percentile: 4.4 deg
+  planes turned more than 20 deg from the camera (likely failed fits; not left out): 6 (R01N30, R07N26, R08N22, R09N33, R11N15, R18N12)
 
 Sensitivity (winter medians under each setting):
   setting                  m/unit  V opening in t  3D correction   lean towards t  lean from the   distance from   trunk diameter  left leader in
@@ -24,16 +25,20 @@ Sensitivity (winter medians under each setting):
   focal 585                0.0120            51.1           -2.26             8.7           -14.4             3.3            11.3             1.5
   focal 647                0.0120            51.1           -2.30             9.6           -11.5             3.3            10.2             1.3
 
-Summer against winter, tree by tree (main setting; MAE, median |error|, bias, r):
+Summer against winter, tree by tree (main setting; mean and median |summer - winter|, mean of summer - winter, Pearson r, Spearman rank correlation; a few failed fits dominate the mean and r):
   hand masks (448 trees; skeleton points with depth 100%, distance from the plane 5.6 cm RMS):
-    V opening in the plane             n 448  MAE   3.8  median   2.3  bias  -0.1  r 0.79
-    V opening in the photo             n 448  MAE   3.3  median   2.6  bias  +0.1  r 0.93
-    3D correction (plane - photo)      n 448  MAE   1.7  median   0.7  bias  -0.2  r 0.04
-    lean towards the camera            n 448  MAE   4.2  median   2.8  bias  +0.7  r 0.23
-    turn (right side farther)          n 448  MAE   7.1  median   5.5  bias  +4.2  r 0.07
+    V opening in the plane             n 448  MAE   3.8  median   2.3  bias  -0.1  r 0.79  rank 0.88
+    V opening in the photo             n 448  MAE   3.3  median   2.6  bias  +0.1  r 0.93  rank 0.92
+    3D correction (plane - photo)      n 448  MAE   1.7  median   0.7  bias  -0.2  r 0.04  rank 0.52
+    lean towards the camera            n 448  MAE   4.2  median   2.8  bias  +0.7  r 0.23  rank 0.39
+    turn (right side farther)          n 448  MAE   7.1  median   5.5  bias  +4.2  r 0.07  rank 0.10
+    V opening, plane against photo: |summer - winter| median 2.31 against 2.64 deg; the plane closer on 61% of 448 trees (Wilcoxon p 2.0e-06)
+    planes turned more than 20 deg: 4
   U-Net (447 trees; skeleton points with depth 100%, distance from the plane 5.4 cm RMS):
-    V opening in the plane             n 442  MAE   4.6  median   2.7  bias  +0.1  r 0.70
-    V opening in the photo             n 442  MAE   4.0  median   2.8  bias  -0.0  r 0.88
-    3D correction (plane - photo)      n 442  MAE   2.1  median   0.8  bias  +0.1  r 0.02
-    lean towards the camera            n 447  MAE   5.4  median   3.2  bias  +1.8  r 0.08
-    turn (right side farther)          n 447  MAE   8.7  median   5.7  bias  +3.8  r -0.00
+    V opening in the plane             n 442  MAE   4.6  median   2.7  bias  +0.1  r 0.70  rank 0.83
+    V opening in the photo             n 442  MAE   4.0  median   2.8  bias  -0.0  r 0.88  rank 0.88
+    3D correction (plane - photo)      n 442  MAE   2.1  median   0.8  bias  +0.1  r 0.02  rank 0.48
+    lean towards the camera            n 447  MAE   5.4  median   3.2  bias  +1.8  r 0.08  rank 0.32
+    turn (right side farther)          n 447  MAE   8.7  median   5.7  bias  +3.8  r -0.00  rank 0.06
+    V opening, plane against photo: |summer - winter| median 2.67 against 2.80 deg; the plane closer on 58% of 442 trees (Wilcoxon p 4.4e-04)
+    planes turned more than 20 deg: 14
