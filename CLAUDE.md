@@ -180,8 +180,13 @@ See the latest file in `docs/progress/`. As of session 13 (session 14: the repos
   **The test rows are now used:** nothing more may be chosen on them; a new
   method is developed on the development rows and, at most, reported once on
   the test rows with that caveat.
-- **Known limit:** 7% of trees have a leader that stops short under the leaves;
-  they carry about half the V opening's error, and no completion helped.
+- **Known limit:** on 7% of the development trees scored on the V opening
+  (31 of 444) the U-Net's mask has a leader that stops short under the leaves
+  ("short leaders" always means predicted leaders: no winter trace or hand
+  mask has a leader shorter than the fitted stretch). They carry a third of
+  the V opening's squared error, and no completion helped. (Session 12 said
+  33 trees and 47%: it also counted the 2 masks with no fork, in which a
+  leader is cut off from the trunk; corrected in session 14.)
 - **Session 13 (all on the 449 development trees, PR #50):**
   - *Automatic winter baseline* (`score_baseline`, `docs/results/winter_baseline/`):
     traces 43% of trees (F1 ≥ 0.9); its quality check passes 147 untraced

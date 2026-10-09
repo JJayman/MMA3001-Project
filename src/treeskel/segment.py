@@ -88,9 +88,13 @@ also scored this way, into ``<run>_joined``, and both are reported.
 **Grown masks** (:func:`grow_mask`, :func:`grown_run`, session 12, the
 student's idea): where leaves hide a leader, the U-Net's probability often
 fades below 0.5 before the leader ends, so the mask stops short or breaks.
-On the lined-up run, 33 of 444 trees had a leader shorter than the stretch
-the angles are fitted over, and they carried 47% of the V opening's squared
-error. Each mask is grown into the less sure pixels connected to it
+On the lined-up run's joined masks (the named model), 31 of the 444 trees
+scored on the V opening had a predicted leader shorter than the stretch the
+angles are fitted over (no winter trace or hand mask has a leader that
+short), and they carried 33% of the V opening's squared error (33 trees and
+47% counting also the 2 masks with no fork, in which a leader is cut off
+from the trunk).
+Each mask is grown into the less sure pixels connected to it
 (hysteresis thresholding), then joined. The lower threshold is the one of
 :data:`GROW_LOWS` whose masks best match the lined-up hand masks' centre
 lines (:func:`cl_dice`); the winter traces play no part. Training runs save
@@ -977,7 +981,8 @@ def prune_to_branches(mask: np.ndarray, br: dict) -> np.ndarray:
 
 COMPLETE_FRACTIONS = tuple(round(0.40 + 0.05 * i, 2) for i in range(12))
 """Where :func:`completion_samples` cuts complete leaders (fractions of the fitted stretch, 0.40-0.95): the
-lengths short predicted leaders stop at (median 0.75 of the stretch, quartiles 0.54-0.89)."""
+lengths short predicted leaders stop at (the re-run's joined masks: median 0.75 of the stretch, quartiles
+0.54-0.89; the named run's: 0.69, 0.42-0.88)."""
 
 
 def _outward(path: np.ndarray, side: str, params: ShapeParams = ShapeParams()) -> tuple[float, float]:

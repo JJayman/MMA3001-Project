@@ -6,7 +6,7 @@ winter traces, 2.0 min to train). Until this run nothing had touched the test ro
 
 - **The model was named first** (`model.json`, `naming_rule.md`): the U-Net on the lined-up hand masks at
   256x256, with its masks' pieces joined (`docs/results/segment_lined_up_joined`). The full-size run did
-  not beat it on development, and none of three ways of completing short leaders (growing, continuing,
+  not beat it on development, and none of three ways of completing short predicted leaders (growing, continuing,
   shape completion) was adopted; each rule was committed before its result.
 - **The recipe, as it stands:** one network trained on all 449 development trees for 34 epochs (the
   median of the epochs its 5 folds chose), seed 1000. It predicted the 92 test photos; the masks were
@@ -42,10 +42,13 @@ Skill over the development mean shape (92 test trees; the one mask with no fork 
   interval, and on the trunk's tilt a little above them (+0.62 against +0.57).
 - **Higher than in development** on 7 of 10 measures (V opening +0.88 against +0.75). The test trees are
   not more varied (V opening SD 12.6° against 12.4°) and the mean shape does about as badly on them (10.4°
-  against 9.8°); the model's error itself is lower (3.37° against 4.10°). Three things may contribute,
-  and they cannot be told apart: the final network trained on all 449 trees rather than about 360 per
-  fold; fewer test trees have a short leader (5 of 92, against 33 of 444); and the test rows seem easier
-  to read (the hand masks also score higher, +0.91 against +0.87).
+  against 9.8°); the model's error itself is lower (3.37° against 4.10°). Three things may contribute:
+  the final network trained on all 449 trees rather than about 360 per fold; fewer test trees have a
+  short predicted leader (5 of 92, against 31 of the 444 development trees scored on the V opening; with
+  the masks that found no fork, 6 against 33), though this explains little: those 5 test trees are not
+  predicted worse than the rest (V opening MAE 2.8° against 3.4°), and without the short-leader and
+  no-fork trees the test error is still lower (3.3° against 3.6°); and the test rows seem easier to read
+  (the hand masks also score higher, +0.91 against +0.87). The first and the last cannot be told apart.
 - **Pixels (secondary):** against the test rows' hand masks as drawn, median Dice 0.23, and 0.82 after the
   best shift of each (an upper estimate). The test masks were not lined up; they sit off the branches as
   the development masks did (0.22 → 0.80 there), and the U-Net's masks sit on the branches.
@@ -56,7 +59,7 @@ Declared before the test (`naming_rule.md`, `model.json`'s `secondary`): the sam
 leaders' lines completed by the model fitted on all development trees (`a = -2.78`, `c = +0.69`) and drawn
 on (`predicted_masks_completed.npz`).
 
-- Only 5 of the 92 test trees had a short leader. Their completion changed the V opening's MAE from 3.37°
+- Only 5 of the 92 test trees had a short predicted leader (none a stub). Their completion changed the V opening's MAE from 3.37°
   to 3.52° (1 tree closer, 4 farther; p = 0.14): as in development, no better than leaving them
   short, and no significant loss.
 - **Computed after the run, from its saved files** (`python -m treeskel.final_test --secondary-from-saved`):
