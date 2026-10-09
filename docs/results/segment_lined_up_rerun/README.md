@@ -1,4 +1,4 @@
-# Completing the broken leaders: the re-run, growing, continuing and shape completion
+# Completing the predicted masks' broken leaders: the re-run, growing, continuing and shape completion
 
 Session 12, after the model for the final test had been named (`../final_test/naming_rule.md`). The
 student saw many predicted leaders stop short or break, and proposed completing them before the final
@@ -8,13 +8,27 @@ p < 0.05). **Neither was adopted;** the named model stays the 256 joined run.
 
 ## Why it looked worth it (the named run, development trees)
 
-- 33 of 444 trees have a leader shorter than the stretch the angles are fitted over (158 mask px); no
-  hand mask does. The median shortfall is 56 mask px.
-- Those 7% of trees carry **47% of the V opening's squared error** (bends: 20–25%). Were they predicted
-  as well as the other trees, the V-opening skill would rise from +0.75 to about +0.86 (a ceiling, not a
-  forecast).
-- For 13 of 37 short leaders a leftover piece lies roughly in line with the tip (within 30°, 20–100 px
-  away); the others simply fade out.
+- In 31 of the 444 trees scored on the V opening (7%), the U-Net's mask has a leader shorter than the
+  stretch the angles are fitted over (158 mask px): 32 short leaders, a median 33 mask px short. No winter
+  trace and no hand mask has a leader that short: these are leaders the network stops short, not short
+  trees.
+- Five more masks with a fork (R05N06, R06N28, R14N01, R17N11, R17N23) end a leader in a stub too short
+  for a leader line, so these trees are left out of the V opening's score (444 of the 449). They are not
+  leaders stopping under the leaves: in R05N06, R06N28 and R14N01 the leader is drawn but cut off from
+  the fork beyond the joining gap, in R17N11 it is missing, and in R17N23 the leader finder takes a stub
+  instead of the drawn leader. Counting them, 37 short leaders in 36 of the 447 masks with a fork, a
+  median 48.5 mask px short.
+- The 31 trees carry **33% of the V opening's squared error** (left and right bends: 30% and 22%). Were
+  they predicted as well as the other trees, the V-opening skill would rise from +0.75 to about +0.82 (a
+  ceiling, not a forecast).
+- *Corrected in session 14:* this section first said 33 of 444 trees, 47%, bends 20–25% and +0.86. The
+  33, 47% and +0.86 also counted the 2 masks with no fork (R01N42, R05N05), in which a leader (in R05N05
+  both) is drawn but cut off from the trunk beyond the joining gap, so no leader is measured at all. The
+  bends' 20–25% matches neither count (with those 2 masks, 32% and 22%); the nearest is the short
+  leader's own bend only (22% and 20%). The median shortfall was given as 56 mask px, which could not be
+  reproduced (48.5 over all 37 short leaders, 33 without the stubs).
+- For 13 to 19 of the 37 short leaders, depending on how "in line" is measured, a leftover piece lies
+  roughly in line with the tip (within 30°, 20–100 px away); the others simply fade out.
 
 ## The re-run (student's PC, 18.3 min)
 
@@ -69,13 +83,13 @@ predicted). Differences between variants smaller than this are not worth reading
 
 ## Predicting short leaders' lines from the leaders' shapes (`segment_lined_up_completed`)
 
-- **Method (the student's next idea):** where a leader stops though the leaves go on, predict where it goes
+- **Method (the student's next idea):** where a predicted leader stops though the leaves go on, predict where it goes
   from the shapes of the leaders the model draws in full. A short leader's line over the whole stretch is
   its visible line moved by `a·g + c·g·bend` outwards (`g` the missing fraction of the stretch, `bend` the
   visible part's), fitted by least squares on complete leaders cut short on purpose, per fold on the other
   folds' trees (`treeskel.segment.complete_measures`, `--complete`). Masks unchanged.
 - **Why it looked promising (no winter used):** cutting complete predicted leaders back to the short ones'
-  lengths moves the V opening by 2.7° on average, about the whole excess error of trees with a short leader
+  lengths moves the V opening by 2.7° on average, about the whole excess error of trees with a short predicted leader
   (6.8° against 3.7° on the re-run); on the cut complete leaders the model reduces that from 2.72° to 1.95°.
   Fitted on the named run: lines turn 2.8° more upright over a missing stretch and keep 0.69 of the visible
   part's turning.
@@ -85,7 +99,7 @@ predicted). Differences between variants smaller than this are not worth reading
   (7.70° → 9.11°; 1 closer, 13 farther).
 - **Why:** on these trees the V opening as predicted is not biased (mean +1.1°, median +0.2° from winter),
   but far off either way (MAE 8.3°). The cutting test assumed the visible part of a short leader is right
-  and only the rest is missing; on real short leaders the visible part itself is unreliable, drawn under
+  and only the rest is missing; on the leaders the network actually stops short, the visible part itself is unreliable, drawn under
   the same leaves that stopped it.
 
 ## What this means
@@ -93,8 +107,9 @@ predicted). Differences between variants smaller than this are not worth reading
 Most short leaders are not broken but missing: the network sees no leader there, neither above 0.5 nor
 as faint probability that stays on the leader, nor as a piece further on; and where it stops, what it
 did draw of the leader is unreliable too, so predicting the rest from its shape does not help either. Leaves hide them, and no
-post-processing of the mask brings back what the photo does not show. The trees with short leaders
-remain the largest source of error, and a limitation to report. The 256 joined run stays named
+post-processing of the mask brings back what the photo does not show. The trees whose predicted leaders
+stop short (7% of the trees, a third of the V opening's squared error) remain the largest source of error
+found, and a limitation to report. The 256 joined run stays named
 (`../final_test/model.json`).
 
 Files: in each folder `report.json`, `predictions.csv`, `mask_scores.csv` and `predicted_masks.npz`
