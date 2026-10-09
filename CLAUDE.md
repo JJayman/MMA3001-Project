@@ -159,7 +159,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 13 (session 14: the repository requirements):
+See the latest file in `docs/progress/`. As of session 14:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -205,6 +205,14 @@ See the latest file in `docs/progress/`. As of session 13 (session 14: the repos
   - *A summer photo as a 3D model* (`model3d`, `docs/results/model3d/`): HTML
     viewer (no internet) and `.ply`; `train` must be run once on the
     student's PC before `build` can use the network on a new photo.
+- **Session 14 (PRs #51–#54):** the repository requirements met (see the
+  table below); session 12's short-leader figures corrected (31 of 444, 33%;
+  they had counted the 2 no-fork masks); `model3d` run on the student's PC:
+  a short predicted leader can tip the 3D plane, and `train` is a second
+  sample of the recipe (complete masks agree within about a degree between
+  trainings, short-leader ones can differ by 10° or more), so the final
+  test's numbers are the ones to report. Before pushing to an existing PR,
+  check that it is not merged.
 - **Next (the report is due about 19 October 2026):**
   1. ~~Train and build on the student's PC~~ (done, session 14). `train`
      makes a second sample of the recipe (GPU), not the final test's network:
