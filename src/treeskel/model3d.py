@@ -6,10 +6,15 @@ The project's pieces, end to end, for a single photo:
    encoder, trained on the 449 development trees' lined-up hand masks with the
    final test's recipe, saved once by ``train``) predicts the trunk and
    leaders from the summer photo, its mirror image averaged in, and the
-   mask's pieces are joined (:func:`treeskel.segment.join_pieces`). For a
-   development tree two other masks can be used without the weights: the one
-   the 5-fold run saved (each predicted by a network that never saw the
-   tree's row), or the lined-up hand mask.
+   mask's pieces are joined (:func:`treeskel.segment.join_pieces`). That
+   network was trained on every development tree, so on one of them it shows
+   what it learned, not how well it predicts (``build`` says so). Masks that
+   need no weights: the 5-fold run's for a development tree (each predicted
+   by a network that never saw the tree's row), the final test's own for a
+   test-row tree (:data:`FINAL_TEST_MASKS`), or the lined-up hand mask.
+   ``train`` on a GPU makes a second sample of the recipe, not the final
+   test's network bit for bit: complete masks agree within about a degree,
+   but a short predicted leader can come out complete, or the other way.
 2. **The skeleton** (:func:`treeskel.shape.mask_branches`): trunk, left and
    right centre lines, and each point's half-width from the mask.
 3. **3D** (:mod:`treeskel.tree3d`): the summer depth along the skeleton gives
@@ -34,9 +39,10 @@ Usage, from the command line:
 
 ```
 python -m treeskel.model3d train data/raw                     # once, on the GPU: models/unet_named.pt
-python -m treeskel.model3d build --tree R05N12 --data data/raw    # outputs/model3d/R05N12.html (+ .ply)
+python -m treeskel.model3d build --tree R12N02 --data data/raw    # a test-row tree: outputs/model3d/R12N02.html
 python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
-python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # no weights needed
+python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # a development tree, out of fold
+python -m treeskel.model3d build --tree R12N02 --data data/raw --mask saved --saved docs/results/final_test/predicted_masks.npz
 ```
 """
 
@@ -61,6 +67,9 @@ WEIGHTS = Path("models/unet_named.pt")
 
 SAVED_MASKS = Path("docs/results/segment_lined_up_joined/predicted_masks.npz")
 """The named run's development masks (5 folds, pieces joined)."""
+
+FINAL_TEST_MASKS = Path("docs/results/final_test/predicted_masks.npz")
+"""The final test's masks of the test rows (the evaluated network's, pieces joined)."""
 
 MODEL_FILE = Path("docs/results/final_test/model.json")
 """The file naming the model, whose recipe ``train`` follows."""
@@ -126,12 +135,46 @@ def train(data_dirs: Sequence[str], weights: Path = WEIGHTS, device: str | None 
               if r["epoch"] % 5 == 0 or r["epoch"] == n_epochs else None)
     meta = {"params": asdict(params), "epochs": n_epochs, "join_gap": recipe["join_gap"], "run": recipe["run"],
             "n_trees": int(has.sum()), "minutes": round((time.time() - t0) / 60, 2), "device": device,
-            "seed": params.seed + SEED_OFFSET, "random_weights": bool(random_weights)}
+            "seed": params.seed + SEED_OFFSET, "random_weights": bool(random_weights),
+            "trees": [t for t, h in zip(ids, has) if h]}      # so build can tell a tree it was trained on
     weights = Path(weights)
     weights.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state_dict": model.state_dict(), **meta}, weights)
     progress(f"Saved {weights} ({meta['minutes']} min of training)")
     return meta
+
+
+def trained_trees(meta: dict, split: str | Path = "splits.json", model_file: Path = MODEL_FILE) -> set[str]:
+    """The trees the saved network was trained on.
+
+    ``train`` records them; for a network saved before it did, they are found as ``train`` chose them:
+    every tree outside the test rows whose hand mask is lined up (and not skipped) in the recipe's
+    line-up file.
+
+    Args:
+        meta: What ``train`` saved besides the weights (:func:`load_network`'s third value).
+        split: The split file, for the test rows (older networks only).
+        model_file: The file naming the model, for the line-up file (older networks only).
+    """
+    if "trees" in meta:
+        return set(meta["trees"])
+    from treeskel.final_test import named_recipe
+    from treeskel.summer_gt import load_overlays
+
+    test_rows = set(json.loads(Path(split).read_text())["test_rows"])
+    line_up = named_recipe(model_file)["mask_overlay"]
+    overlays = load_overlays(line_up) if line_up else {}
+    return {t for t, o in overlays.items() if not o.skip and int(t[1:3]) not in test_rows}
+
+
+def saved_source(path: str | Path) -> str:
+    """The viewer's caption for masks read from ``path`` (``build --mask saved``)."""
+    path = Path(path)
+    if path.resolve() == SAVED_MASKS.resolve():
+        return "Branches from the 5-fold development run (a network that never saw this row)"
+    if path.resolve() == FINAL_TEST_MASKS.resolve():
+        return "Branches from the final test's network (trained on the development rows only)"
+    return f"Branches from the saved masks in {path.as_posix()}"
 
 
 def load_network(weights: Path = WEIGHTS, device: str | None = None):
@@ -725,10 +768,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     bu.add_argument("--depth", help="its 8-bit depth image (640x480 PNG)")
     bu.add_argument("--name", help="file name for --rgb (default: the photo's)")
     bu.add_argument("--mask", choices=("unet", "saved", "hand"), default="unet",
-                    help="unet: the trained network (default); saved: the development masks of the 5-fold run; "
-                         "hand: the lined-up hand mask")
+                    help="unet: the trained network (default; it was trained on every development tree); saved: "
+                         "masks saved by a run (--saved); hand: the lined-up hand mask")
     bu.add_argument("--weights", default=str(WEIGHTS))
-    bu.add_argument("--saved", default=str(SAVED_MASKS), help="the saved development masks (--mask saved)")
+    bu.add_argument("--saved", default=str(SAVED_MASKS),
+                    help=f"masks for --mask saved: the 5-fold development masks (default), or {FINAL_TEST_MASKS} "
+                         "for the test rows (the final test's own masks)")
+    bu.add_argument("--split", default="splits.json", help=argparse.SUPPRESS)          # tests only
     bu.add_argument("--mask-overlay", default="annotations/mask_overlay.json", help="the hand masks' line-up")
     bu.add_argument("--device")
     bu.add_argument("--out", default="outputs/model3d")
@@ -770,6 +816,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             jobs.append((t, s["rgb"], s["depth"], s["valid"], f"Tree {t}, summer", records[t]))
 
     saved = overlays = None
+    trained = trained_trees(network[2], args.split) if network is not None and args.tree else set()
     if args.mask == "saved":
         from treeskel.segment import load_masks
         saved = load_masks(Path(args.saved))
@@ -783,13 +830,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             model, device, meta = network
             mask = predict_mask(model, device, rgb, meta["params"], meta.get("join_gap"))
             source = f"Branches predicted by the U-Net trained on {meta['n_trees']} development trees"
+            if name in trained:
+                # The network learned this tree's own hand mask, so its mask shows what it learned, not how well
+                # it predicts a tree it has not seen (session 14: R06N12 read 55 deg here, 39 deg out of fold).
+                source += " (this tree among them)"
+                print(f"  note: {name} was in the network's training set, so this shows what it learned, not how "
+                      "well it predicts; for a prediction from a network that never saw its row, use --mask saved")
         elif args.mask == "saved":
             if name not in saved:
-                print(f"{name}: no saved development mask (test rows have none; use --mask unet)")
+                hint = (f"test rows have none: use --saved {FINAL_TEST_MASKS.as_posix()} or --mask unet"
+                        if Path(args.saved).resolve() == SAVED_MASKS.resolve() else "not among them")
+                print(f"{name}: no mask in {Path(args.saved).as_posix()} ({hint})")
                 status = 1
                 continue
             mask = saved[name]
-            source = "Branches from the 5-fold development run (a network that never saw this row)"
+            source = saved_source(args.saved)
         else:
             from treeskel.segment import hand_mask
             mask = hand_mask(rec, overlays)

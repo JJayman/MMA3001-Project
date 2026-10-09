@@ -10,14 +10,18 @@ import numpy as np
 import pytest
 
 from treeskel.model3d import (
+    FINAL_TEST_MASKS,
+    SAVED_MASKS,
     SLAB_M,
     ball,
     frames,
     main,
     merge,
     read_ply,
+    saved_source,
     smooth_line,
     to_view,
+    trained_trees,
     tree_model,
     tube,
     viewer_data,
@@ -159,9 +163,45 @@ def test_build_from_saved_masks(sample_dir, tmp_path, capsys):
         for suffix in (".html", "_branches.ply", "_leaves.ply"):
             assert (tmp_path / f"{t}{suffix}").exists()
     assert "V opening" in capsys.readouterr().out
-    # A test-row tree has no saved development mask.
+    # A test-row tree has no saved development mask; the message points to the final test's masks.
     assert main(["build", "--tree", "R12N02", "--data", str(sample_dir), "--mask", "saved", "--saved", str(SAVED),
                  "--out", str(tmp_path)]) == 1
+    assert "final_test/predicted_masks.npz" in capsys.readouterr().out
+
+
+def test_build_from_the_final_tests_masks(sample_dir, tmp_path, monkeypatch):
+    """A test-row tree from the final test's own masks gives the final test's V opening, captioned as such."""
+    monkeypatch.chdir(ROOT)
+    assert main(["build", "--tree", "R12N02", "--data", str(sample_dir), "--mask", "saved",
+                 "--saved", str(FINAL_TEST_MASKS), "--out", str(tmp_path)]) == 0
+    page = (tmp_path / "R12N02.html").read_text(encoding="utf-8")
+    assert "final test's network" in page and "5-fold" not in page
+    with open(ROOT / "docs/results/final_test/predictions.csv", newline="") as f:
+        final = next(float(r["model"]) for r in csv.DictReader(f) if r["tree"] == "R12N02" and r["measure"] == "v_opening")
+    shown = re.search(r'V opening in the photo", "([0-9.]+)"', page)
+    assert shown is not None and float(shown.group(1)) == pytest.approx(final, abs=0.05)
+
+
+def test_saved_source_names_the_masks(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    assert "5-fold" in saved_source(SAVED_MASKS) and "5-fold" in saved_source(ROOT / SAVED_MASKS)
+    assert "final test" in saved_source(FINAL_TEST_MASKS)
+    assert saved_source("elsewhere/masks.npz") == "Branches from the saved masks in elsewhere/masks.npz"
+
+
+def test_trained_trees_recorded_or_found_as_train_chose_them(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    assert trained_trees({"trees": ["R01N01", "R15N05"]}) == {"R01N01", "R15N05"}
+    # A network saved before train recorded its trees: every lined-up development tree.
+    found = trained_trees({})
+    assert len(found) == 449 and "R15N05" in found and "R01N04" in found
+    assert not {t for t in found if int(t[1:3]) in (3, 12, 16)}          # never a test row
+    import treeskel.summer_gt as sg
+    from types import SimpleNamespace
+    monkeypatch.setattr(sg, "load_overlays", lambda path: {"R05N01": SimpleNamespace(skip=False),
+                                                           "R05N02": SimpleNamespace(skip=True),
+                                                           "R12N01": SimpleNamespace(skip=False)})
+    assert trained_trees({}) == {"R05N01"}                               # skipped and test-row trees left out
 
 
 def test_build_needs_the_weights(sample_dir, tmp_path, capsys):
@@ -183,6 +223,7 @@ def test_train_then_build_from_a_photo(sample_dir, tmp_path, monkeypatch):
     import torch
     saved = torch.load(weights, map_location="cpu", weights_only=False)
     assert saved["epochs"] == 1 and saved["n_trees"] == 4 and saved["join_gap"] == pytest.approx(19.3)
+    assert saved["trees"] == ["R01N01", "R01N02", "R15N05", "R20N06"]   # the sample's lined-up development trees
     rgb = next(sample_dir.glob("R15N05_Summer_RGB-*.png"))
     depth = next(sample_dir.glob("R15N05_Summer_D-*.png"))
     from treeskel.model3d import load_network, predict_mask
@@ -195,3 +236,33 @@ def test_train_then_build_from_a_photo(sample_dir, tmp_path, monkeypatch):
                  "--device", "cpu", "--out", str(tmp_path)])
     assert code in (0, 1)
     assert code == 1 or (tmp_path / "photo.html").exists()
+
+
+@pytest.fixture
+def capture(capsys):
+    """What a call printed (the build may stop at a mask without a fork; the note comes first)."""
+    def run(args):
+        main(args)
+        return capsys.readouterr().out
+    return run
+
+
+def test_build_says_when_the_tree_was_in_the_training_set(sample_dir, tmp_path, monkeypatch, capture):
+    """The note appears for a tree the network was trained on, not for a test-row tree; also for a network
+    saved before train recorded its trees."""
+    pytest.importorskip("torch")
+    pytest.importorskip("torchvision")
+    monkeypatch.chdir(ROOT)
+    weights = tmp_path / "net.pt"
+    assert main(["train", str(sample_dir), "--weights", str(weights), "--random-weights", "--epochs", "1",
+                 "--device", "cpu"]) == 0
+    note = "was in the network's training set"
+    common = ["--data", str(sample_dir), "--device", "cpu", "--out", str(tmp_path)]
+    assert note in capture(["build", "--tree", "R15N05", "--weights", str(weights), *common])
+    assert note not in capture(["build", "--tree", "R12N02", "--weights", str(weights), *common])
+    import torch
+    old = torch.load(weights, map_location="cpu", weights_only=False)
+    del old["trees"]
+    torch.save(old, tmp_path / "old.pt")
+    assert note in capture(["build", "--tree", "R15N05", "--weights", str(tmp_path / "old.pt"), *common])
+    assert note not in capture(["build", "--tree", "R12N02", "--weights", str(tmp_path / "old.pt"), *common])
