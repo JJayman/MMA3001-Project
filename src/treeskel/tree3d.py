@@ -625,12 +625,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--figure", default="docs/figures/tree3d.png", help="the figure ('' for none)")
     args = ap.parse_args(argv)
 
-    if args.from_saved:
+    if args.from_saved:                                  # only the summary again, from the saved rows
         rows = load_rows(Path(args.from_saved) / "trees.csv")
         out = Path(args.out if args.out != "docs/results/tree3d" else args.from_saved)
     else:
         if not args.data_dirs:
             ap.error("give the dataset folder(s), or --from-saved")
+        # Each development tree's three skeletons: the winter trace, the lined-up hand mask, the U-Net's mask.
         test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
         traces = load_traces(args.traces)
         overlays = load_overlays(args.mask_overlay)
@@ -640,11 +641,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not ids:
             print("No development-row trees with winter traces found; nothing to measure.")
             return 1
+        # A run on chosen trees goes to outputs/, so it never overwrites the committed full run.
         out = Path(args.out if not args.trees or args.out != "docs/results/tree3d" else "outputs/tree3d_partial")
         jobs = [(records[t], traces[t], hand_mask(records[t], overlays), unet.get(t)) for t in ids]
         print(f"Measuring {len(ids)} development-row trees in 3D (winter, hand masks, U-Net; "
               f"{len(SETTINGS)} camera settings)...", flush=True)
         t0, step, rows = time.time(), max(1, min(25, len(jobs) // 10)), []
+        # One tree per worker process; each returns a row per skeleton and camera setting.
         with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
             for i, r in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
                 rows += r

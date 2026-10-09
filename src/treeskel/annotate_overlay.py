@@ -159,6 +159,7 @@ class OverlayAnnotator:
                  clicks_path: str | Path = "annotations/winter_clicks.json",
                  gt_dir: str | Path | None = "outputs/winter_gt_guided",
                  clock: Callable[[], float] = time.monotonic):
+        """Load the saved transforms and the winter clicks, and open the first tree still to align."""
         self.path = path
         self.saved = load_overlays(path)
         self.trees = [t for t in trees if redo or t.tree_id not in self.saved]
@@ -175,6 +176,7 @@ class OverlayAnnotator:
     # --- current tree -------------------------------------------------------
     @property
     def tree(self) -> TreeRecord | None:
+        """The tree being aligned, or ``None`` once every tree is done."""
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def start(self) -> Overlay:
@@ -394,12 +396,14 @@ def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
         fig.draw_artist(picture)
 
     def status() -> None:
+        """Show the prompt's first lines in the window's title bar."""
         manager = getattr(canvas, "manager", None)
         if manager is not None:
             lines = ann.prompt().splitlines()
             manager.set_window_title(lines[0] if ann.done else f"{lines[0]}   |   {lines[1]}")
 
     def update() -> None:
+        """Redraw the picture: a full draw for a new tree, else only the picture (blitted, for speed)."""
         status()
         if ann.done:
             picture.set_data(np.zeros((480, 640, 3), np.uint8))
@@ -419,16 +423,19 @@ def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
             canvas.blit(fig.bbox)
 
     def tool_active() -> bool:
+        """Whether the toolbar's zoom or pan is switched on (then clicks are not drags)."""
         toolbar = getattr(canvas, "toolbar", None)
         return toolbar is not None and bool(getattr(toolbar, "mode", ""))
 
     def on_press(ev) -> None:
+        """Start a drag: remember where it started, and the shift for undo."""
         if ann.done or ev.button != 1 or ev.inaxes is not ax or ev.xdata is None or tool_active():
             return
         ann.history.append(replace(ann.ov))
         st["drag"] = (ev.xdata, ev.ydata, ann.ov.dx, ann.ov.dy)
 
     def on_motion(ev) -> None:
+        """Move the overlay with the mouse while dragging."""
         if st["drag"] is None or ev.xdata is None:
             return
         x0, y0, dx0, dy0 = st["drag"]
@@ -436,6 +443,7 @@ def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
         update()
 
     def on_release(ev) -> None:
+        """End a drag; a click that moved nothing leaves no undo step."""
         if st["drag"] is None:
             return
         st["drag"] = None
@@ -444,12 +452,14 @@ def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
         update()
 
     def on_scroll(ev) -> None:
+        """Scroll to scale the overlay about the mouse."""
         if ann.done or ev.inaxes is not ax or ev.xdata is None:
             return
         ann.rescale(STEPS["scroll"] if ev.button == "up" else 1 / STEPS["scroll"], about=(ev.xdata, ev.ydata))
         update()
 
     def on_key(ev) -> None:
+        """Pass a key to the annotator; ``q`` closes the window."""
         if ev.key is None:
             return
         ann.key(ev.key)

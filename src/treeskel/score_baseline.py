@@ -60,10 +60,12 @@ session-4 baseline, before the depth registration of session 9.)
 (cost map, tracing and widths; the clicks took about 15 s per tree,
 session 5).
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.score_baseline data/raw          # -> docs/results/winter_baseline/
-    python -m treeskel.score_baseline --from-saved docs/results/winter_baseline   # re-score, no images
+```
+python -m treeskel.score_baseline data/raw          # -> docs/results/winter_baseline/
+python -m treeskel.score_baseline --from-saved docs/results/winter_baseline   # re-score, no images
+```
 """
 
 from __future__ import annotations
@@ -339,6 +341,7 @@ def session4_check(rows: Sequence[dict]) -> dict:
     lv = TRACED[0]
 
     def describe(group: Sequence[dict]) -> dict:
+        """Count, median F1, median fork distance, share traced and number passing the check for a group."""
         return {"n": len(group), "f1_median": _stats([r["f1"] for r in group])["median"],
                 "fork_px_median": _stats([r["fork_px"] for r in group])["median"],
                 "traced": float(np.mean([r["f1"] >= lv for r in group])) if group else None,
@@ -389,6 +392,7 @@ def shape_scores(rows: Sequence[dict], predictions: str | Path = PREDICTIONS, ta
     trees = [t for t in sorted(pred) if t in by_tree]
 
     def column(source: str) -> np.ndarray:
+        """``(trees, measures)`` array of one source's predictions."""
         return np.array([[pred[t][k][source] for k in MEASURES] for t in trees])
 
     truth, mean, fold = column("winter"), column("mean shape"), column("fold")[:, 0].astype(int)
@@ -413,6 +417,7 @@ def shape_scores(rows: Sequence[dict], predictions: str | Path = PREDICTIONS, ta
                                                            fold[passed])
 
     def paired(p: np.ndarray) -> dict:
+        """``{(tree, measure): (winter, predicted)}`` where both are known."""
         return {(t, k): (truth[i, j], p[i, j]) for i, t in enumerate(trees) for j, k in enumerate(MEASURES)
                 if np.isfinite(truth[i, j]) and np.isfinite(p[i, j])}
 
@@ -467,6 +472,7 @@ def report_lines(report: dict) -> list[str]:
         g = p[name]
 
         def mq(k):
+            """A score's median and quartiles as text, or ``-`` for an empty group."""
             v = g[k]
             return f"{_fmt(v['median'])} [{_fmt(v['q1'])}, {_fmt(v['q3'])}]" if v["n"] else "-"
         out.append(f"  {name:14s} {g['n_trees']:4d} {mq('f1'):>17s} {mq('found'):>17s} {mq('on_branch'):>17s} "
@@ -638,12 +644,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     failed: list[str] = []
-    if args.from_saved:
+    if args.from_saved:                                     # only the summary again, from the saved rows
         out = Path(args.out or args.from_saved)
         rows = load_rows(Path(args.from_saved) / "trees.csv")
     else:
         if not args.data_dirs:
             ap.error("give the dataset folder(s), or --from-saved")
+        # A run on chosen rows or trees goes to outputs/, so it never overwrites the committed full run.
         partial = bool(args.rows or args.trees)
         out = Path(args.out or ("outputs/score_baseline_partial" if partial else "docs/results/winter_baseline"))
         test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
@@ -660,6 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Scoring the baseline on {len(ids)} development-row trees ({held_out} test-row trees left out)...",
               flush=True)
         t0, step, rows = time.time(), max(1, min(25, len(jobs) // 10)), []
+        # Each tree in a worker process: the baseline and the guided trace on the same winter photo, compared.
         with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
             for i, r in enumerate(ex.map(_job, jobs, chunksize=2), 1):
                 rows.append(r)
@@ -677,6 +685,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 Path(args.figure).parent.mkdir(parents=True, exist_ok=True)
                 save_image(sheet, Path(args.figure), failed, quality=88)
 
+    # The summary: path scores, the quality check, the session-4 verdicts, and shape against the U-Net.
     report = summarise(rows, args.predictions, args.table)
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(report, indent=2))

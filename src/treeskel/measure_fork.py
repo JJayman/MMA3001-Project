@@ -41,10 +41,12 @@ fill (:data:`BASE`):
    junction: along the leader's centre line the crotch limits the width as
    much as the outer shoulder does.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.measure_fork data/raw --clicks annotations/winter_clicks.json \\
-        --split splits.json --out outputs/measure_fork --figure outputs/fork_junction.jpg
+```
+python -m treeskel.measure_fork data/raw --clicks annotations/winter_clicks.json \\
+    --split splits.json --out outputs/measure_fork --figure outputs/fork_junction.jpg
+```
 """
 
 from __future__ import annotations
@@ -216,6 +218,7 @@ def fit_decay_length(s: np.ndarray, width: np.ndarray, radius: float) -> float:
     x, y = s[fit_sel], width[fit_sel]
 
     def loss(length: float) -> float:
+        """Mean squared error of a cosine decay over ``length`` px."""
         u = np.clip(x / length, 0, 1)
         return float(np.mean((y - far - (w0 - far) * 0.5 * (1 + np.cos(np.pi * u))) ** 2))
 
@@ -283,6 +286,7 @@ def measure_tree(job: tuple) -> dict:
     from treeskel.io import load_tree
 
     rec, clicks, lengths, reaches, figure_names = job
+    # Trace the tree once; draw the base mask and each fork variant (fill lengths, junction reaches) from it.
     d = load_tree(rec, "winter")
     gt = guided_gt(d["rgb"], d["depth"], d["valid"], clicks, BASE)
     base = render_main_branches(gt)
@@ -292,6 +296,8 @@ def measure_tree(job: tuple) -> dict:
     zone, crotch = fork_zone(gt), crotch_zone(gt)
     radius = float(gt.radii["trunk"][-1])
     dt = ndi.distance_transform_edt(depth)
+    # Per leader: how far the depth width takes to fall to the leader's own, and how much of each shoulder
+    # triangle depth (as seen and shrunk by its bleed) and each mask cover.
     leaders = []
     for side in ("left", "right"):
         path = getattr(gt, side)
@@ -304,6 +310,8 @@ def measure_tree(job: tuple) -> dict:
             for name, m in masks.items():
                 row[f"{name}@{reach}"] = coverage(m, tri)
         leaders.append(row)
+    # Per mask: the pixels it adds and removes against the base mask and whether they lie on depth, its
+    # precision and IoU against depth around the fork, and what it draws in the crotch.
     stats = {}
     for name, m in masks.items():
         added, removed = m & ~base, base & ~m
@@ -472,6 +480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if bad:
         ap.error(f"figure settings must be among the measured ones ({LENGTHS}, {JUNCTION_REACHES}): {bad}")
 
+    # Every annotated development-row tree; the test rows are never measured.
     test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
     clicks = load_clicks(args.clicks)
     records = {t.tree_id: t for d in args.data_dirs for t in index_dataset(d).trees}
@@ -489,6 +498,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     t0 = time.time()
     step = max(1, min(25, len(jobs) // 10))
     results = []
+    # One tree per worker process (tracing is the slow part), with progress about every 10% of the trees.
     with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
         for i, r in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
             results.append(r)
@@ -497,6 +507,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  {i}/{len(jobs)} trees, {el:.0f} s elapsed, about {el / i * (len(jobs) - i):.0f} s left",
                       flush=True)
 
+    # Pool the trees, then save the per-leader table and the report before printing it.
     report = summarise(results, LENGTHS, JUNCTION_REACHES)
     report["test_rows_excluded"] = sorted(test_rows)
     out = Path(args.out)

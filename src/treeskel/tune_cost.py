@@ -24,10 +24,12 @@ including the default. With few trees the choice is checked by
 on the *other* trees is scored on its waypoints. Pooling those scores
 estimates the error on unseen trees.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.tune_cost data/tuning --clicks annotations/winter_clicks.json \\
-        --samples 250 --out outputs/tune_cost
+```
+python -m treeskel.tune_cost data/tuning --clicks annotations/winter_clicks.json \\
+    --samples 250 --out outputs/tune_cost
+```
 """
 
 from __future__ import annotations
@@ -194,6 +196,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("No correction clicks found for trees in the data folder; nothing to tune against.")
         return 1
 
+    # The cost map's expensive cues are computed once per tree (and per set of tube-filter scales); each
+    # setting then only re-weights them (guided_gt.combine_cues).
     grid = GRID if args.grid == "wide" else FOCUSED_GRID
     sigma_sets = set(grid["sigmas"]) | {GuidedParams().sigmas}
     t0 = time.time()
@@ -205,6 +209,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                                for s in sigma_sets}}
     print(f"Prepared {len(ids)} trees in {time.time() - t0:.0f} s")
 
+    # Every setting is scored by how far each correction click lies from the path traced through only the
+    # four main clicks (the first setting is the default).
     n = args.samples if args.grid == "wide" else 10**9
     settings = grid_sample(n, args.seed, grid)
     t0 = time.time()
@@ -213,12 +219,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         results.append(evaluate(trees, p))
         if i == 0:
             print(f"One setting takes {time.time() - t0:.1f} s; trying {len(settings)}")
+    # The simplest reference: straight lines between the main clicks (a uniform cost).
     flat = {t: [d for part in PARTS for d in waypoint_distances(
         part_paths(np.ones((480, 640)), base_clicks(clicks[t]))[part], waypoints(clicks[t], part))] for t in ids}
 
     summ = [summarise(pooled(r), args.tolerance) for r in results]
     order = sorted(range(len(settings)), key=lambda i: summ[i]["mean_px"])
     best = order[0]
+    # Leave-one-tree-out: the best setting on the other trees, scored on the tree left out.
     loo_rows, loo_d = leave_one_out(results)
     loo = summarise(loo_d, args.tolerance)
 
@@ -232,6 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         *(round(summ[i][k], 3) for k in ("mean_px", "median_px", "still_needed"))])
 
     def line(name: str, s: dict) -> str:
+        """One setting's distances as a line of the report."""
         return (f"{name:34s} mean {s['mean_px']:5.1f} px, median {s['median_px']:5.1f} px, "
                 f"{s['still_needed']:4.0%} of waypoints still needed")
 

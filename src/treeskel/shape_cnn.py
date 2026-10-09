@@ -40,12 +40,14 @@ jitter leaves it alone), and the photos at full size (``--size 480 640``).
 Each variant saves to its own folder. They are all reported, since choosing
 the best on the same folds would flatter it.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.shape_cnn data/raw                  # the student's PC (GPU); docs/results/shape_cnn/
-    python -m treeskel.shape_cnn data/raw --depth          # docs/results/shape_cnn_depth/
-    python -m treeskel.shape_cnn data/raw --size 480 640   # docs/results/shape_cnn_480x640/
-    python -m treeskel.shape_cnn --replot docs/results/shape_cnn docs/results/shape_cnn_depth   # figures only
+```
+python -m treeskel.shape_cnn data/raw                  # the student's PC (GPU); docs/results/shape_cnn/
+python -m treeskel.shape_cnn data/raw --depth          # docs/results/shape_cnn_depth/
+python -m treeskel.shape_cnn data/raw --size 480 640   # docs/results/shape_cnn_480x640/
+python -m treeskel.shape_cnn --replot docs/results/shape_cnn docs/results/shape_cnn_depth   # figures only
+```
 """
 
 from __future__ import annotations
@@ -188,6 +190,7 @@ def augment(x, generator, params: CNNParams = CNNParams(), flip_p: float = 0.5):
     b, dev = x.shape[0], x.device
 
     def uniform(lo, hi):
+        """``b`` random numbers between ``lo`` and ``hi``, one per image."""
         return lo + (hi - lo) * torch.rand(b, device=dev, generator=generator)
 
     f = torch.sqrt(uniform(params.crop, 1.0))                    # side fraction
@@ -368,6 +371,7 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
     torch.manual_seed(params.seed)                          # the new output layer's first weights
     base = make_model(len(names), pretrained, channels=images.shape[3]).to(device)
     start = copy.deepcopy(base.state_dict())
+    # A mirrored photo has mirrored measures: left and right swap, and signed angles change sign.
     src, sign = mirror_columns(names)
     mirror = (torch.as_tensor(src, device=device), torch.as_tensor(sign, dtype=torch.float32, device=device))
     x_all = torch.from_numpy(np.ascontiguousarray(images.transpose(0, 3, 1, 2))).to(device)
@@ -376,21 +380,26 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
     chosen, logs = [], []
 
     def fresh():
+        """The network reset to its starting weights (one copy reused, to save memory)."""
         base.load_state_dict(start)
         return base
 
     for i, held in enumerate(fold_rows):
+        # This fold's rows are predicted; the network trains on the other rows.
         va = np.isin(rows, list(held))
         tr = ~va
         if not va.any() or tr.sum() < 2:
             continue
         t0 = time.time()
+        # The number of epochs is chosen inside the training rows: the next fold's rows are held out, and the
+        # epoch with the lowest loss on them is kept. The fold's own rows play no part in the choice.
         train_rows = set(rows[tr].tolist())
         inner = _inner_rows(i, fold_rows, train_rows, rows)
         best = params.epochs
         if inner is not None:
             iv = tr & np.isin(rows, inner)
             it = tr & ~iv
+            # The measures are standardised with the training trees' own mean and spread.
             mu, s = target_scale(y[it], names)
             z = (y - mu) / s
             progress(f"Fold {i + 1}/{len(fold_rows)} (rows {sorted(map(int, held))}, {_n(va.sum(), 'tree')}): "
@@ -406,13 +415,15 @@ def cross_validate_cnn(images: np.ndarray, y: np.ndarray, rows: np.ndarray, fold
         else:
             progress(f"Fold {i + 1}/{len(fold_rows)}: no rows to hold out inside the training rows; "
                      f"training for {_n(best, 'epoch')}")
+        # Then a fresh network trains on all the training rows for that many epochs and predicts the fold.
         mu, s = target_scale(y[tr], names)
         z = (y - mu) / s
         idx = torch.from_numpy(np.nonzero(tr)[0]).to(device)
         log = train(fresh(), x_all[idx], z[tr], best, params, mirror, params.seed + 100 * i + 50)
         logs += [{"fold": i, "stage": "final", **r} for r in log]
         zp = predict(base, x_all[torch.from_numpy(np.nonzero(va)[0]).to(device)], mirror)
-        pred[va] = mu + s * zp
+        pred[va] = mu + s * zp                              # back from standardised units to degrees
+        # The baseline: the training trees' mean shape (a measure unknown on every tree stays NaN).
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             mean[va] = np.nanmean(y[tr], axis=0)
@@ -609,6 +620,7 @@ def compare_runs(dirs: Sequence[Path], names: Sequence[str] = MEASURES) -> dict:
     from scipy import stats
 
     def load(d):
+        """A run's ``{(tree, measure): (winter, predicted)}`` and its report."""
         rows = {}
         with open(Path(d) / "predictions.csv", newline="") as f:
             for r in csv.DictReader(f):

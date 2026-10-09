@@ -158,6 +158,7 @@ class WinterGT:
     def summary(self) -> dict:
         """Plain-data summary (for CSV/JSON): points, rises and QC result."""
         def rise(p: np.ndarray) -> int:
+            """How many rows a path rises from its first point to its last."""
             return int(p[0, 0] - p[-1, 0]) if len(p) else 0
         return {
             "ok": self.ok,
@@ -373,12 +374,14 @@ def find_main_branches(tree: np.ndarray, skel: np.ndarray, params: GTParams = GT
     ends = ends[ends != root]
 
     def path(i: int) -> list[int]:
+        """Skeleton nodes from the root to node ``i``."""
         p = [i]
         while p[-1] != root:
             p.append(int(pred[p[-1]]))
         return p[::-1]
 
     def score(e: int) -> float:
+        """A leader candidate's score: its rise minus a penalty for wandering."""
         rise = ys[root] - ys[e]
         return rise - params.wander_penalty * (dist[e] - rise)
 

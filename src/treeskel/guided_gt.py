@@ -1169,6 +1169,7 @@ def insert_waypoint(clicks: Clicks, gt: WinterGT, point: Point) -> Clicks:
     ctrl = list(getattr(clicks, name))
 
     def pos(q: Point) -> int:
+        """Index of the path point nearest to ``q``."""
         return int(np.argmin(np.hypot(*(path - np.asarray(q)).T)))
 
     # Insert before the first control point that lies further along the path.
@@ -1269,8 +1270,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     params = GuidedParams()
-    (out / "params.json").write_text(json.dumps(asdict(params), indent=2))
+    (out / "params.json").write_text(json.dumps(asdict(params), indent=2))   # the settings, beside the masks
 
+    # The clicked trees asked for; trees skipped in the click tool or not finished are left out.
     wanted = sorted(clicks)
     if args.rows:
         wanted = [t for t in wanted if int(t[1:3]) in args.rows]
@@ -1286,12 +1288,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     step = max(1, min(25, len(jobs) // 10))
 
     def progress(done: int) -> None:
+        """Print progress every ``step`` trees (about 10%, at most 25), with the time left."""
         if done % step == 0 or done == len(jobs):
             el = time.time() - t0
             eta = el / done * (len(jobs) - done)
             print(f"  {done}/{len(jobs)} trees, {el:.0f} s elapsed, about {eta:.0f} s left", flush=True)
 
     print(f"Rendering {len(jobs)} trees using {max(1, min(args.jobs, len(jobs)))} process(es)...", flush=True)
+    # Trace and draw each tree, in worker processes when there is more than one core and tree.
     if args.jobs > 1 and len(jobs) > 1:
         with ProcessPoolExecutor(max_workers=args.jobs) as ex:
             for i, (_, row, f) in enumerate(ex.map(_render_one, jobs, chunksize=4), 1):
@@ -1310,6 +1314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             w = csv.DictWriter(f, fieldnames=list(dict.fromkeys(k for r in rows for k in r)))
             w.writeheader()
             w.writerows(rows)
+    # Clicks that look like mistakes (e.g. a fork right at the root) are listed for checking by eye.
     suspect = {t: check_clicks(clicks[t]) for t in wanted if check_clicks(clicks[t])}
     for tid, why in sorted(suspect.items()):
         print(f"Check clicks for {tid}: {'; '.join(why)}")

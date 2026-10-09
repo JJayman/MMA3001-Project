@@ -58,6 +58,7 @@ class Annotator:
     """
 
     def __init__(self, trees: Sequence[TreeRecord], clicks_path: str, redo: bool = False):
+        """Load the saved clicks and open the first tree still to annotate."""
         self.clicks_path = clicks_path
         self.saved = load_clicks(clicks_path)
         self.trees = [t for t in trees if redo or t.tree_id not in self.saved]
@@ -69,6 +70,7 @@ class Annotator:
     # --- current tree -------------------------------------------------------
     @property
     def tree(self) -> TreeRecord | None:
+        """The tree being annotated, or ``None`` once every tree is done."""
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def _load(self) -> None:
@@ -165,6 +167,7 @@ def run_gui(ann: Annotator) -> None:  # pragma: no cover - needs a display
     fig.subplots_adjust(0.01, 0.01, 0.99, 0.95)
 
     def draw() -> None:
+        """Redraw the photo (colour or depth), the traces and the clicks, with the prompt as the title."""
         ax.clear()
         ax.set_axis_off()
         ax.set_title(ann.prompt(), fontsize=11)
@@ -185,11 +188,13 @@ def run_gui(ann: Annotator) -> None:  # pragma: no cover - needs a display
         fig.canvas.draw_idle()
 
     def on_click(ev) -> None:
+        """A left click in the photo adds a click to the current tree."""
         if ev.inaxes is ax and ev.button == 1 and ev.xdata is not None:
             ann.click(ev.ydata, ev.xdata)
             draw()
 
     def on_key(ev) -> None:
+        """Pass a key to the annotator; ``q`` closes the window."""
         ann.key(ev.key)
         if ev.key == "q":
             plt.close(fig)

@@ -41,11 +41,13 @@ too, see :func:`treeskel.guided_gt.clear_of`):
    middle of the two edges found across it); the mask is centred on the
    path.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.measure_width data/raw --clicks annotations/winter_clicks.json \\
-        --split splits.json --out outputs/measure_width --figure outputs/leader_width.jpg \\
-        --plot outputs/leader_width_profiles.png
+```
+python -m treeskel.measure_width data/raw --clicks annotations/winter_clicks.json \\
+    --split splits.json --out outputs/measure_width --figure outputs/leader_width.jpg \\
+    --plot outputs/leader_width_profiles.png
+```
 """
 
 from __future__ import annotations
@@ -459,6 +461,7 @@ def summarise(results: list[dict], folds: Sequence[Sequence[int]] | None = None)
 def _figure(results: list[dict], scale: int = 2) -> Image.Image:
     """Per tree: the whole tree before and after, then crops at the fork, 30% and 60% up each leader."""
     def titled(img: np.ndarray, text: str, width: int) -> np.ndarray:
+        """The image with a black title strip above it, padded to ``width``."""
         pil = Image.new("RGB", (width, img.shape[0] + 14), "black")
         pil.paste(Image.fromarray(img), (0, 14))
         ImageDraw.Draw(pil).text((3, 1), text, fill="white")
@@ -572,6 +575,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--plot", help="also save a chart of the width along the leaders as this image")
     args = ap.parse_args(argv)
 
+    # Every annotated development-row tree; the test rows are never measured.
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
     clicks = load_clicks(args.clicks)
@@ -589,6 +593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     t0 = time.time()
     step = max(1, min(25, len(jobs) // 10))
     results = []
+    # One tree per worker process, with progress about every 10% of the trees.
     with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
         for i, r in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
             results.append(r)
@@ -597,6 +602,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  {i}/{len(jobs)} trees, {el:.0f} s elapsed, about {el / i * (len(jobs) - i):.0f} s left",
                       flush=True)
 
+    # Pool the trees (the widening chosen on all trees, by leave-one-tree-out and by the row folds of
+    # splits.json), save, then print each part of the report.
     report = summarise(results, split.get("fold_val_rows"))
     report["test_rows_excluded"] = sorted(test_rows)
     out = Path(args.out)

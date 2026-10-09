@@ -33,10 +33,12 @@ From the pairs:
    the summer view, together with the area the winter image covers; outside
    it the label is unknown, not "no branch".
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.summer_gt data/raw --dev-only          # choose the model
-    python -m treeskel.summer_gt data/raw --overlays          # write the summer masks
+```
+python -m treeskel.summer_gt data/raw --dev-only          # choose the model
+python -m treeskel.summer_gt data/raw --overlays          # write the summer masks
+```
 """
 
 from __future__ import annotations
@@ -509,6 +511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--overlays", action="store_true", help="also save a full-size picture per tree")
     args = ap.parse_args(argv)
 
+    # The trees asked for (with --dev-only, never the test rows).
     trees = index_dataset(args.data_dir).trees
     if args.rows:
         trees = [t for t in trees if t.row in args.rows]
@@ -517,6 +520,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.dev_only:
         test_rows, _ = load_split(args.split, index_dataset(args.data_dir).trees)
         trees = [t for t in trees if t.row not in test_rows]
+    # The alignments: the overlay tool's transforms, or the clicked pairs (always loaded, as a check).
     pairs = load_pairs(args.pairs)
     source = load_overlays(args.overlay_file) if args.source == "overlay" else pairs
     src_file = args.overlay_file if args.source == "overlay" else args.pairs
@@ -526,6 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"No aligned trees in {src_file} for the selected trees.")
         return 1
     chosen = {t.tree_id: source[t.tree_id] for t in trees}
+    # First the summary of the alignments themselves.
     if args.source == "pairs":
         _print_pair_tables(chosen)
     else:
@@ -546,6 +551,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for i, rec in enumerate(trees, 1):
         tid = rec.tree_id
         row = {"tree_id": tid}
+        # The tree's winter-to-summer transform, and its check: leave-one-out errors of the pairs it was
+        # fitted to, or the distance to the clicked pairs it was not.
         if args.source == "pairs":
             p = chosen[tid]
             m = pair_transform(p, args.model)
@@ -568,6 +575,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if issues:
             flagged[tid] = issues
         if m is not None:
+            # The camera change at the fork, then the winter mask moved into the summer view.
             c = clicks.get(tid)
             at = c.fork[::-1] if c is not None and c.complete and not c.skip else (320, 240)
             row.update({f"at_fork_{k}": round(v, 4) for k, v in describe(m, at).items()})
@@ -593,6 +601,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  {i}/{len(trees)} trees, {el:.0f} s elapsed, about {el / i * (len(trees) - i):.0f} s left",
                   flush=True)
 
+    # The checks over all trees.
     if args.source == "overlay":
         print(f"Clicked pairs (away from the photos' edges) against the overlay transforms: "
               f"distance (px) {_stats(pair_err)}")
