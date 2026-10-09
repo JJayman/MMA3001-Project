@@ -172,21 +172,38 @@ for the final test in session 12, after the model had been named on the developm
 ([`docs/results/final_test/naming_rule.md`](docs/results/final_test/naming_rule.md)).
 
 
-## Acknowledgement of AI Assistance in Project Development
+## How I used AI in this project
 
-This project incorporates Artificial Intelligence (AI) tools as assistive technology throughout its development lifecycle. Our methodology emphasizes a "human-in-the-loop" approach, ensuring that human oversight, critical evaluation, and final decision-making remain central to every stage.
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 14 work sessions from
+23 September to 9 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+was mine, what the AI did, and the mistakes it made and how they were caught.
 
-AI tools may have contributed to the following aspects:
+**What I did:**
 
-*   **Code Generation and Refinement:** AI has aided in generating boilerplate code, suggesting improvements, and refactoring code segments. All AI-generated code undergoes thorough human review, testing, and comprehension before integration.
-*   **Documentation and Explanation:** AI has assisted in drafting documentation, clarifying complex algorithms, and summarizing research. Human verification is paramount to ensure accuracy, clarity, and completeness.
-*   **Test Case Generation:** AI has been utilized for suggesting potential test cases and identifying edge cases. Human developers rigorously validate the relevance and correctness of all generated tests.
-*   **Conceptual Brainstorming:** AI has supported brainstorming sessions, exploring diverse approaches, and providing background information on relevant subjects. All conceptual outputs are critically evaluated by human team members.
+- chose the project and its idea: a ground truth from the bare winter photos, to judge predictions made
+  from the leafy summer photos;
+- made the decisions: cross-validation on whole orchard rows, excluding row 4, switching to the dataset
+  version with tree numbers, training on the hand masks, the depth registration and the shape of the
+  masks at the fork; and agreed each rule for choosing between models before its result was seen;
+- clicked the ground truth for all 541 trees, and lined up all 449 development hand masks by hand;
+- ran everything that needed the full dataset or the GPU on my own computer;
+- looked at the images, which found problems the numbers had missed: row 4's copied depth images, leaders
+  drawn too thin, a fork that looked like a circle, and predicted leaders that stop short.
 
-Our commitment includes:
+**What the AI did:**
 
-*   **Transparency:** Clearly documenting the specific applications and extent of AI usage.
-*   **Responsibility:** Upholding ethical and responsible AI practices, with a focus on fairness, accountability, and privacy.
-*   **Quality Assurance:** Maintaining rigorous standards for code quality and functionality through comprehensive human-led testing and review processes, irrespective of AI involvement.
+- wrote most of the code (the `treeskel` package), the tests, the documentation and the figures;
+- proposed methods and checks, explained the ideas behind them and the related paper, and analysed the
+  results I sent back;
+- drafted the session notes at the end of each session.
 
-Ultimately, the human developers bear full responsibility for the integrity, correctness, and functionality of this project.
+**How the work was checked:** the AI was wrong often enough that nothing was taken on trust. Its mistakes
+included judging an image offset by eye, a tuning measure biased towards the old settings, branch widths
+measured from the sunlit half only, depth and colour images combined for eight sessions without checking
+that they lined up, and a count of short leaders that mixed two definitions. They were caught by my
+looking at the images, by synthetic tests with known answers, and by running each check on all 449
+development trees instead of a few. Every rule for choosing a model was fixed before its result was seen,
+and the test rows were used once, for the final test. 468 automated tests cover the code
+([`docs/test_report.html`](docs/test_report.html)).
+
+I am writing the report myself, and I am responsible for the project and its results.

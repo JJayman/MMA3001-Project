@@ -84,8 +84,8 @@ camera, different (autumn) capture.
   root is cut flat too where its round end would lie wholly in the image
   (`flat_root`). Reach 0 and `flat_root=False` restore the round ends.
 
-- **3D calibration** (session 13; proposed by the assistant and taken as the
-  work moved on, so for the student to confirm): the 8-bit depth is linear in
+- **3D calibration** (session 13, proposed by the assistant; confirmed by the
+  student in session 14): the 8-bit depth is linear in
   distance, `Z = scale × (zero − v)`, with **zero 300** (median of per-tree
   fits to the ground on all 449 development trees; quartiles 262–366, the
   sensitivity range), focal length **616 px** (D435 colour, ±5%), and the
@@ -222,7 +222,7 @@ See the latest file in `docs/progress/`. As of session 13 (session 14: the repos
 
      | Requirement | Status (session 14) |
      |---|---|
-     | ReadMe | refreshed: results at a glance, documentation links (HTML docs, test report, 3D viewer example), 9-tree sample, test rows named |
+     | ReadMe | refreshed: results at a glance, documentation links (HTML docs, test report, 3D viewer example), 9-tree sample, test rows named; the AI-use section rewritten in the student's first person (session 14) |
      | HTML documentation | `docs/html/` (pdoc, Google format), 24 modules; the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
      | Source code, functional `main` | 468 passed, 1 skipped (the LightGlue test needs kornia) |
