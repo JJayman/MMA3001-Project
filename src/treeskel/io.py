@@ -322,6 +322,7 @@ def index_dataset(
     skip_trees = set(EXCLUDED_TREES if exclude_trees is None else exclude_trees)
 
     def skipped(r: TreeRecord) -> bool:
+        """Whether a tree is in an excluded row or on the excluded-tree list."""
         return r.row in skip_rows or r.tree_id in skip_trees
 
     ordered = [records[k] for k in sorted(records)]

@@ -835,10 +835,12 @@ def load_winter_mask(tree_id: str, winter: dict, clicks: dict, gt_dir: Path | No
 def main(argv: Sequence[str] | None = None) -> int:
     """Match, fit and check the winter-to-summer alignment of every selected tree.
 
-    Usage::
+    Usage, from the command line:
 
-        python -m treeskel.align DATA_DIR --matcher lightglue --dev-only
-            [--rows 5 6] [--trees R05N12] [--model similarity] [--overlays]
+    ```
+    python -m treeskel.align DATA_DIR --matcher lightglue --dev-only
+        [--rows 5 6] [--trees R05N12] [--model similarity] [--overlays]
+    ```
 
     Matches are read from ``data/matches/<matcher>.npz`` and only missing trees
     are matched (``--rematch`` redoes them); the file is saved every 25 trees,
@@ -1014,6 +1016,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ok = [x for x in r if "scale" in x]
 
         def med(key, rows=ok):
+            """Median of one column over the trees with a fit, ignoring missing values."""
             v = [x[key] for x in rows if np.isfinite(x[key])]
             return float(np.median(v)) if v else float("nan")
 

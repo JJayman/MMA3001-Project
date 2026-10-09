@@ -162,6 +162,7 @@ def mask_post_processing(masks: dict[str, np.ndarray], n: int = 20, repeats: int
     from treeskel.segment import join_pieces, mask_shape
 
     def post(m):
+        """Join the mask's pieces, then measure its shape."""
         return mask_shape(join_pieces(m)[0])
 
     chosen = [masks[t] for t in sorted(masks)[:n]]
@@ -245,6 +246,7 @@ def measure_network(spec: dict, device: str, repeats: int = 5, train: bool = Tru
     model.eval()
 
     def predict():
+        """One prediction, as the models make it: the photo and its mirror image."""
         with torch.inference_mode():
             model(x)
             model(x.flip(-1))                                   # every model averages in the mirror image
@@ -261,6 +263,7 @@ def measure_network(spec: dict, device: str, repeats: int = 5, train: bool = Tru
         model.train()
 
         def step():
+            """One training step on the random batch: forward, backward, update."""
             loss = _loss(spec["kind"], model(xb), torch)
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -418,6 +421,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report: dict = {"machine": machine(), "repeats": repeats}
     print(f"Benchmark on {report['machine']['gpu'] or 'the CPU only'} ...", flush=True)
 
+    # The ground truths (automatic baseline, guided tracing) on a few annotated development trees.
     clicks = load_clicks(args.clicks)
     records = [r for r in index_dataset(args.data_dir).trees
                if r.row not in split["test_rows"] and r.tree_id in clicks and clicks[r.tree_id].complete
@@ -426,6 +430,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"  ground truths on {len(records)} development trees ...", flush=True)
         report["ground_truths"] = ground_truths(records, clicks, 1 if args.quick else 3)
 
+    # Every network on every device: parameters, prediction and training-step time, peak memory.
     devices = (["cuda"] if torch.cuda.is_available() else []) + ["cpu"]
     specs = network_specs()
     if args.quick:
@@ -438,6 +443,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             train = dev != "cpu" or not args.no_cpu_training
             report["networks"][dev][spec["name"]] = measure_network(spec, dev, repeats, train)
 
+    # Training time: the recorded epochs of each saved run times the measured step time (on the GPU if
+    # there is one), and the same for the final test's one network.
     fast = devices[0]
     report["training"] = {}
     for spec in specs:
@@ -455,6 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                                      fin["epochs"])
         report["final_training"] = fin
 
+    # The cheap methods: ridge on the committed features, the U-Net's post-processing, the mean shape.
     features, table = Path("data/shape/summer_resnet18.npz"), Path("data/shape/shape_measures.csv")
     if features.exists() and table.exists() and not args.quick:
         print("  ridge: 5-fold training on the committed features ...", flush=True)

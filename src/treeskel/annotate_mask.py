@@ -142,6 +142,7 @@ class MaskAnnotator:
 
     def __init__(self, trees: Sequence[TreeRecord], path: str | Path, redo: bool = False,
                  clock: Callable[[], float] = time.monotonic):
+        """Load the saved shifts and open the first tree still to line up."""
         self.path = path
         self.saved = load_overlays(path)
         self.trees = [t for t in trees if t.has_mask and (redo or t.tree_id not in self.saved)]
@@ -154,6 +155,7 @@ class MaskAnnotator:
 
     @property
     def tree(self) -> TreeRecord | None:
+        """The tree being lined up, or ``None`` once every tree is done."""
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def start(self) -> Overlay:

@@ -6,3 +6,4 @@ scikit-image>=0.22
 matplotlib>=3.7
 pytest>=7.4
 pdoc>=14.0
+pytest-html>=4.0

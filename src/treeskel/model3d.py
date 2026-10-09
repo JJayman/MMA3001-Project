@@ -30,12 +30,14 @@ The model is in metres, the camera's frame turned so that ``y`` is up and
 front it looks like the photo. Sizes rest on the assumed 2 m from camera to
 fork, and the leaders end where the photo or the prediction ends.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.model3d train data/raw                     # once, on the GPU: models/unet_named.pt
-    python -m treeskel.model3d build --tree R05N12 --data data/raw    # outputs/model3d/R05N12.html (+ .ply)
-    python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
-    python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # no weights needed
+```
+python -m treeskel.model3d train data/raw                     # once, on the GPU: models/unet_named.pt
+python -m treeskel.model3d build --tree R05N12 --data data/raw    # outputs/model3d/R05N12.html (+ .ply)
+python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
+python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # no weights needed
+```
 """
 
 from __future__ import annotations
@@ -416,6 +418,7 @@ def viewer_data(model: dict, title: str, source: str) -> dict:
     m = model["measures"]
 
     def num(key, mult=1.0, spec=".1f"):
+        """A measure as text (scaled by ``mult``), or ``None`` if missing."""
         x = m.get(key)
         return None if x is None or not np.isfinite(x) else format(x * mult, spec)
 

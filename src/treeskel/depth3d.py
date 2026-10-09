@@ -293,6 +293,7 @@ def calibrate(results: Sequence[dict], zeros: Sequence[float] = ZEROS) -> dict:
     (with and without the blocks below :data:`MIN_VALUE`), per orchard row, and how session 2's zero and
     the disparity-like map compare."""
     def summary(key: str, err_key: str) -> dict:
+        """The zero's median, quartiles, pooled estimate and fit quality for one block selection (``key``)."""
         z = np.array([r[key]["zero"] for r in results], float)
         fin = np.isfinite(z) & ~np.array([r[key]["at_edge"] for r in results])
         errs = np.array([r[err_key] for r in results], float)
@@ -323,6 +324,7 @@ def calibrate(results: Sequence[dict], zeros: Sequence[float] = ZEROS) -> dict:
 def calibration_lines(s: dict) -> list[str]:
     """The calibration summary as text."""
     def f(x, spec=".0f"):
+        """A number as text, or ``-`` if missing."""
         return "-" if x is None or (isinstance(x, float) and not np.isfinite(x)) else format(x, spec)
 
     out = [f"The depth map's zero from the ground (flat ground: 1/(v0 - v) affine in the pixel's position); "
@@ -356,11 +358,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.calibrate:
         ap.error("nothing to do: give --calibrate")
 
+    # Every development-row tree (the ground needs no clicks); the test rows are never loaded.
     test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
     records = sorted((t for d in args.data_dirs for t in index_dataset(d).trees if t.row not in test_rows),
                      key=lambda t: t.tree_id)
     print(f"Fitting the depth map's zero on the ground of {len(records)} development-row trees...", flush=True)
     t0, step, results = time.time(), max(1, min(25, len(records) // 10)), []
+    # Each tree's zero is fitted in a worker process: the zero that makes its ground blocks come out flattest.
     with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(records)))) as ex:
         for i, r in enumerate(ex.map(_calibrate_one, [(rec, ZEROS) for rec in records], chunksize=4), 1):
             results.append(r)
@@ -368,6 +372,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 el = time.time() - t0
                 print(f"  {i}/{len(records)} trees, {el:.0f} s elapsed, about {el / i * (len(records) - i):.0f} s left",
                       flush=True)
+    # Pool the trees (median, quartiles, pooled fit, per row), then save the per-tree table and the summary.
     summary = calibrate(results)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

@@ -301,6 +301,7 @@ def secondary_from_saved(out: Path, figures: Path, progress: Callable[[str], Non
     failed: list[str] = []
 
     def write(path: Path, fn) -> None:
+        """Write one output file; a file that cannot be written is listed, not fatal."""
         try:
             fn(path)
         except OSError as e:                                # e.g. open in a viewer on Windows
@@ -364,6 +365,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     log_lines: list[str] = []
 
     def say(msg: str = "") -> None:
+        """Print a line and keep it for the log file."""
         print(msg, flush=True)
         log_lines.append(msg)
 
@@ -411,12 +413,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     truth = {r["tree"]: r for r in rows}
 
     def write(path: Path, fn) -> None:
+        """Write one output file; a file that cannot be written is listed, not fatal."""
         try:
             fn(path)
         except OSError as e:                                # e.g. open in a viewer on Windows
             failed.append(f"{path}: {e.strerror or e}")
 
     def shape_table(path):
+        """Write the test trees' shape measures (rounded to 3 decimals)."""
         with open(path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]))
             w.writeheader()
@@ -556,6 +560,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             say(f"  {c:16s} {s['median']:.3f}")
 
     def predictions(path):
+        """Write every test tree's measures: winter, the mean shape, the hand masks, the model (also completed)."""
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["tree", "row", "measure", "winter", "mean shape", "hand masks", "model",
@@ -567,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                                                    seg2_filled[i, j])])
 
     def mask_table(path):
+        """Write each test mask's pixel scores against its hand mask as drawn, and the Dice after the best shift."""
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["tree", "row", "fork_found", *MASK_COLUMNS, "dice_best_shift"])

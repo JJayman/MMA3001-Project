@@ -77,10 +77,12 @@ lower. The correction moves the depth by about ``(−dy, −dx)``.
    depth edge with no colour edge). So mutual information is reported by
    band and pooled over many trees only.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.measure_registration data/raw --clicks annotations/winter_clicks.json \\
-        --split splits.json --out outputs/measure_registration --plot outputs/depth_registration_rows.png
+```
+python -m treeskel.measure_registration data/raw --clicks annotations/winter_clicks.json \\
+    --split splits.json --out outputs/measure_registration --plot outputs/depth_registration_rows.png
+```
 """
 
 from __future__ import annotations
@@ -579,6 +581,7 @@ def measure_tree(job: tuple) -> dict:
     from treeskel.io import DEPTH_SHIFT, load_tree
 
     def compact(sec: dict) -> dict:
+        """The cross-sections in smaller number types, to keep the saved file small."""
         return {k: v if v.dtype == bool else v.astype(np.float32 if v.dtype.kind == "f" else np.int16)
                 for k, v in sec.items()}
 
@@ -1015,6 +1018,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--plot", help="also save a chart of the shift by orchard row as this image")
     args = ap.parse_args(argv)
 
+    # Every annotated development-row tree; the test rows are never measured.
     split = json.loads(Path(args.split).read_text())
     test_rows = set(split["test_rows"])
     clicks = load_clicks(args.clicks)
@@ -1032,6 +1036,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     t0 = time.time()
     step = max(1, min(25, len(jobs) // 10))
     results = []
+    # Each tree's cross-sections in a worker process, with progress about every 10% of the trees.
     with ProcessPoolExecutor(max_workers=max(1, min(args.jobs, len(jobs)))) as ex:
         for i, r in enumerate(ex.map(measure_tree, jobs, chunksize=2), 1):
             results.append(r)
@@ -1039,12 +1044,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 el = time.time() - t0
                 print(f"  {i}/{len(jobs)} trees, {el:.0f} s elapsed, about {el / i * (len(jobs) - i):.0f} s left",
                       flush=True)
+    # Pool all trees' cross-sections into the shift estimates (the bootstrap resamples whole trees).
     print("Pooling (with a bootstrap over trees)...", flush=True)
     report = summarise(results, n_boot=args.boot)
     report["depth"] = state
     report["test_rows_excluded"] = sorted(test_rows)
     print_report(report)
 
+    # Save the report (NaN written as null) and the per-tree table; a locked file is listed, not fatal.
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     failed: list[str] = []

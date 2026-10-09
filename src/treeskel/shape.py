@@ -834,8 +834,10 @@ def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict
         "no_trunk_axis": [...], "hand_missing": [...]}``.
     """
     def col(k):
+        """One column of the rows as a float array."""
         return np.array([r[k] for r in rows], float)
 
+    # Each measure's spread over the trees, and how far the clicks alone and the hand masks are from winter.
     out = {"n_trees": len(rows), "measures": {}}
     for k in MEASURES:
         w, c, h = col(f"winter_{k}"), col(f"clicks_{k}"), col(f"hand_{k}")
@@ -850,6 +852,7 @@ def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict
             "hand_r": float(np.corrcoef(w[ok], h[ok])[0, 1]) if ok.sum() > 2 else None,
             "hand_n": int(ok.sum()),
         }
+    # Leaders shorter than the stretch the angles are fitted over.
     short = {}
     for src in ("winter", "hand"):
         lengths = np.concatenate([col(f"{src}_left_length"), col(f"{src}_right_length")])
@@ -870,6 +873,7 @@ def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict
                 "hand_r": float(np.corrcoef(w[ok], h[ok])[0, 1]) if ok.sum() > 2 else None}
     out["no_trunk_axis"] = [r["tree"] for r in rows if not np.isfinite(r["winter_trunk_tilt"])]
     out["hand_missing"] = [r["tree"] for r in rows if not np.isfinite(r["hand_v_opening"])]
+    # How much a tighter framing moves the measures, with the fixed stretch and with the whole leader.
     framing = {}
     for label in ("fixed", "whole"):
         for keep in FRAMING_KEEP:
@@ -882,6 +886,8 @@ def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict
                                                    if len(v) else None)
     out["framing_change"] = framing
     if rows and "hand_frame_rotation" in rows[0]:
+        # The hand masks laid onto the winter traces: the rotation is the camera's roll between the seasons,
+        # summarised over the well-fitting trees, overall and per orchard row.
         rot, res, scale = col("hand_frame_rotation"), col("hand_frame_residual"), col("hand_frame_scale")
         good = np.isfinite(rot) & (res <= GOOD_FIT_PX)
         by_row = {}

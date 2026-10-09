@@ -42,9 +42,11 @@ of trees improved and a Wilcoxon signed-rank test). Trees in one row share
 light and camera settings, so the per-fold skills are also shown: a model
 that only helps in one fold is not reliable.
 
-Usage::
+Usage, from the command line:
 
-    python -m treeskel.shape_model --plots docs/figures   # data/shape/ -> docs/results/shape/
+```
+python -m treeskel.shape_model --plots docs/figures   # data/shape/ -> docs/results/shape/
+```
 """
 
 from __future__ import annotations
@@ -143,6 +145,7 @@ class RidgePath:
     """
 
     def __init__(self, x: np.ndarray, y: np.ndarray):
+        """Standardise the features, centre the targets and take the SVD once."""
         self.mu = x.mean(0)
         self.sd = x.std(0)
         self.sd[self.sd < 1e-6] = 1.0                       # constant features contribute nothing

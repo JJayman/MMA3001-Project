@@ -99,6 +99,7 @@ class PairAnnotator:
     def __init__(self, trees: Sequence[TreeRecord], pairs_path: str | Path, redo: bool = False,
                  clicks_path: str | Path = "annotations/winter_clicks.json",
                  gt_dir: str | Path | None = "outputs/winter_gt_guided", model: str = "similarity"):
+        """Load the saved pairs and the winter clicks, and open the first tree still to pair."""
         self.pairs_path = pairs_path
         self.saved = load_pairs(pairs_path)
         self.trees = [t for t in trees if redo or t.tree_id not in self.saved]
@@ -114,6 +115,7 @@ class PairAnnotator:
     # --- current tree -------------------------------------------------------
     @property
     def tree(self) -> TreeRecord | None:
+        """The tree being paired, or ``None`` once every tree is done."""
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def _load(self) -> None:
@@ -257,6 +259,7 @@ def run_gui(ann: PairAnnotator, show: bool = True):
     shown = {"tree": None}                          # keep the zoom while on the same tree
 
     def draw() -> None:
+        """Redraw both photos, the masks and the numbered pairs with their errors, keeping the zoom on the same tree."""
         same = not ann.done and shown["tree"] == ann.tree.tree_id
         limits = [(a.get_xlim(), a.get_ylim()) for a in (axw, axs)] if same else None
         for a in (axw, axs):
@@ -302,6 +305,7 @@ def run_gui(ann: PairAnnotator, show: bool = True):
         fig.canvas.draw_idle()
 
     def on_click(ev) -> None:
+        """A left click in either photo adds a point to a pair (not while zooming or panning)."""
         if ev.button != 1 or ev.inaxes not in (axw, axs) or ev.xdata is None:
             return
         toolbar = getattr(fig.canvas, "toolbar", None)
@@ -311,6 +315,7 @@ def run_gui(ann: PairAnnotator, show: bool = True):
         draw()
 
     def on_key(ev) -> None:
+        """Pass a key to the annotator; ``q`` closes the window."""
         ann.key(ev.key)
         if ev.key == "q":
             plt.close(fig)
