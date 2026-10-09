@@ -206,8 +206,13 @@ See the latest file in `docs/progress/`. As of session 13 (session 14: the repos
     viewer (no internet) and `.ply`; `train` must be run once on the
     student's PC before `build` can use the network on a new photo.
 - **Next (the report is due about 19 October 2026):**
-  1. On the student's PC: `python -m treeskel.model3d train data/raw`, then
-     build and look at a few trees.
+  1. ~~Train and build on the student's PC~~ (done, session 14). `train`
+     makes a second sample of the recipe (GPU), not the final test's network:
+     use `--mask saved` for development trees (out of fold) and
+     `--saved docs/results/final_test/predicted_masks.npz` for figures that
+     match the final test; `--mask unet` on a development tree is in-sample
+     (`build` warns). A short predicted leader can tip the 3D plane (R01N04,
+     R03N10). See `docs/results/model3d/README.md`.
   2. The report.
   3. **Before submission: the repository requirements.** All met as of
      session 14 (PR for branch `claude/compassionate-carson-ospof6`). If any
@@ -220,9 +225,9 @@ See the latest file in `docs/progress/`. As of session 13 (session 14: the repos
      | ReadMe | refreshed: results at a glance, documentation links (HTML docs, test report, 3D viewer example), 9-tree sample, test rows named |
      | HTML documentation | `docs/html/` (pdoc, Google format), 24 modules; the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 464 passed, 1 skipped (the LightGlue test needs kornia) |
+     | Source code, functional `main` | 468 passed, 1 skipped (the LightGlue test needs kornia) |
      | Docstrings and inline comments | 440 of 440 public functions, classes and methods, and every nested helper; comments on intent added to the longest functions (cross-validation, the joined, grown and continued runs, the CLIs) |
-     | Test functions | 27 test files, 405 test functions in `tests/` |
+     | Test functions | 27 test files, 409 test functions in `tests/` |
      | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment with CPU PyTorch; can be remade on the student's PC with the same command |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
