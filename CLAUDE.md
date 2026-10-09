@@ -125,6 +125,8 @@ annotations/   winter_clicks.json (ground truth), season_overlay.json (alignment
 data/raw/      full dataset, git-ignored, only on the student's PC
 docs/progress/ session summaries (the project's memory)
 docs/figures/, docs/results/  evidence for the report
+docs/html/     HTML documentation (pdoc -d google -o docs/html src/treeskel), committed
+docs/test_report.html  pytest-html test report, committed
 ```
 
 The assistant's environment has only `data/sample` and `data/tuning`. Runs on
@@ -138,7 +140,9 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 - **Git:** work on a branch, push, open a PR; the student merges. Never push
   to `main`. Commit messages explain why, not just what.
-- **Code:** Google-style docstrings (the HTML docs are built by pdoc), inline
+- **Code:** Google-style docstrings (the HTML docs are built by pdoc with
+  `-d google`; command examples in docstrings go in a fenced block, since
+  reST's `Usage::` shows literally), inline
   comments on intent, and a test for every behaviour. Synthetic data with a
   known answer is preferred; use the sample for integration tests.
 - **Validation habits that caught real errors:**
@@ -155,7 +159,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 13:
+See the latest file in `docs/progress/`. As of session 13 (session 14: the repository requirements):
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -200,19 +204,21 @@ See the latest file in `docs/progress/`. As of session 13:
   1. On the student's PC: `python -m treeskel.model3d train data/raw`, then
      build and look at a few trees.
   2. The report.
-  3. **Before submission: the repository requirements** (counts as of session
-     13 on the PR #50 branch; do this near the end, so that the docs and the
-     test report match the final code):
+  3. **Before submission: the repository requirements.** All met as of
+     session 14 (PR for branch `claude/compassionate-carson-ospof6`). If any
+     code changes after that, rebuild the last two before submitting:
+     `pdoc -d google -o docs/html src/treeskel` and
+     `pytest --html=docs/test_report.html --self-contained-html`.
 
-     | Requirement | Status (session 13) | To do |
-     |---|---|---|
-     | ReadMe | yes | refresh: the sample has 9 trees (it says 8); drop "work in progress"; link the HTML docs, the test report and the 3D viewer example |
-     | HTML documentation | **missing** | `pdoc -o docs/html src/treeskel` and commit `docs/html/` (`docs/_build/` is git-ignored); 24 modules |
-     | Licence | yes | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | yes, once PR #50 is merged | 464 passed, 1 skipped |
-     | Docstrings and inline comments | mostly | 431 of 440 public functions, classes and methods have docstrings; add the 9 (`__init__` and `tree` in `annotate.py`, `annotate_mask.py`, `annotate_overlay.py`, `annotate_pairs.py`; `__init__` in `shape_model.py`); add a few more inline comments in the longer functions |
-     | Test functions | yes | 27 test files in `tests/` |
-     | Test report | **missing** | on the student's PC (so the torch tests run): `pip install pytest-html`, then `pytest --html=docs/test_report.html --self-contained-html`; commit it |
+     | Requirement | Status (session 14) |
+     |---|---|
+     | ReadMe | refreshed: results at a glance, documentation links (HTML docs, test report, 3D viewer example), 9-tree sample, test rows named |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 24 modules; the package page lists them in the order of the work |
+     | Licence | `LICENSE`, GNU GPL v3 |
+     | Source code, functional `main` | 464 passed, 1 skipped (the LightGlue test needs kornia) |
+     | Docstrings and inline comments | 440 of 440 public functions, classes and methods, and every nested helper; comments on intent added to the longest functions (cross-validation, the joined, grown and continued runs, the CLIs) |
+     | Test functions | 27 test files, 405 test functions in `tests/` |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment with CPU PyTorch; can be remade on the student's PC with the same command |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).

@@ -9,12 +9,37 @@ build the ground truth. The intended use is perception for orchard robots
 (pruning, harvesting, path planning), which must avoid or target branches they
 cannot directly see.
 
-> Work in progress. See the sections below for what currently exists.
+## Results at a glance
+
+The headline measure is the **V opening**, the angle between the two leaders. Skill is how much a method
+reduces the squared error of guessing the average tree's shape (1 is perfect, 0 no better than the
+average tree, negative worse). Every summer prediction is scored against the same trees' winter photos.
+
+| Step | Result | Details |
+|---|---|---|
+| Ground truth | 541 winter trees traced through 4 clicks each, plus about one correction (about 15 s a tree); the tuned tracer passes a mean 3.2 px from the correction clicks (4.8 px on trees left out) | `docs/results/tune_cost/` |
+| Automatic winter baseline | traces only 43% of trees well (F1 ≥ 0.9 against the guided traces); V opening skill −1.97 | `docs/results/winter_baseline/` |
+| Summer models (5 row-grouped folds, 449 development trees) | V opening skill: ridge on CNN features +0.10, fine-tuned angle CNN +0.18, **U-Net on the lined-up hand masks, pieces joined, +0.75**; the hand masks themselves +0.87 | `docs/results/shape/`, `segment_lined_up_joined/` |
+| **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
+| Run time | the U-Net predicts a photo in 9.7 ms on a GPU, 116 ms on a CPU, and trains in 2 minutes | `docs/results/benchmark/` |
+| 3D | the trees are flat to a median 1.7 cm (sizes assume 2 m from the camera to the fork); the V in the photo is about 2.3° wider than in the tree's own plane | `docs/results/depth3d/`, `tree3d/` |
+| 3D model of a summer photo | opens in any browser: [`docs/results/model3d/R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
+
+## Documentation
+
+- **HTML documentation** of every module, function and class: open [`docs/html/index.html`](docs/html/index.html)
+  in a browser (built with pdoc from the docstrings).
+- **Test report:** [`docs/test_report.html`](docs/test_report.html) (pytest, every test with its result).
+- **Session notes** in [`docs/progress/`](docs/progress/): what was done in each work session, the numbers,
+  the decisions, how AI was used (and where it was wrong) and the next steps.
+- **Results** in [`docs/results/`](docs/results/), one folder per experiment with a README, and figures in
+  [`docs/figures/`](docs/figures/).
 
 ## Repository structure
 
 ```
-data/sample/     8-tree sample of the dataset (full dataset not committed)
+data/sample/     9-tree sample of the dataset (full dataset not committed)
+data/tuning/     17 development-row trees used to tune the guided tracing
 src/treeskel/    Python package
   io.py          filename parsing, dataset indexing, image loading
   splits.py      row-grouped hold-out and k-fold cross-validation splits
@@ -49,7 +74,12 @@ data/matches/    winter-summer point matches per matcher (from align.py), commit
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
+docs/results/    one folder per experiment: README, report.json, per-tree tables
+docs/figures/    figures for the report
+docs/html/       HTML documentation (pdoc)
+docs/test_report.html  test report (pytest-html)
 splits.json      fixed test rows and cross-validation folds (do not change)
+LICENSE          GNU GPL v3
 ```
 
 ## Setup
@@ -111,7 +141,8 @@ python -m treeskel.depth3d data/raw --calibrate            # the depth map's zer
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
 python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
 python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
-pdoc -o docs/_build src/treeskel           # build HTML documentation
+pdoc -d google -o docs/html src/treeskel   # build the HTML documentation (docs/html/)
+pytest --html=docs/test_report.html --self-contained-html   # the test report
 ```
 
 ## Data
@@ -126,16 +157,19 @@ up and 1 column right when loaded ([`docs/results/depth_registration`](docs/resu
 See [`data/sample/README.md`](data/sample/README.md).
 
 The full dataset ("Dataset (With Summer GT)", 562 trees in 20 rows) comes from the MMA3001 teaching team
-and is not redistributed here. Put it in `data/raw/`, which is git-ignored.
+and is not redistributed here. Put it in `data/raw/`, which is git-ignored. 541 trees in 19 rows are used:
+row 4 is excluded because its winter depth images are copies of R03N34's.
 
 ## Validation design
 
-Whole orchard rows are held out as a final test set (about 15% of trees), and
+Whole orchard rows are held out as a final test set (rows 3, 12 and 16: 92 of the 541 trees, 17%), and
 5-fold cross-validation grouped by row is used on the remaining rows for model
 selection. The split is saved in `splits.json`, committed before any model is
 trained, and reloaded with `--load` so it never changes. Row 4 is excluded
 because all of its winter depth images are identical. Grouping by row stops neighbouring trees, which share background,
-lighting and capture session, from appearing in both training and test data.
+lighting and capture session, from appearing in both training and test data. The test rows were used once,
+for the final test in session 12, after the model had been named on the development rows
+([`docs/results/final_test/naming_rule.md`](docs/results/final_test/naming_rule.md)).
 
 
 ## Acknowledgement of AI Assistance in Project Development
