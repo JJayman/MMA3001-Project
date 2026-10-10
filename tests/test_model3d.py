@@ -266,3 +266,57 @@ def test_build_says_when_the_tree_was_in_the_training_set(sample_dir, tmp_path, 
     torch.save(old, tmp_path / "old.pt")
     assert note in capture(["build", "--tree", "R15N05", "--weights", str(tmp_path / "old.pt"), *common])
     assert note not in capture(["build", "--tree", "R12N02", "--weights", str(tmp_path / "old.pt"), *common])
+
+
+@pytest.fixture(scope="module")
+def bent_model(sample_model):
+    from treeskel.bend3d import BendParams
+    from treeskel.segment import load_masks
+
+    s, _ = sample_model
+    params = BendParams(spread=0.02, length=0.2)
+    return params, tree_model(s["rgb"], s["depth"], s["valid"], load_masks(SAVED)["R15N05"], bends=params)
+
+
+def test_bends_move_points_along_their_rays_and_mark_the_unseen(sample_model, bent_model):
+    from treeskel.model3d import BARK, UNSURE
+
+    _, flat = sample_model
+    params, bent = bent_model
+    b = bent["measures"]["bends"]
+    assert np.isfinite(b["trunk_out"]) and b["trunk_anchors"] > b["left_anchors"]   # summer sees the trunk best
+    # The plane's own measures are unchanged; only the geometry and the extra measures differ.
+    for k in ("v_opening_3d", "v_opening_2d", "lean_camera"):
+        assert bent["measures"][k] == flat["measures"][k]
+    v = bent["branches"]["vertices"]
+    n0 = len(flat["branches"]["vertices"])                                 # bent lines are a little longer: more rings
+    assert n0 <= len(v) < 1.05 * n0
+    assert np.linalg.norm(v, axis=1).min() < 0.05                          # the fork's ball is still at the origin
+    colours = np.round(bent["branches"]["colours"], 3)
+    pale = np.all(colours == np.round(UNSURE, 3), axis=1)
+    assert pale.mean() > 0.5 and np.all(pale | np.all(colours == np.round(BARK, 3), axis=1))   # leaders unseen
+    assert not np.any(np.all(np.round(flat["branches"]["colours"], 3) == np.round(UNSURE, 3), axis=1))
+
+
+def test_bent_viewer_and_ply_carry_the_colours(bent_model, tmp_path):
+    from treeskel.model3d import UNSURE
+
+    _, bent = bent_model
+    write_html(tmp_path / "t.html", bent, "t", "s")
+    page = (tmp_path / "t.html").read_text(encoding="utf-8")
+    data = json.loads(re.search(r"const DATA = (\{.*?\});\n", page, re.S).group(1).replace("<\\/", "</"))
+    cols = np.frombuffer(base64.b64decode(data["mesh"]["colours"]), "u1").reshape(-1, 3)
+    assert len(cols) == len(bent["branches"]["vertices"]) and data["bends"] is True
+    names = [m[0] for m in data["measures"]]
+    assert "Trunk out of the V's plane (+: root behind)" in names
+    write_ply_mesh(tmp_path / "b.ply", bent["branches"])
+    back = read_ply(tmp_path / "b.ply")
+    assert np.any(back["vertex"]["red"] == round(UNSURE[0] * 255))
+
+
+def test_build_with_bends(sample_dir, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(ROOT)
+    assert main(["build", "--tree", "R15N05", "--data", str(sample_dir), "--mask", "saved", "--saved", str(SAVED),
+                 "--out", str(tmp_path), "--bends"]) == 0
+    out = capsys.readouterr().out
+    assert "Bends out of the plane: prior" in out and "trunk" in out and "drawn pale" in out

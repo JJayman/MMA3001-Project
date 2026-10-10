@@ -113,8 +113,10 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                benchmark.py (run time and memory of every method),
                depth3d.py (the depth map's zero from the ground; the camera),
                tree3d.py (the tree's plane, V in the plane, lean, sizes; summer against winter),
+               bend3d.py (trunk and leaders as smooth 3D curves that may leave the plane: robust
+               Gaussian-process fit joined at the fork, block cross-validation, summer ridge readings),
                model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
-               named U-Net to the git-ignored models/)
+               named U-Net to the git-ignored models/; `--bends` lets the branches leave the plane)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -238,6 +240,15 @@ See the latest file in `docs/progress/`. As of session 14:
      | Test functions | 27 test files, 409 test functions in `tests/` |
      | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment with CPU PyTorch; can be remade on the student's PC with the same command |
   4. Optional: the 3D step once on the test rows (with the caveat).
+- **Session 15 (in progress): bends out of the plane** (the student's request and four-step plan;
+  `treeskel.bend3d`, `docs/results/bend3d/README.md`). Method, synthetic checks and the rules for the
+  449-tree run are committed; **the run on the student's PC is next**
+  (`python -m treeskel.bend3d data/raw --profiles R01N05 R01N13 R07N29 R15N05 R09N34 R01N18`, about 30 min).
+  The 21-tree preview (`docs/results/bend3d_preview/`, not a result) suggests: the bends predict left-out
+  winter depth far better than the plane; the trunk stands about 25° out of the V's plane (root behind),
+  repeated in summer; and the bent V is about 2.2° wider than the plane's, which would cancel session 13's
+  3D correction (to be settled on 449). `model3d build --bends` is an option, not the default, until the
+  student decides on the 449-tree evidence.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

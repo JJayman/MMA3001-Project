@@ -1,0 +1,8 @@
+Prior tau 2 cm, L 20 cm; 10 seeds each; mean ± SD.
+case                                       V bent - plane  (true)  trunk-out error  bow error (cm)  true trunk out  true bow
+flat; lean 9, turn -5; noise 0.7 units     -0.03 ± 0.06    -0.00    +0.07 ± 1.03    +0.07 ± 0.19            +0.0     +0.00
+flat; noise 1.2 units                      -0.05 ± 0.10    -0.01    -0.22 ± 1.50    +0.05 ± 0.29            +0.0     +0.00
+flat; lean 15                              -0.03 ± 0.07    -0.02    +0.09 ± 0.87    -0.01 ± 0.21            +0.0     +0.00
+trunk 20 deg out, leaders flat             +0.07 ± 0.06    +0.09    -0.69 ± 0.59    +0.07 ± 0.19           +20.0     +0.00
+trunk 20 deg out, left bow 5 units         +0.12 ± 0.06    +0.15    -0.68 ± 0.70    -0.07 ± 0.31           +19.4     +4.86
+trunk -15 deg out, left bow -4 units       -0.12 ± 0.08    -0.14    +0.23 ± 1.27    +0.05 ± 0.15           -14.4     -3.78
