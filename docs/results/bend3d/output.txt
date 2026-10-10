@@ -46,4 +46,5 @@ Summer (ridge readings only) against winter's bends, tree by tree: median |summe
     right_bow  n 434  bends   1.71  plane   1.63  closer  44%  p 2.8e-02  rank 0.11
     v_opening  n 434  bends   3.01  plane   3.00  closer  48%  p 1.3e-01  rank 0.88
 
-Failed planes (turned more than 60 deg, or too little depth): winter 12 (R01N30, R02N14, R02N41, R05N12, R06N22, R07N26, R08N22, R11N15, R14N25, R18N12, R19N10, R20N02); winter ridges 4 (R01N30, R07N26, R08N22, R11N15); hand masks 1 (R14N24); U-Net 9 (R01N04, R01N40, R05N04, R05N06, R06N28, R14N01, R14N24, R17N11, R17N23)
+Failed planes under the main setting (turned more than 60 deg, or too little depth): winter 4 (R01N30, R07N26, R08N22, R11N15); winter ridges 4 (R01N30, R07N26, R08N22, R11N15); hand masks 1 (R14N24); U-Net 9 (R01N04, R01N40, R05N04, R05N06, R06N28, R14N01, R14N24, R17N11, R17N23)
+  winter under the other settings (left out of their medians): zero 262 11; zero 366 3; zero 255 (session 2) 12; focal 585 4; focal 647 4

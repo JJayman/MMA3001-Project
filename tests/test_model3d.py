@@ -314,9 +314,16 @@ def test_bent_viewer_and_ply_carry_the_colours(bent_model, tmp_path):
     assert np.any(back["vertex"]["red"] == round(UNSURE[0] * 255))
 
 
-def test_build_with_bends(sample_dir, tmp_path, capsys, monkeypatch):
+def test_build_bends_by_default_and_flat_on_request(sample_dir, tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(ROOT)
-    assert main(["build", "--tree", "R15N05", "--data", str(sample_dir), "--mask", "saved", "--saved", str(SAVED),
-                 "--out", str(tmp_path), "--bends"]) == 0
+    base = ["build", "--tree", "R15N05", "--data", str(sample_dir), "--mask", "saved", "--saved", str(SAVED)]
+    assert main(base + ["--out", str(tmp_path / "default")]) == 0
     out = capsys.readouterr().out
-    assert "Bends out of the plane: prior" in out and "trunk" in out and "drawn pale" in out
+    assert "Bends out of the plane: prior tau 2 L 20 (chosen by the 449-tree run)" in out and "drawn pale" in out
+    assert main(base + ["--out", str(tmp_path / "bends"), "--bends"]) == 0
+    assert "Bends out of the plane" in capsys.readouterr().out
+    assert main(base + ["--out", str(tmp_path / "flat"), "--flat"]) == 0
+    out = capsys.readouterr().out
+    assert "Bends out of the plane" not in out and "bent:" not in out
+    with pytest.raises(SystemExit):
+        main(base + ["--bends", "--flat"])

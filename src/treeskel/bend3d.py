@@ -120,9 +120,8 @@ def per_unit(camera: Camera) -> float:
 class BendParams:
     """The prior on the bends and the robust fit.
 
-    The default prior is provisional: the one :func:`block_cv` chose on the 21 development trees in the
-    repository (τ 2 cm, L 20 cm). The 449-tree run chooses the prior to use (``docs/results/bend3d/``), and
-    :mod:`treeskel.model3d` reads it from there.
+    The default prior, τ 2 cm and L 20 cm, is the one :func:`block_cv` chose on the 449 development trees
+    (``docs/results/bend3d/``; every fold chose it too), which :mod:`treeskel.model3d` reads from there.
 
     Attributes:
         spread: τ, the prior standard deviation of a bend (m); 0 is the plane.
@@ -852,8 +851,13 @@ def summarise(cv_rows: Sequence[dict], rows: Sequence[dict], fold_rows: Sequence
             "anchors": {p: _q([r[f"{p}_anchors"] for r in sub])["median"] for p in PARTS},
             "uncertain": {p: _q([r[f"{p}_uncertain"] for r in sub])["median"] for p in PARTS},
             "against_winter": {m: summer_against_winter(rows, source, m) for m in SUMMER_MEASURES}}
-    report["failed"] = {s: sorted({r["tree"] for r in rows if r["source"] == s and r.get("error")})
-                        for s in ("winter", "winter ridges", "hand masks", "U-Net")}
+    # Failed planes under the main setting, and the winter ones under each other setting (whose medians above
+    # leave them out).
+    report["failed"] = {s: sorted({r["tree"] for r in rows if r["source"] == s and r["setting"] == "main"
+                                   and r.get("error")}) for s in ("winter", "winter ridges", "hand masks", "U-Net")}
+    report["failed_winter_by_setting"] = {
+        setting: sorted({r["tree"] for r in rows if r["source"] == "winter" and r["setting"] == setting
+                         and r.get("error")}) for setting in SETTINGS}
     return report
 
 
@@ -921,9 +925,13 @@ def report_lines(report: dict) -> list[str]:
             if a.get("n", 0) >= 3:
                 out.append(f"    {m:10s} n {a['n']:3d}  bends {a['median_bent']:6.2f}  plane {a['median_plane']:6.2f}  "
                            f"closer {a['bent_closer']:4.0%}  p {a['wilcoxon_p']:.1e}  rank {_f(a['spearman'])}")
-    out += ["", "Failed planes (turned more than "
+    out += ["", "Failed planes under the main setting (turned more than "
             f"{MAX_TURN:g} deg, or too little depth): " + "; ".join(
                 f"{s} {len(t)} ({', '.join(t) or 'none'})" for s, t in report["failed"].items())]
+    other = {k: v for k, v in report.get("failed_winter_by_setting", {}).items() if k != "main"}
+    if other:
+        out.append("  winter under the other settings (left out of their medians): " + "; ".join(
+            f"{k} {len(v)}" for k, v in other.items()))
     return out
 
 

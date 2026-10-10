@@ -1,0 +1,28 @@
+1. V opening (winter, main setting; degrees), tree by tree:
+  plane (this run, axis depth) - plane (session 13, surface depth): -0.30 [-0.39, -0.21] (n 445)
+  plane - photo (session 13's 3D correction):                        -2.57 [-3.41, -1.82] (n 445)
+  bends - plane:                                                     +1.57 [+0.89, +2.33] (n 445)
+  bends - photo:                                                     -0.88 [-1.89, +0.05] (n 445)
+  bends narrower than the photo on 73% of trees (the plane on 99%)
+
+2. Trunks more than 40 deg out of the V's plane (winter): 10 of 444
+  with ridge readings only, still above 40 deg: 7; above 20 deg: 8
+  trees: R01N01, R01N03, R01N04, R01N15, R01N24, R01N25, R02N19, R11N03, R15N17, R18N23
+  by orchard row (median trunk angle, n): 1: 26.4 (43), 2: 16.8 (43), 5: 11.4 (34), 6: 8.5 (32), 7: 14.5 (30), 8: 16.0 (21), 9: 11.8 (34), 10: 16.0 (29), 11: 15.0 (21), 13: 14.3 (33), 14: 11.7 (30), 15: 10.3 (28), 17: 14.2 (23), 18: 14.0 (26), 19: 16.5 (11), 20: 18.6 (6)
+
+3. Summer's trunk angle against winter's, by how model3d draws the summer trunk (seen: less than half uncertain):
+  U-Net      seen: n 214  median |summer - winter| bends 11.38, plane 14.08; bends closer on 62% (Wilcoxon p 9.0e-06); rank correlation 0.52
+  U-Net      pale: n 219  median |summer - winter| bends 12.77, plane 15.61; bends closer on 58% (Wilcoxon p 6.1e-04); rank correlation 0.25
+  hand masks seen: n 220  median |summer - winter| bends 11.91, plane 13.49; bends closer on 57% (Wilcoxon p 3.6e-03); rank correlation 0.38
+  hand masks pale: n 222  median |summer - winter| bends 12.70, plane 16.26; bends closer on 58% (Wilcoxon p 5.9e-06); rank correlation 0.29
+
+4. The trunk's angle out of the V's plane (degrees, main setting):
+  winter:              +14.24 [+6.94, +21.08] (n 444)
+  summer, hand masks +2.54 [-1.92, +9.07] (n 442); Theil-Sen slope on winter's 0.29
+  summer, U-Net      +2.92 [-2.01, +8.91] (n 433); Theil-Sen slope on winter's 0.32
+
+5. Leaders' bows (cm): |summer - winter| median, bends against plane, and the summer bends' size:
+  hand masks left : bends 1.81, plane 1.72 (difference +0.09); |summer bow| median 0.81
+  hand masks right: bends 1.84, plane 1.63 (difference +0.21); |summer bow| median 0.87
+  U-Net      left : bends 1.85, plane 1.73 (difference +0.13); |summer bow| median 0.71
+  U-Net      right: bends 1.71, plane 1.63 (difference +0.09); |summer bow| median 0.83

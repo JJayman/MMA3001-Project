@@ -26,6 +26,7 @@ from treeskel.bend3d import (
     prepare,
     prior_terms,
     precision,
+    report_lines,
     ridge_contrast,
     save_csv,
     setting_key,
@@ -323,6 +324,17 @@ def test_csv_round_trip_and_summary(tmp_path):
     assert tr["median_bent"] == pytest.approx(2.0) and tr["median_plane"] > 10 and tr["bent_closer"] == 1.0
     assert rep["winter"]["trunk_out"]["median"] == pytest.approx(12.5)
     assert rep["winter_ridges"]["median_abs_diff"] == pytest.approx(2.0) and rep["winter_ridges"]["spearman"] == 1.0
+    assert rep["failed"]["winter"] == [] and set(rep["failed_winter_by_setting"]) == set(SETTINGS)
+
+
+def test_failed_planes_are_reported_per_setting():
+    rows = [{"tree": "R01N01", "row": 1, "source": "winter", "setting": "zero 262", "model": "bent", "error": "turned"},
+            {"tree": "R01N02", "row": 1, "source": "winter", "setting": "main", "model": "bent", "error": "turned"},
+            {"tree": "R01N02", "row": 1, "source": "winter", "setting": "zero 262", "model": "bent", "error": "turned"}]
+    rep = summarise(_cv_rows(), rows, [[1], [2], [5]])
+    assert rep["failed"]["winter"] == ["R01N02"]
+    assert rep["failed_winter_by_setting"]["zero 262"] == ["R01N01", "R01N02"]
+    assert "zero 262 2" in "\n".join(report_lines(rep))
 
 
 def test_cli_on_the_sample(sample_dir, tmp_path, capsys):
