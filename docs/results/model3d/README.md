@@ -20,7 +20,7 @@ rows) open in any browser, with no internet and nothing installed: drag to turn,
 or shift-drag to move, and fade or hide the leaves.
 
 - `R15N05.html`: the example since session 13, rebuilt with bends; little of its trunk is seen in summer,
-  so it stays near the plane, pale. Figure (the flat model of session 13): `docs/figures/model3d_R15N05.jpg`.
+  so it takes the typical winter shape, pale. Figure (the flat model of session 13): `docs/figures/model3d_R15N05.jpg`.
 - `R01N13.html`: a tree whose summer trunk is seen, chosen by a rule (below). Figure of both, from the front
   and the side: `docs/figures/model3d_bends.png` (`bends_figure.py`).
 
@@ -128,10 +128,12 @@ plane is closer to winter's than the plane's on 60% of the 433 trees (Wilcoxon p
   (median size 0.7–0.9 cm). They are drawn pale.
 
 **The examples.** `R15N05.html` (the session-13 example, kept): 19% of its trunk read, none of it sure, so the
-model stays within a few centimetres of the plane. `R01N13.html`: chosen by a rule, not by eye: among the
-development trees in the repository whose U-Net trunk is drawn as seen, the one whose summer-against-winter
-trunk-angle error (12.2°) is nearest the median of all 214 such trees (11.4°). Its summer trunk is 16.3° out
-of the V's plane (winter 28.5°); 85% of its trunk is read and 72% drawn as seen.
+model follows the typical winter shape: its trunk 8.4° out of the V's plane (winter 6.4°; −2.4° with the plane
+as the mean). `R01N13.html`: chosen by a rule, not by eye: among the development trees in the repository whose
+U-Net trunk is drawn as seen, the one whose summer-against-winter trunk-angle error with the plane as the mean
+(12.2°) is nearest the median of all 214 such trees (11.4°). Its summer trunk is 18.0° out of the V's plane
+with the typical shape as the mean (16.3° with the plane; winter 28.5°); 85% of its trunk is read and 71%
+drawn as seen.
 
 **Two additions after the student saw nearly straight leaders** (the real bends are a few centimetres over
 1.5 m, and summer does not see the leaders, so they followed the flat plane):
@@ -139,12 +141,16 @@ of the V's plane (winter 28.5°); 85% of its trunk is read and 72% drawn as seen
 - **"Exaggerate bends" (×1–×5) in the viewer's panel:** each vertex moves by up to five times its bend out of
   the plane, for display only; the panel's numbers and the `.ply` files stay at true scale.
 - **The typical winter shape as the prior's mean** (`docs/results/bend3d_typical/`): where summer does not see
-  the wood, the branches would take the typical winter tree's shape instead of the plane. `build` uses it only
-  if the rule fixed before its 449-tree run passed (it says which; `--plane-prior` keeps the plane). Until
-  that run is saved, the plane.
+  the wood, the branches take the typical winter tree's shape instead of the plane. The rule fixed before its
+  449-tree run passed (U-Net masks, out of fold, against the plane as the mean: trunk angle 8.5° against
+  12.0°, nearer winter on 78% of trees; leader tilts 3.0° against 4.5°, 76%), so `build` uses it (it says so;
+  `--plane-prior` keeps the plane). The summer leaders now carry the typical S: towards the camera just above
+  the fork, away around 0.8 m, back near the top.
 
 **Checked:** the plane's own measures are unchanged by the bends; the colours reach the viewer and the
 `.ply` file; the page opens in headless Chromium without errors, front and side views as expected; the
-examples' bent measures equal the 449-tree run's for the same trees (R15N05 −2.4°, R01N13 16.3°). A test
+examples' bent measures equal the 449-tree runs' for the same trees (with the plane as the mean R15N05 −2.4°,
+R01N13 16.3°; with the typical shape R01N13 18.0°, and R15N05 8.4° against 8.6°, because `build` uses the
+shape learnt from all trees and the run each fold's). A test
 caught that `build` had not been bending by default at first (both options shared one setting, whose
 default came from `--bends`).

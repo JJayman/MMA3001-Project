@@ -99,7 +99,10 @@ camera, different (autumn) capture.
   agreed); summer counts only depth-ridge readings. **`model3d build` bends by
   default** (the student's decision after the rule fixed before the 449-tree
   run passed; `--flat` gives the plane); unseen sections are drawn pale. See
-  `docs/results/bend3d/README.md`.
+  `docs/results/bend3d/README.md`. **The prior's mean is the typical winter
+  shape** (`bend3d --typical`; its rule, fixed before its 449-tree run,
+  passed: `model3d` reads the verdict; `--plane-prior` gives the plane). See
+  `docs/results/bend3d_typical/README.md`.
 
 ## Where things are
 
@@ -265,7 +268,12 @@ See the latest file in `docs/progress/`. As of session 14:
     prior mean (`bend3d --typical`, `docs/results/bend3d_typical/`; rule committed before its 449-tree run:
     U-Net, out of fold, nearer winter than the plane-mean bends on the trunk angle and the leader tilts,
     p < 0.05); `model3d` uses it only if the rule passed (`--plane-prior` keeps the plane). The viewer's
-    "Exaggerate bends" slider (×1–×5) is display only. **Next: the `--typical` run on the student's PC.**
+    "Exaggerate bends" slider (×1–×5) is display only.
+  - *The typical-shape run (449 trees):* the rule passed (U-Net: trunk 8.5° against 12.0°, nearer on 78%;
+    tilts 3.0° against 4.5°, 76%; the V opening too). The typical leader is an S (2–3 cm towards the camera
+    just above the fork, 1–1.5 cm behind around 0.8 m, back near the top). The shape alone is nearer still on
+    the angles (7.0°, 2.7°) but the same for every tree; summer's readings follow the individual tree (rank
+    0.38–0.49) but pull the angles low. Reported, not used.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

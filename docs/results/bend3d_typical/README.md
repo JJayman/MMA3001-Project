@@ -14,8 +14,50 @@ The fix for the first: make the prior's mean the **typical winter shape** instea
 where summer sees nothing the model draws the typical tree. For the second, `model3d`'s viewer gets a
 display-only slider that exaggerates the bends.
 
-**Status: method, checks and rule committed; the 449-tree run is still to be made on the student's PC**
-(the command is at the end).
+**Status: done on the 449 development trees** (the student's PC, 10 October). The method, the checks and the
+rule were committed before the run (31bc667, merged in PR #58); the run's files are `trees.csv`,
+`typical_shape.json`, `profiles.npz`, `report.json`, `output.txt` and `docs/figures/bend3d_typical.png`, and
+`--from-saved` reproduces `output.txt` and `report.json` exactly. **The rule passed: `model3d build` now uses
+the typical shape as the prior's mean.**
+
+## Results (449 development trees)
+
+**The typical winter shape** (median bend behind the tree's plane; quartiles in the figure):
+
+| Part | At the fork | 0.2 m | 0.4 m | 0.6 m | 0.8 m | 1.0 m | 1.2 m | 1.4 m | 1.6 m |
+|---|---|---|---|---|---|---|---|---|---|
+| Trunk (downwards) | −0.9 cm | +2.8 | +3.1 | | | | | | |
+| Left leader | −0.9 cm | −2.1 | −1.2 | +0.7 | +1.5 | +0.8 | −0.1 | −0.8 | −1.1 |
+| Right leader | −0.9 cm | −3.2 | −1.9 | +0.0 | +0.9 | +0.9 | +0.3 | −0.2 | −0.4 |
+
+The typical leader is an **S**: just above the fork it comes 2–3 cm towards the camera, then goes away to
+1–1.5 cm behind the plane around 0.8–1.0 m, and comes back towards the camera near the top. The trunk's root end
+lies about 3 cm behind the plane.
+
+**Summer against winter's bends** (median |summer − winter|; the shape learnt without the tree's own fold):
+
+| U-Net masks | Plane | Bends, plane as mean | Typical shape alone | **Bends, typical shape as mean** | Nearer than the plane-mean bends |
+|---|---|---|---|---|---|
+| Trunk out of the V's plane | 14.5° | 12.0° | 7.0° | **8.5°** | 78% (p 9e-26) |
+| Leader tilts on the stretch (both) | 4.2° | 4.5° | 2.7° | **3.0°** | 76% (p 3e-49) |
+| Whole leaders' tilts (left / right) | 1.0° / 1.6° | 1.5° / 1.9° | 1.2° / 1.3° | **1.4° / 1.4°** | 60% / 68% |
+| V opening | 3.00° | 3.01° | 2.76° | **2.79°** | 64% (p 6e-8) |
+| Bows (left / right) | 1.73 / 1.63 cm | 1.85 / 1.71 | 1.78 / 1.63 | 1.80 / 1.82 | 49% / 45% (n.s.) |
+
+The hand masks agree (trunk 9.2° against 12.5°, 75%; tilts 2.9° against 4.6°, 77%).
+
+- **The rule passes** on both tests, by a wide margin; the V opening improves too, and the bows do not change.
+- **The typical shape alone is nearer still on the angles** (trunk 7.0°, tilts 2.7°; nearer than the adopted
+  model on 52–55% of trees, p 0.02 to 3e-4). Summer's readings carry information about the individual tree (the
+  trunk's angle follows winter's with a rank correlation of 0.38 with them, 0.49 where the trunk is seen,
+  against 0.10 for the typical shape, which is the same for every tree), but they also pull the angles low (trunk
+  median 10.9° against winter's 14.3°; tilts 2.8–3.3° against 3.7–4.2°), whose cause is not known (possibly the
+  summer plane, fitted through the leaves). The adopted model is the one that shows each tree's own shape; the
+  typical shape alone would show every tree as the average one. The rule compared the adopted model with the
+  plane-mean bends, as fixed before the run; the comparison with the shape alone is reported, not used.
+- **Failed planes:** as in `docs/results/bend3d/` (4 winter, 1 hand mask, 9 U-Net masks).
+
+
 
 ## Method (`treeskel.bend3d`, `--typical`)
 
@@ -67,7 +109,7 @@ with the typical value alone, was 7.0° against 12.0° for the trunk and 2.7° a
 The bows vary from tree to tree and the estimate showed no gain, so a typical shape may make them worse; that
 is reported, not tested.
 
-## Smoke run (21 trees in the repository; not a result)
+## Smoke run (21 trees in the repository; not a result; as written before the run)
 
 The command on `data/sample` and `data/tuning` with the 20-tree minimum lowered to 5 (each fold's shape then
 comes from about 10 trees), only to check that it runs on real photos. The learnt shape already shows the
@@ -81,6 +123,7 @@ problem trees and row 1, which misled before; the 449-tree run decides.
 
 ```bash
 python -m treeskel.bend3d data/raw --typical
+python -m treeskel.bend3d --typical --from-saved docs/results/bend3d_typical --figure ""   # the summary again
 ```
 
 About 5–10 minutes (winter and summer fits only, no cross-validation over priors; the last estimate here
