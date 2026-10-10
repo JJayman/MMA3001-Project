@@ -351,3 +351,113 @@ def test_cli_on_the_sample(sample_dir, tmp_path, capsys):
     assert {r["source"] for r in rows} == {"winter", "winter ridges", "hand masks", "U-Net"}
     assert {r["tree"] for r in rows} == {"R15N05", "R20N06"}       # never a test-row tree
     assert main(["--from-saved", str(out), "--figure", ""]) == 0
+
+
+# --------------------------------------------------------------------------
+# The typical winter shape as the prior's mean
+# --------------------------------------------------------------------------
+
+def test_with_nothing_read_the_bends_follow_the_mean():
+    from treeskel.bend3d import prior_mean, typical_shape, profile
+
+    paths, rad, depth, valid, true_z = bent_tree(trunk_tilt=20, bow=5, noise=0.0)
+    prep = prepare(paths, depth, valid, rad)
+    truth = np.zeros(len(prep.z_axis))
+    for p in ("trunk", "left", "right"):
+        truth[prep.nodes[p]] = true_z[p] * prep.per_unit - prep.z_plane[prep.nodes[p]]
+    shape = typical_shape([{p: profile(prep, truth, p) for p in ("trunk", "left", "right")}], min_trees=1)
+    mean = prior_mean(prep, shape)
+    assert np.percentile(np.abs(mean - truth), 95) < 0.003               # the shape reproduces its one tree
+    fit = fit_bends(prep, PARAMS, hold=np.ones(len(prep.z_axis), bool), mean=mean)
+    assert np.allclose(fit["h"], mean)
+    seen = fit_bends(prep, PARAMS, mean=mean)                            # with every reading, the data still lead
+    assert np.percentile(np.abs(seen["h"] - truth), 95) < 0.01
+
+
+def test_profile_and_typical_shape():
+    from treeskel.bend3d import STATIONS, prior_mean, typical_shape
+
+    n = len(STATIONS["left"])
+    ramp = {"trunk": np.full(len(STATIONS["trunk"]), 0.01), "left": np.linspace(0, 0.04, n),
+            "right": np.where(STATIONS["right"] <= 1.0, -0.02, np.nan)}
+    profiles = [{p: v + 0.001 * k for p, v in ramp.items()} for k in range(-2, 3)]
+    profiles[0]["right"] = np.where(STATIONS["right"] <= 0.5, -0.02, np.nan)
+    shape = typical_shape(profiles, min_trees=4)
+    assert shape["left"]["stations"][-1] == pytest.approx(2.0)
+    assert shape["right"]["stations"][-1] == pytest.approx(1.0)        # only 4 trees reach past 0.5 m
+    assert shape["left"]["bend"][50] == pytest.approx(ramp["left"][50])  # the median of the five trees
+    fork = shape["trunk"]["bend"][0]
+    assert shape["left"]["bend"][0] == shape["right"]["bend"][0] == fork  # one fork for the three parts
+    assert typical_shape(profiles, min_trees=6)["left"]["stations"] == []
+    prep = prepare(*[bent_tree()[i] for i in (0, 2, 3, 1)])
+    m = prior_mean(prep, shape)
+    far = prep.s["right"] > 1.0
+    assert np.allclose(m[prep.chains["right"]][far], shape["right"]["bend"][-1])   # held beyond the stations
+    assert m[0] == pytest.approx(fork)
+
+
+def test_the_typical_shape_helps_where_little_is_read():
+    """Trees sharing a bend, read only near the trunk (as summer): the typical shape's mean beats the plane's."""
+    from treeskel.bend3d import profile, prior_mean, typical_shape
+
+    learn = []
+    for seed in range(5):
+        p, r, d, v, tz = bent_tree(trunk_tilt=20, bow=5, seed=seed)
+        prep = prepare(p, d, v, r)
+        learn.append({q: profile(prep, fit_bends(prep, PARAMS)["h"], q) for q in ("trunk", "left", "right")})
+    shape = typical_shape(learn, min_trees=3)
+    p, r, d, v, tz = bent_tree(trunk_tilt=20, bow=5, seed=9)
+    prep, truth = true_measures(p, r, d, v, tz)
+    hold = np.ones(len(prep.z_axis), bool)
+    hold[prep.nodes["trunk"]] = False                                   # only the trunk is read
+    errors = {}
+    for name, mean in (("plane", None), ("typical", prior_mean(prep, shape))):
+        got = bend_measures(prep, fit_bends(prep, PARAMS, hold=hold, mean=mean)["h"], params=PARAMS)
+        errors[name] = (abs(got["left_bow"] - truth["left_bow"]), abs(got["trunk_out"] - truth["trunk_out"]))
+    assert errors["typical"][0] < 0.5 * errors["plane"][0]               # the unread bow comes from the shape
+    assert errors["typical"][1] < 3.0
+
+
+def _typical_rows():
+    rows = []
+    for i in range(12):
+        t = f"R01N{i:02d}"
+        rows.append({"tree": t, "row": 1, "source": "winter", "setting": "main", "model": "bent", "error": "",
+                     **{m: 10.0 + i for m in ("trunk_out", "left_tilt", "right_tilt", "left_tilt_whole",
+                                              "right_tilt_whole", "v_opening", "left_bow", "right_bow")}})
+        for source in ("U-Net", "hand masks"):
+            for model, off in (("plane", -10.0), ("bent", -6.0), ("typical", -3.0), ("bent typical", -2.0)):
+                rows.append({"tree": t, "row": 1, "source": source, "setting": "main", "model": model, "error": "",
+                             **{m: 10.0 + i + off + (0.5 if i % 3 == 0 and model == "bent typical" else 0.0)
+                                for m in ("trunk_out", "left_tilt", "right_tilt", "left_tilt_whole",
+                                          "right_tilt_whole", "v_opening", "left_bow", "right_bow")}})
+    return rows
+
+
+def test_the_typical_rule():
+    from treeskel.bend3d import summarise_typical, typical_lines
+
+    shape = {p: {"stations": [0.0, 0.02], "bend": [0.0, 0.01], "q1": [0, 0], "q3": [0, 0], "n": [12, 12]}
+             for p in ("trunk", "left", "right")}
+    rep = summarise_typical(_typical_rows(), {"all": shape, "folds": [shape]})
+    t = rep["summer"]["U-Net"]["leader tilts"]
+    assert t["n"] == 24 and t["closer"] == 1.0 and t["median"]["bent typical"] < t["median"]["bent"]
+    assert rep["rule"]["adopt"] is True
+    worse = [{**r, **({m: r[m] - 8 for m in ("trunk_out",)} if r["model"] == "bent typical" else {})}
+             for r in _typical_rows()]
+    rep = summarise_typical(worse, {"all": shape, "folds": [shape]})
+    assert rep["rule"]["tests"]["trunk"] is False and rep["rule"]["adopt"] is False
+    assert "not adopted" in "\n".join(typical_lines(rep))
+
+
+def test_typical_cli_on_the_sample(sample_dir, tmp_path, capsys):
+    out = tmp_path / "typ"
+    assert main([str(sample_dir), "--typical", "--trees", "R15N05", "R20N06", "R01N01", "R01N02", "--out", str(out),
+                 "--jobs", "2", "--figure", str(tmp_path / "typ.png")]) == 0
+    text = capsys.readouterr().out
+    assert "The typical winter shape" in text and "The rule fixed before the run" in text
+    for f in ("trees.csv", "typical_shape.json", "profiles.npz", "report.json", "output.txt"):
+        assert (out / f).exists()
+    rows = load_csv(out / "trees.csv")
+    assert {r["model"] for r in rows if r["source"] == "U-Net"} == {"plane", "bent", "typical", "bent typical"}
+    assert main(["--typical", "--from-saved", str(out), "--figure", ""]) == 0

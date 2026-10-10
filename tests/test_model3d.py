@@ -327,3 +327,74 @@ def test_build_bends_by_default_and_flat_on_request(sample_dir, tmp_path, capsys
     assert "Bends out of the plane" not in out and "bent:" not in out
     with pytest.raises(SystemExit):
         main(base + ["--bends", "--flat"])
+
+
+def test_flat_models_have_no_bend_vectors_and_bent_ones_do(sample_model, bent_model):
+    _, flat = sample_model
+    _, bent = bent_model
+    assert np.all(flat["branches"]["bend"] == 0)
+    b = bent["branches"]["bend"]
+    assert b.shape == bent["branches"]["vertices"].shape and np.abs(b).max() > 0.005
+    assert np.abs(b).max() < 0.5                                            # moves of centimetres, not metres
+
+
+def test_the_viewer_can_exaggerate_bends(bent_model, sample_model, tmp_path):
+    _, bent = bent_model
+    write_html(tmp_path / "b.html", bent, "b", "s")
+    page = (tmp_path / "b.html").read_text(encoding="utf-8")
+    data = json.loads(re.search(r"const DATA = (\{.*?\});\n", page, re.S).group(1).replace("<\\/", "</"))
+    vec = np.frombuffer(base64.b64decode(data["mesh"]["bend"]), "<f4").reshape(-1, 3)
+    assert np.allclose(vec, bent["branches"]["bend"], atol=1e-6)
+    assert 'id="exaggerate"' in page and "exaggerate - 1.0" in page and data["prior"] == "the plane"
+    _, flat = sample_model
+    write_html(tmp_path / "f.html", flat, "f", "s")
+    assert '"bends": false' in (tmp_path / "f.html").read_text(encoding="utf-8")   # the slider stays hidden
+
+
+def _shape(bend_m):
+    return {p: {"stations": [0.0, 0.5, 2.0], "bend": [0.0, bend_m, bend_m], "q1": [0, 0, 0], "q3": [0, 0, 0],
+                "n": [99, 99, 99]} for p in ("trunk", "left", "right")}
+
+
+def test_unseen_leaders_take_the_typical_shape(sample_model, bent_model):
+    from treeskel.bend3d import BendParams
+    from treeskel.segment import load_masks
+
+    s, _ = sample_model
+    _, plain = bent_model
+    model = tree_model(s["rgb"], s["depth"], s["valid"], load_masks(SAVED)["R15N05"],
+                       bends=BendParams(spread=0.02, length=0.2), typical=_shape(0.05))
+    b, b0 = model["measures"]["bends"], plain["measures"]["bends"]
+    assert model["measures"]["prior"] == "the typical winter shape"
+    assert b["left_out_max"] > b0["left_out_max"] + 2.0 and 3.0 < b["left_out_max"] < 7.0   # about 5 cm behind
+    assert b["left_uncertain"] == b0["left_uncertain"]                     # still marked as unseen
+
+
+def test_typical_prior_only_when_the_rule_passed(tmp_path):
+    from treeskel.model3d import typical_prior
+
+    report, shape = tmp_path / "report.json", tmp_path / "typical_shape.json"
+    assert typical_prior(report, shape) is None                             # not learnt yet
+    shape.write_text(json.dumps({"all": _shape(0.02)}))
+    report.write_text(json.dumps({"rule": {"adopt": False}}))
+    assert typical_prior(report, shape) is None
+    report.write_text(json.dumps({"rule": {"adopt": True}}))
+    assert typical_prior(report, shape)["left"]["bend"][1] == 0.02
+
+
+def test_build_says_which_prior(sample_dir, tmp_path, capsys, monkeypatch):
+    import treeskel.model3d as m3
+
+    monkeypatch.chdir(ROOT)
+    report, shape = tmp_path / "report.json", tmp_path / "typical_shape.json"
+    shape.write_text(json.dumps({"all": _shape(0.02)}))
+    report.write_text(json.dumps({"rule": {"adopt": True}}))
+    monkeypatch.setattr(m3, "TYPICAL_REPORT", report)
+    monkeypatch.setattr(m3, "TYPICAL_SHAPE", shape)
+    base = ["build", "--tree", "R15N05", "--data", str(sample_dir), "--mask", "saved", "--saved", str(SAVED),
+            "--out", str(tmp_path / "o")]
+    assert main(base) == 0
+    out = capsys.readouterr().out
+    assert "take the typical winter shape" in out and "follows the typical winter shape" in out
+    assert main(base + ["--plane-prior"]) == 0
+    assert "follows the plane" in capsys.readouterr().out

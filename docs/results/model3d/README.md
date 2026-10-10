@@ -97,6 +97,7 @@ lined-up development trees, which is the same set).
 ```bash
 python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved          # bends (the default)
 python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved --flat   # every point on the plane
+python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved --plane-prior   # bends; unseen parts on the plane
 ```
 
 Each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the summer depth
@@ -131,6 +132,16 @@ model stays within a few centimetres of the plane. `R01N13.html`: chosen by a ru
 development trees in the repository whose U-Net trunk is drawn as seen, the one whose summer-against-winter
 trunk-angle error (12.2°) is nearest the median of all 214 such trees (11.4°). Its summer trunk is 16.3° out
 of the V's plane (winter 28.5°); 85% of its trunk is read and 72% drawn as seen.
+
+**Two additions after the student saw nearly straight leaders** (the real bends are a few centimetres over
+1.5 m, and summer does not see the leaders, so they followed the flat plane):
+
+- **"Exaggerate bends" (×1–×5) in the viewer's panel:** each vertex moves by up to five times its bend out of
+  the plane, for display only; the panel's numbers and the `.ply` files stay at true scale.
+- **The typical winter shape as the prior's mean** (`docs/results/bend3d_typical/`): where summer does not see
+  the wood, the branches would take the typical winter tree's shape instead of the plane. `build` uses it only
+  if the rule fixed before its 449-tree run passed (it says which; `--plane-prior` keeps the plane). Until
+  that run is saved, the plane.
 
 **Checked:** the plane's own measures are unchanged by the bends; the colours reach the viewer and the
 `.ply` file; the page opens in headless Chromium without errors, front and side views as expected; the
