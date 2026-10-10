@@ -180,8 +180,8 @@ for the final test in session 12, after the model had been named on the developm
 
 ## How I used AI in this project
 
-I used an AI assistant, Claude Code (Anthropic), throughout the project, in 14 work sessions from
-23 September to 9 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 15 work sessions from
+23 September to 10 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
 was mine, what the AI did, and the mistakes it made and how they were caught.
 
 **What I did:**
@@ -209,7 +209,7 @@ measured from the sunlit half only, depth and colour images combined for eight s
 that they lined up, and a count of short leaders that mixed two definitions. They were caught by my
 looking at the images, by synthetic tests with known answers, and by running each check on all 449
 development trees instead of a few. Every rule for choosing a model was fixed before its result was seen,
-and the test rows were used once, for the final test. 468 automated tests cover the code
+and the test rows were used once, for the final test. 504 automated tests cover the code
 ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.

@@ -173,7 +173,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 14:
+See the latest file in `docs/progress/`. As of session 15:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -237,20 +237,20 @@ See the latest file in `docs/progress/`. As of session 14:
      R03N10). See `docs/results/model3d/README.md`.
   2. The report.
   3. **Before submission: the repository requirements.** All met as of
-     session 14 (PR for branch `claude/compassionate-carson-ospof6`). If any
-     code changes after that, rebuild the last two before submitting:
-     `pdoc -d google -o docs/html src/treeskel` and
-     `pytest --html=docs/test_report.html --self-contained-html`.
+     session 15. If any code changes after that, rebuild the last two before
+     submitting: `pdoc -d google -o docs/html src/treeskel` and
+     `pytest --html=docs/test_report.html --self-contained-html` (on the
+     student's PC: `pip install pytest-html` first if missing).
 
-     | Requirement | Status (session 14) |
+     | Requirement | Status (session 15) |
      |---|---|
-     | ReadMe | refreshed: results at a glance, documentation links (HTML docs, test report, 3D viewer example), 9-tree sample, test rows named; the AI-use section rewritten in the student's first person (session 14) |
-     | HTML documentation | `docs/html/` (pdoc, Google format), 24 modules; the package page lists them in the order of the work |
+     | ReadMe | results at a glance (bends and the typical shape added in session 15), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named; the AI-use section in the student's first person (session 14; numbers updated in session 15) |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 25 modules (`bend3d` added); the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 468 passed, 1 skipped (the LightGlue test needs kornia) |
-     | Docstrings and inline comments | 440 of 440 public functions, classes and methods, and every nested helper; comments on intent added to the longest functions (cross-validation, the joined, grown and continued runs, the CLIs) |
-     | Test functions | 27 test files, 409 test functions in `tests/` |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment with CPU PyTorch; can be remade on the student's PC with the same command |
+     | Source code, functional `main` | 504 passed, 0 skipped on the student's PC (452 passed, 14 skipped in the assistant's environment without PyTorch) |
+     | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
+     | Test functions | 28 test files, 440 test functions in `tests/` |
+     | Test report | `docs/test_report.html` (pytest-html), made on the student's PC after session 15's last code change (504 passed) |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -277,4 +277,6 @@ See the latest file in `docs/progress/`. As of session 14:
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
-  was photographed first; the summer depth registration.
+  was photographed first; the summer depth registration; a depth bias with
+  image height (five posts suggest none; a 449-tree post check was offered
+  in session 15 and set aside); why summer's readings pull the bend angles low.
