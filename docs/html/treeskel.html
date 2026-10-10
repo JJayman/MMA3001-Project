@@ -30,6 +30,7 @@
                     <li><a href="treeskel/annotate_overlay.html">annotate_overlay</a></li>
                     <li><a href="treeskel/annotate_pairs.html">annotate_pairs</a></li>
                     <li><a href="treeskel/benchmark.html">benchmark</a></li>
+                    <li><a href="treeskel/bend3d.html">bend3d</a></li>
                     <li><a href="treeskel/depth3d.html">depth3d</a></li>
                     <li><a href="treeskel/final_test.html">final_test</a></li>
                     <li><a href="treeskel/guided_gt.html">guided_gt</a></li>
@@ -120,6 +121,7 @@ set the masks' fork and widths, and the shift between the depth and colour image
 <ul>
 <li><code><a href="treeskel/depth3d.html">treeskel.depth3d</a></code>: how the 8-bit depth maps to distance, and the camera.</li>
 <li><code><a href="treeskel/tree3d.html">treeskel.tree3d</a></code>: each tree's plane, the V in that plane, its lean and sizes.</li>
+<li><code><a href="treeskel/bend3d.html">treeskel.bend3d</a></code>: smooth 3D curves that may bend out of that plane where the depth sees the wood.</li>
 <li><code><a href="treeskel/model3d.html">treeskel.model3d</a></code>: a summer photo as a 3D model (an HTML viewer and <code>.ply</code> files).</li>
 </ul>
 </div>
@@ -171,10 +173,11 @@ set the masks' fork and widths, and the shift between the depth and colour image
 </span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a>
 </span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="sd">- `treeskel.depth3d`: how the 8-bit depth maps to distance, and the camera.</span>
 </span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="sd">- `treeskel.tree3d`: each tree's plane, the V in that plane, its lean and sizes.</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a><span class="sd">- `treeskel.model3d`: a summer photo as a 3D model (an HTML viewer and ``.ply`` files).</span>
-</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="sd">"""</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">"0.1.0"</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a><span class="sd">- `treeskel.bend3d`: smooth 3D curves that may bend out of that plane where the depth sees the wood.</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="sd">- `treeskel.model3d`: a summer photo as a 3D model (an HTML viewer and ``.ply`` files).</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="sd">"""</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a>
+</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s2">"0.1.0"</span>
 </span></pre></div>
 
 

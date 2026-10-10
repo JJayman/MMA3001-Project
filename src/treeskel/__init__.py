@@ -41,6 +41,7 @@ The modules, in the order of the work:
 
 - `treeskel.depth3d`: how the 8-bit depth maps to distance, and the camera.
 - `treeskel.tree3d`: each tree's plane, the V in that plane, its lean and sizes.
+- `treeskel.bend3d`: smooth 3D curves that may bend out of that plane where the depth sees the wood.
 - `treeskel.model3d`: a summer photo as a 3D model (an HTML viewer and ``.ply`` files).
 """
 

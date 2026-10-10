@@ -83,5 +83,32 @@ lined-up development trees, which is the same set).
   final test's numbers; use its masks (above) for figures that match them.
 - **The trunk's width** is the U-Net's, which learned the hand masks' widths (drawn wider than the bark;
   session 10).
-- **The branches lie on one plane:** the depth can place the tree's plane, but not the few centimetres by
-  which each branch leaves it.
+- **The branches lie on one plane** unless `--bends` is given (session 15, below).
+
+## Bends out of the plane (`--bends`, session 15)
+
+```bash
+python -m treeskel.model3d build --tree R01N05 --data data/raw --mask saved --bends
+```
+
+With `--bends` each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the
+summer depth (`docs/results/bend3d/`): a smooth curve per part, joined at the fork, with the plane as its
+prior. Only the summer readings where the branch is a depth ridge count (its sides at least about 5 cm
+farther), so the depth of leaves in front is not followed. **Sections whose depth was not seen are drawn
+pale** (`UNSURE`): there the bend's posterior standard deviation is more than half the prior's, and the
+branch stays near the plane. Seen from the front the model still looks like the photo; turned side-on, the
+trunk can run back out of the V's plane. The viewer's panel adds the bent V opening, the trunk's angle out
+of the V's plane and how much of the trunk's and the leaders' depth was seen.
+
+- **What summer sees:** on the 21 preview trees, the trunk below the canopy (29–45% of its readings) and
+  almost none of the leaders (4%); the trunk was sure enough to draw in bark colour (less than half of it uncertain) on 9 of 21 hand masks
+  and 7 of 20 U-Net masks.
+  R15N05's mask: everything pale (19% of its trunk read, noisy).
+- **The prior** is the one the 449-tree run chooses (read from `docs/results/bend3d/report.json`); until that
+  run is saved, the provisional τ 2 cm, L 20 cm (`build` says which).
+- **Not the default yet:** whether `build` should bend by default is the student's decision after the
+  449-tree run, by the rule in `docs/results/bend3d/README.md` (summer closer to winter than the plane on
+  the trunk's angle, tree by tree, with the U-Net's masks).
+- **Checked:** the plane's own measures are unchanged with `--bends`; the colours reach the viewer and the
+  `.ply` file; the page opened in headless Chromium without errors, front and side views as expected
+  (R01N05: the trunk 32.5° out of the V's plane in summer, 31.9° in winter on the preview).
