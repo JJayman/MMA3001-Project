@@ -1,0 +1,49 @@
+Block cross-validation on 445 development trees' winter depth (40 px blocks left out, 10 px either side), mean absolute error of the left-out readings (cm):
+  plane 3.59; best priors: tau 2 L 20 2.47, tau 8 L 40 2.51, tau 4 L 20 2.52, tau 4 L 40 2.53, tau 2 L 10 2.58
+  chosen (smallest pooled error): tau 2 L 20; by part, plane -> chosen: trunk 5.11 -> 3.20, left 3.39 -> 2.37, right 3.42 -> 2.40
+  out of fold (prior chosen on the other folds' rows: tau 2 L 20, tau 2 L 20, tau 2 L 20, tau 2 L 20, tau 2 L 20): bends better on 94% of 445 trees; median per tree 3.13 -> 1.92 cm (Wilcoxon p 3.0e-71)
+  with 30 px buffers: bends better on 89% of 445 trees; median 3.42 -> 2.38 cm (Wilcoxon p 2.8e-66)
+
+Winter bends with the chosen prior (main camera setting), median [quartiles]:
+  trunk out of the V's plane (deg, + = root behind)                14.24 [6.94, 21.08]  (n 444)
+  left leader's bow (cm, + = behind)                               -0.28 [-2.22, 1.32]  (n 445)
+  right leader's bow (cm)                                          -0.58 [-2.31, 0.88]  (n 445)
+  |left bow| (cm)                                                   1.72 [0.65, 3.07]  (n 445)
+  |right bow| (cm)                                                  1.63 [0.74, 2.96]  (n 445)
+  left leader's stretch out of the plane (deg, + = top behind)      3.72 [1.30, 6.66]  (n 445)
+  right leader's stretch out of the plane (deg)                     4.09 [1.54, 6.91]  (n 445)
+  left leader, whole, out of the plane (deg)                        0.73 [-0.14, 1.79]  (n 445)
+  right leader, whole, out of the plane (deg)                       1.53 [0.51, 2.52]  (n 445)
+  fork behind the plane (cm)                                       -0.85 [-2.41, 0.60]  (n 445)
+  trunk's farthest from the plane (cm)                              4.91 [2.80, 8.04]  (n 445)
+  left leader's farthest (cm)                                       4.11 [2.94, 5.72]  (n 445)
+  right leader's farthest (cm)                                      4.28 [3.04, 6.10]  (n 445)
+  V opening, bends - plane (deg)                                    1.57 [0.89, 2.33]  (n 445)
+  left leader longer by (cm)                                       -0.68 [-1.44, 0.12]  (n 445)
+  trunk points uncertain (share)                                    0.00 [0.00, 0.01]  (n 445)
+  left leader points uncertain                                      0.00 [0.00, 0.00]  (n 445)
+  depth noise (cm)                                                  1.17 [1.00, 1.37]  (n 445)
+  with ridge readings only (the trunk clear of the ground): trunk out of the V's plane 13.30 [5.30, 20.15]; median |difference| from all readings 1.58 deg, rank correlation 0.92 (n 444)
+
+Sensitivity (winter medians under each camera setting):
+  setting                 trunk out    |bow|  leader max  V change
+  main                         14.2     1.67        4.20      1.57
+  zero 262                     16.2     2.12        4.97      2.19
+  zero 366                     12.6     1.27        3.36      1.06
+  zero 255 (session 2)         16.4     2.16        5.15      2.32
+  focal 585                    13.8     1.69        4.30      1.55
+  focal 647                    14.8     1.67        4.11      1.63
+
+Summer (ridge readings only) against winter's bends, tree by tree: median |summer - winter| with the summer bends and with the summer plane; share of trees where the bends are closer; Wilcoxon p; rank correlation of the summer bends with winter's:
+  hand masks (447 trees; readings that count, median share: trunk 47%, left 2%, right 3%):
+    trunk_out  n 442  bends  12.46  plane  14.41  closer  58%  p 1.7e-07  rank 0.33
+    left_bow   n 443  bends   1.81  plane   1.72  closer  47%  p 3.3e-02  rank 0.15
+    right_bow  n 443  bends   1.84  plane   1.63  closer  42%  p 3.0e-04  rank 0.09
+    v_opening  n 443  bends   2.83  plane   2.72  closer  46%  p 5.1e-02  rank 0.92
+  U-Net (438 trees; readings that count, median share: trunk 45%, left 3%, right 3%):
+    trunk_out  n 433  bends  12.00  plane  14.54  closer  60%  p 4.3e-08  rank 0.38
+    left_bow   n 434  bends   1.85  plane   1.73  closer  44%  p 1.1e-01  rank 0.17
+    right_bow  n 434  bends   1.71  plane   1.63  closer  44%  p 2.8e-02  rank 0.11
+    v_opening  n 434  bends   3.01  plane   3.00  closer  48%  p 1.3e-01  rank 0.88
+
+Failed planes (turned more than 60 deg, or too little depth): winter 12 (R01N30, R02N14, R02N41, R05N12, R06N22, R07N26, R08N22, R11N15, R14N25, R18N12, R19N10, R20N02); winter ridges 4 (R01N30, R07N26, R08N22, R11N15); hand masks 1 (R14N24); U-Net 9 (R01N04, R01N40, R05N04, R05N06, R06N28, R14N01, R14N24, R17N11, R17N23)
