@@ -23,7 +23,7 @@ average tree, negative worse). Every summer prediction is scored against the sam
 | **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
 | Run time | the U-Net predicts a photo in 9.7 ms on a GPU, 116 ms on a CPU, and trains in 2 minutes | `docs/results/benchmark/` |
 | 3D | the trees are flat to a median 1.7 cm (sizes assume 2 m from the camera to the fork); the V in the photo is about 2.3° wider than in the tree's own plane | `docs/results/depth3d/`, `tree3d/` |
-| Bends out of the plane | the winter depth holds bends: left-out depth predicted to 1.9 cm against the plane's 3.1 cm (94% of trees); the trunk stands a median 14° out of the V's plane; letting the leaders bend leaves the 3D V 0.9° (not 2.6°) narrower than the 2D V | `docs/results/bend3d/` |
+| Bends out of the plane | the winter depth holds bends: left-out depth predicted to 1.9 cm against the plane's 3.1 cm (94% of trees); the trunk stands a median 14° out of the V's plane; letting the leaders bend leaves the 3D V 0.9° (not 2.6°) narrower than the 2D V. In summer the typical winter shape fills in what the leaves hide: trunk angle off by 8.5° instead of 12.0°, leader tilts by 3.0° instead of 4.5° | `docs/results/bend3d/`, `bend3d_typical/` |
 | 3D model of a summer photo | opens in any browser, the branches bent where summer sees the wood: [`R01N13.html`](docs/results/model3d/R01N13.html), [`R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
 
 ## Documentation
