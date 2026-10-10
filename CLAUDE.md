@@ -124,7 +124,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                bend3d.py (trunk and leaders as smooth 3D curves that may leave the plane: robust
                Gaussian-process fit joined at the fork, block cross-validation, summer ridge readings),
                model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
-               named U-Net to the git-ignored models/; bends by default, `--flat` for the plane)
+               named U-Net to the git-ignored models/; bends by default, `--flat` for the plane;
+               the typical winter shape as the prior if adopted, `--plane-prior`; bend exaggeration slider)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -260,6 +261,11 @@ See the latest file in `docs/progress/`. As of session 14:
     winter's than the plane's on 60% of trees (U-Net) but only about a third of the size (slope 0.32).
   - The 21-tree preview overstated the sizes (trunk 25°, V +2.2°): 9 of its trees are row 1.
   - Code changed: rebuild `docs/test_report.html` before submission (the docs are rebuilt).
+  - *Follow-up (the student saw nearly straight summer leaders):* the typical winter shape as the bends'
+    prior mean (`bend3d --typical`, `docs/results/bend3d_typical/`; rule committed before its 449-tree run:
+    U-Net, out of fold, nearer winter than the plane-mean bends on the trunk angle and the leader tilts,
+    p < 0.05); `model3d` uses it only if the rule passed (`--plane-prior` keeps the plane). The viewer's
+    "Exaggerate bends" slider (×1–×5) is display only. **Next: the `--typical` run on the student's PC.**
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

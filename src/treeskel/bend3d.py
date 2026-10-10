@@ -335,12 +335,13 @@ def _robust_scale(r: np.ndarray) -> float:
 
 
 def fit_bends(prep: Prepared, params: BendParams = BendParams(), d: np.ndarray | None = None,
-              hold: np.ndarray | None = None, terms: tuple | None = None) -> dict:
+              hold: np.ndarray | None = None, terms: tuple | None = None, mean: np.ndarray | None = None) -> dict:
     """The bends ``h`` (m behind the plane, along each ray) at every node, fitted robustly.
 
-    Solves ``(Q + W/σ²) h = W d/σ²`` with ``Q`` the prior's :func:`precision`, ``d`` the readings' distance
-    behind the plane and ``W`` each reading's weight (its robust weight times ``cell_px / corr_px``).
-    Huber weights with the noise ``σ`` re-estimated each round, then Tukey's biweight with ``σ`` fixed.
+    Solves ``(Q + W/σ²) h = W d/σ² + Q m`` with ``Q`` the prior's :func:`precision`, ``m`` its mean (the
+    plane, 0, unless ``mean`` is given), ``d`` the readings' distance behind the plane and ``W`` each
+    reading's weight (its robust weight times ``cell_px / corr_px``). Huber weights with the noise ``σ``
+    re-estimated each round, then Tukey's biweight with ``σ`` fixed.
 
     Args:
         prep: The tree (:func:`prepare`).
@@ -348,6 +349,8 @@ def fit_bends(prep: Prepared, params: BendParams = BendParams(), d: np.ndarray |
         d: Readings behind the plane to use instead of ``prep.d`` (e.g. against a refitted plane).
         hold: Nodes whose readings are left out.
         terms: :func:`prior_terms`, to reuse across fits.
+        mean: The prior's mean at each node (m behind the plane), e.g. the typical winter shape
+            (:func:`prior_mean`); where nothing is read the bends follow it instead of the plane.
 
     Returns:
         ``{"h", "weights", "sigma", "observed", "system"}``: ``system`` is the final ``Q + W/σ²`` (for
@@ -360,18 +363,20 @@ def fit_bends(prep: Prepared, params: BendParams = BendParams(), d: np.ndarray |
         return {"h": np.zeros(n), "weights": obs.astype(float), "sigma": float("nan"), "observed": obs,
                 "system": None}
     q = precision(terms or prior_terms(prep), params)
-    if obs.sum() == 0:                                  # nothing seen: the prior alone, the plane and its spread
-        return {"h": np.zeros(n), "weights": np.zeros(n), "sigma": float("nan"), "observed": obs, "system": q}
+    m = np.zeros(n) if mean is None else np.asarray(mean, float)
+    if obs.sum() == 0:                                  # nothing seen: the prior alone, its mean and its spread
+        return {"h": m.copy(), "weights": np.zeros(n), "sigma": float("nan"), "observed": obs, "system": q}
     y = np.where(obs, d, 0.0)
     cell = prep.cell_px / params.corr_px
-    sigma = max(_robust_scale(d[obs]), params.min_noise)
+    sigma = max(_robust_scale((d - m)[obs]), params.min_noise)
     w = obs.astype(float)
-    h = np.zeros(n)
+    h = m.copy()
+    qm = q @ m
 
     def solve(weights, s):
         """The bends for these readings' weights and noise level, and the system solved."""
         a = (q + sparse.diags(cell * weights / s ** 2)).tocsc()
-        return spsolve(a, cell * weights * y / s ** 2), a
+        return spsolve(a, cell * weights * y / s ** 2 + qm), a
 
     a = None
     # Huber: bounded influence, the noise level from the residuals each round.
@@ -421,6 +426,75 @@ def behind_plane(prep: Prepared, points: np.ndarray) -> np.ndarray:
     """Signed distance of 3D points behind the tree's plane (m; positive = farther from the camera)."""
     n, c = prep.plane["normal"], prep.plane["centre"]
     return -(np.asarray(points) - c) @ n
+
+
+# --------------------------------------------------------------------------
+# The typical winter shape, as the prior's mean
+# --------------------------------------------------------------------------
+
+STATIONS = {"trunk": np.round(np.arange(0.0, 0.801, 0.02), 3), "left": np.round(np.arange(0.0, 2.001, 0.02), 3),
+            "right": np.round(np.arange(0.0, 2.001, 0.02), 3)}
+"""Where each part's bend is sampled for the typical shape: metres from the fork along the part (on the
+tree's plane), every 2 cm; the trunk downwards."""
+
+MIN_TREES = 20
+"""A station counts in the typical shape only where at least this many trees reach it."""
+
+
+def profile(prep: Prepared, h: np.ndarray, part: str, stations: np.ndarray | None = None) -> np.ndarray:
+    """One part's bend (m behind the plane) at the stations, NaN beyond the part's end in view.
+
+    Example:
+        >>> class P: chains = {"left": np.array([0, 1, 2])}; s = {"left": np.array([0.0, 0.1, 0.2])}
+        >>> profile(P, np.array([0.0, 0.01, 0.03]), "left", np.array([0.0, 0.15, 0.3])).round(3).tolist()
+        [0.0, 0.02, nan]
+    """
+    st = STATIONS[part] if stations is None else np.asarray(stations, float)
+    return np.interp(st, prep.s[part], np.asarray(h, float)[prep.chains[part]], right=np.nan)
+
+
+def typical_shape(profiles: Sequence[dict], min_trees: int = MIN_TREES) -> dict:
+    """The typical bend of each part: the median over trees of their winter profiles (:func:`profile`).
+
+    Each part's stations end before the first one fewer than ``min_trees`` trees reach. The three parts
+    share the fork, so their first value is set to the median fork bend.
+
+    Args:
+        profiles: Per tree, ``{part: values at STATIONS[part]}``.
+
+    Returns:
+        ``{part: {"stations": [...], "bend": [...], "q1": [...], "q3": [...], "n": [...]}}`` in metres.
+    """
+    out = {}
+    for part in PARTS:
+        a = np.array([p[part] for p in profiles], float).reshape(-1, len(STATIONS[part]))
+        n = np.isfinite(a).sum(0)
+        keep = int(np.argmax(n < min_trees)) if np.any(n < min_trees) else len(n)
+        a = a[:, :keep]
+        out[part] = {"stations": STATIONS[part][:keep].tolist(),
+                     "bend": np.nanmedian(a, 0).tolist() if keep else [],
+                     "q1": np.nanpercentile(a, 25, 0).tolist() if keep else [],
+                     "q3": np.nanpercentile(a, 75, 0).tolist() if keep else [],
+                     "n": n[:keep].astype(int).tolist()}
+    fork = [np.array([p[part][0] for p in profiles], float) for part in PARTS]
+    f = float(np.nanmedian(np.concatenate(fork))) if len(profiles) else 0.0
+    for part in PARTS:
+        if out[part]["bend"]:
+            out[part]["bend"][0] = f
+    return out
+
+
+def prior_mean(prep: Prepared, shape: dict) -> np.ndarray:
+    """The typical shape at each node of a tree (m behind its plane): each part's profile at the node's
+    distance from the fork, holding its last value beyond the stations it covers."""
+    m = np.zeros(len(prep.z_axis))
+    for part in PARTS:
+        st, b = shape[part]["stations"], shape[part]["bend"]
+        if len(st):
+            m[prep.chains[part]] = np.interp(prep.s[part], st, b)
+    firsts = [shape[p]["bend"][0] for p in PARTS if len(shape[p]["bend"])]
+    m[0] = float(np.mean(firsts)) if firsts else 0.0
+    return m
 
 
 # --------------------------------------------------------------------------
@@ -936,6 +1010,234 @@ def report_lines(report: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# The typical winter shape: learning it, and summer with it as the prior's mean
+# --------------------------------------------------------------------------
+
+TYPICAL_MEASURES = ("trunk_out", "left_tilt", "right_tilt", "left_tilt_whole", "right_tilt_whole", "v_opening",
+                    "left_bow", "right_bow")
+"""The measures compared with winter's in the typical-shape run (``--typical``)."""
+
+SUMMER_MODELS = ("plane", "bent", "typical", "bent typical")
+"""Summer's 3D curves in the typical-shape run: the plane; the bends with the plane as the prior's mean (as
+``model3d`` until now); the typical winter shape alone, ignoring summer's readings; and the bends with the
+typical shape as the prior's mean."""
+
+
+def typical_winter(job: tuple) -> dict:
+    """Pass 1 for one tree (top-level for worker processes): its winter bends, their profiles and measures.
+
+    Args:
+        job: ``(record, clicks, BendParams)``.
+
+    Returns:
+        ``{"tree", "row", "profiles": {part: values at STATIONS[part]}, "measures", "error"}``.
+    """
+    rec, clicks, params = job
+    images, sk = winter_skeleton(rec, clicks)
+    out = {"tree": rec.tree_id, "row": rec.row, "profiles": None, "measures": None, "error": ""}
+    try:
+        prep = prepare(sk["paths"], images["depth"], images["valid"], sk["radii"])
+    except ValueError as e:
+        out["error"] = str(e)
+        return out
+    fit = fit_bends(prep, params)
+    out["profiles"] = {p: profile(prep, fit["h"], p) for p in PARTS}
+    out["measures"] = bend_measures(prep, fit["h"], posterior_sd(fit), params, sigma=fit["sigma"])
+    return out
+
+
+def typical_summer(job: tuple) -> list[dict]:
+    """Pass 2 for one tree (top-level for worker processes): summer's curves (:data:`SUMMER_MODELS`) and measures.
+
+    Args:
+        job: ``(record, hand mask or None, U-Net mask or None, BendParams, typical shape)``; the shape learnt
+            without the tree's own fold.
+    """
+    from treeskel.io import load_tree
+    from treeskel.shape import SUMMER_SCALE
+
+    rec, hand, unet, params, shape = job
+    rows, summer = [], None
+    for name, mask in (("hand masks", hand), ("U-Net", unet)):
+        sk = mask_skeleton(mask) if mask is not None else None
+        if sk is None:
+            continue
+        summer = summer or load_tree(rec, "summer")
+        base = {"tree": rec.tree_id, "row": rec.row, "source": name, "setting": "main"}
+        try:
+            prep = prepare(sk["paths"], summer["depth"], summer["valid"], sk["radii"], ridge=True)
+        except ValueError as e:
+            rows.append({**base, "model": "bent typical", "error": str(e)})
+            continue
+        terms = prior_terms(prep)
+        mean = prior_mean(prep, shape)
+        for model in SUMMER_MODELS:
+            if model == "plane":
+                h, sd, sigma = np.zeros(len(mean)), None, float("nan")
+            elif model == "typical":
+                h, sd, sigma = mean, None, float("nan")
+            else:
+                fit = fit_bends(prep, params, terms=terms, mean=mean if model == "bent typical" else None)
+                h, sd, sigma = fit["h"], posterior_sd(fit), fit["sigma"]
+            rows.append({**base, "model": model, "error": "",
+                         **bend_measures(prep, h, sd, params, SUMMER_SCALE, sigma=sigma)})
+    return rows
+
+
+def fold_shapes(winter: Sequence[dict], fold_rows: Sequence[Sequence[int]], min_trees: int = MIN_TREES) -> dict:
+    """The typical shape from every tree, and for each fold from the other folds' trees only.
+
+    Returns:
+        ``{"all": shape, "folds": [shape per fold]}`` (:func:`typical_shape`).
+    """
+    ok = [w for w in winter if w["profiles"] is not None]
+    return {"all": typical_shape([w["profiles"] for w in ok], min_trees),
+            "folds": [typical_shape([w["profiles"] for w in ok if w["row"] not in rows], min_trees)
+                      for rows in fold_rows]}
+
+
+def fold_of(row: int, fold_rows: Sequence[Sequence[int]]) -> int:
+    """The fold whose rows include ``row`` (-1 if none)."""
+    return next((i for i, rows in enumerate(fold_rows) if row in rows), -1)
+
+
+def typical_against(rows: Sequence[dict], source: str, measures: Sequence[str]) -> dict:
+    """Each summer model against winter's bends, tree by tree, on measures pooled together (one row per tree
+    and measure): the median ``|summer − winter|`` per model, and the bends with the typical shape against the
+    bends with the plane as the prior's mean.
+
+    Returns:
+        ``{"n", "median": {model: ...}, "closer", "wilcoxon_p"}``: ``closer`` is the share of pairs where
+        ``bent typical`` is nearer winter than ``bent``.
+    """
+    from scipy import stats
+
+    win = {(r["tree"], m): r[m] for r in rows if r["source"] == "winter" and not r.get("error") for m in measures}
+    got = {}
+    for r in rows:
+        if r["source"] == source and not r.get("error"):
+            for m in measures:
+                got[(r["tree"], m, r["model"])] = r.get(m, float("nan"))
+    keys = [k for k in win if np.isfinite(win[k]) and all(np.isfinite(got.get((*k, md), np.nan)) for md in SUMMER_MODELS)]
+    if len(keys) < 3:
+        return {"n": len(keys)}
+    err = {md: np.array([abs(got[(*k, md)] - win[k]) for k in keys]) for md in SUMMER_MODELS}
+    d = err["bent"] - err["bent typical"]
+    return {"n": len(keys), "median": {md: float(np.median(e)) for md, e in err.items()},
+            "closer": float(np.mean(d > 0)), "wilcoxon_p": float(stats.wilcoxon(d).pvalue) if np.any(d != 0) else 1.0}
+
+
+TYPICAL_RULE = {"source": "U-Net", "tests": {"trunk": ("trunk_out",), "leader tilts": ("left_tilt", "right_tilt")}}
+"""The rule fixed before the 449-tree run: ``model3d`` uses the typical shape as the prior's mean if, with the
+U-Net's masks and the shape learnt out of fold, the bends with it are nearer winter's than the bends with the
+plane as the mean on more than half of the trees with Wilcoxon p < 0.05, on the trunk's angle out of the V's
+plane **and** on the leaders' tilts on their stretch (both leaders pooled)."""
+
+
+def summarise_typical(rows: Sequence[dict], shapes: dict) -> dict:
+    """The typical-shape run's report: the shape, each model against winter, and the rule's verdict."""
+    report = {"shape": shapes["all"], "n_trees": len({r["tree"] for r in rows if r["source"] == "winter"}),
+              "summer": {}}
+    for source in ("U-Net", "hand masks"):
+        report["summer"][source] = {
+            "measures": {m: typical_against(rows, source, (m,)) for m in TYPICAL_MEASURES},
+            **{name: typical_against(rows, source, ms) for name, ms in TYPICAL_RULE["tests"].items()}}
+    verdicts = {}
+    for name in TYPICAL_RULE["tests"]:
+        t = report["summer"][TYPICAL_RULE["source"]][name]
+        verdicts[name] = bool(t.get("n", 0) >= 3 and t["closer"] > 0.5 and t["wilcoxon_p"] < 0.05)
+    report["rule"] = {"tests": verdicts, "adopt": all(verdicts.values())}
+    report["failed"] = {s: sorted({r["tree"] for r in rows if r["source"] == s and r.get("error")})
+                        for s in ("winter", "hand masks", "U-Net")}
+    return report
+
+
+def typical_lines(report: dict) -> list[str]:
+    """The typical-shape run's report as text."""
+    out = [f"The typical winter shape ({report['n_trees']} development trees; median bend behind the tree's plane, cm):"]
+    for part in PARTS:
+        sh = report["shape"][part]
+        st, b = np.array(sh["stations"]), np.array(sh["bend"]) * 100
+        if not len(st):
+            continue
+        picks = [i for i in range(0, len(st), 10)] + ([len(st) - 1] if (len(st) - 1) % 10 else [])
+        out.append(f"  {part:5s} (to {st[-1]:.2f} m): " + ", ".join(f"{st[i]:.1f} m {b[i]:+.1f}" for i in picks))
+    out += ["", "Summer against winter's bends, tree by tree: median |summer - winter| for each model (degrees; bows "
+                "cm); the bends with the typical shape against the bends with the plane as the prior's mean "
+                "(share nearer winter, Wilcoxon p). The shape is learnt without the tree's own fold."]
+    for source, s in report["summer"].items():
+        out.append(f"  {source}:")
+        out.append(f"    {'measure':18s} {'n':>4s} " + " ".join(f"{m:>13s}" for m in SUMMER_MODELS) + "   nearer      p")
+        for name, a in list(s["measures"].items()) + [(k, s[k]) for k in TYPICAL_RULE["tests"]]:
+            if a.get("n", 0) >= 3:
+                out.append(f"    {name:18s} {a['n']:4d} " + " ".join(f"{a['median'][m]:13.2f}" for m in SUMMER_MODELS)
+                           + f"   {a['closer']:5.0%}  {a['wilcoxon_p']:.1e}")
+    r = report["rule"]
+    out += ["", "The rule fixed before the run (U-Net masks; nearer on more than half of the trees, p < 0.05, on the "
+                "trunk and on the leaders' tilts): " + ", ".join(f"{k} {'passes' if v else 'fails'}"
+                                                                for k, v in r["tests"].items())
+            + f" -> {'ADOPT: model3d uses the typical shape' if r['adopt'] else 'not adopted: model3d keeps the plane as the mean'}",
+            "Failed planes: " + "; ".join(f"{s} {len(t)} ({', '.join(t) or 'none'})" for s, t in report["failed"].items())]
+    return out
+
+
+def plot_typical(report: dict, path, failed: list[str]) -> None:
+    """Two panels: the typical winter shape (median and quartiles), and each summer model's error against
+    winter on the angles (U-Net masks)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from treeskel.shape_model import AXIS, INK, MUTED, SECONDARY, SURFACE, _save, _style
+
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.2), gridspec_kw={"width_ratios": [1.25, 1]})
+    fig.patch.set_facecolor(SURFACE)
+    ax = axes[0]
+    for part in PARTS:
+        sh = report["shape"][part]
+        st = np.array(sh["stations"]) * (-100 if part == "trunk" else 100)
+        if not len(st):
+            continue
+        ax.fill_between(st, np.array(sh["q1"]) * 100, np.array(sh["q3"]) * 100, color=PART_COLOURS[part], alpha=0.12,
+                        linewidth=0)
+        ax.plot(st, np.array(sh["bend"]) * 100, color=PART_COLOURS[part], lw=2, label=part)
+    ax.axhline(0, color=AXIS, lw=1.2)
+    ax.set_xlabel("cm along the part from the fork (trunk to the left)", fontsize=8, color=SECONDARY)
+    ax.set_ylabel("cm behind the tree's plane (median, quartiles)", fontsize=8, color=SECONDARY)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(fontsize=7.5, frameon=False, loc="upper right", labelcolor=SECONDARY)
+    ax.set_title(f"The typical winter shape ({report['n_trees']} trees)", fontsize=9, color=INK, loc="left")
+
+    ax = axes[1]
+    names = [m for m in TYPICAL_MEASURES if not m.endswith("bow")]
+    s = report["summer"]["U-Net"]["measures"]
+    styles = {"plane": (MUTED, "o", "plane"), "bent": ("#e34948", "h", "bends, plane as mean (until now)"),
+              "typical": ("#898781", "D", "typical shape alone"), "bent typical": (INK, "o", "bends, typical shape as mean")}
+    for j, model in enumerate(SUMMER_MODELS):
+        colour, marker, label = styles[model]
+        xs = [s[m]["median"][model] if s[m].get("n", 0) >= 3 else np.nan for m in names]
+        ax.scatter(xs, np.arange(len(names)) + (j - 1.5) * 0.13, s=34, color=colour, marker=marker, label=label,
+                   zorder=3, edgecolors=SURFACE, linewidths=1)
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels([n.replace("_", " ") for n in names], fontsize=7.5)
+    ax.invert_yaxis()
+    ax.set_xlim(left=0)
+    ax.set_xlabel("median |summer − winter| (°), U-Net masks", fontsize=8, color=SECONDARY)
+    ax.legend(fontsize=7, frameon=False, loc="lower right", labelcolor=SECONDARY)
+    ax.set_title("Summer against winter, tree by tree", fontsize=9, color=INK, loc="left")
+    for ax in axes:
+        _style(ax)
+        ax.spines["left"].set_visible(True)
+        ax.spines["left"].set_color(AXIS)
+    fig.suptitle("The typical winter shape as the prior's mean (development trees; shape learnt out of fold)",
+                 x=0.01, ha="left", fontsize=10, color=INK, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    _save(fig, path, failed)
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------
 # Figures
 # --------------------------------------------------------------------------
 
@@ -1129,7 +1431,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--figure", default="docs/figures/bend3d.png", help="the summary figure ('' for none)")
     ap.add_argument("--profiles", nargs="+", metavar="TREE", help="also draw these trees' winter profiles")
     ap.add_argument("--profiles-figure", default="docs/figures/bend3d_profiles.png")
+    ap.add_argument("--typical", action="store_true",
+                    help="the typical winter shape as the prior's mean: learn it, and compare summer with it "
+                         "(-> docs/results/bend3d_typical/, docs/figures/bend3d_typical.png)")
     args = ap.parse_args(argv)
+    if args.typical:
+        return typical_main(args)
 
     split = json.loads(Path(args.split).read_text())
     fold_rows = split["fold_val_rows"]
@@ -1218,6 +1525,108 @@ def main(argv: Sequence[str] | None = None) -> int:
         plot_figure(cv_rows, rows, fold_rows, Path(args.figure), failed)
     print(f"\nSaved cv.csv, trees.csv, report.json and output.txt in {out}"
           + (f", and {args.figure}" if args.figure else ""))
+    for f in failed:
+        print(f"Could not write {f}")
+    return 1 if failed else 0
+
+
+def run_parallel(fn, jobs: Sequence, what: str, workers: int) -> list:
+    """Map ``fn`` over ``jobs`` in worker processes, printing progress, in the jobs' order."""
+    import time
+    from concurrent.futures import ProcessPoolExecutor
+
+    t0, step, res = time.time(), max(1, min(25, len(jobs) // 10)), []
+    with ProcessPoolExecutor(max_workers=max(1, min(workers, len(jobs)))) as ex:
+        for i, r in enumerate(ex.map(fn, jobs, chunksize=1), 1):
+            res.append(r)
+            if i % step == 0 or i == len(jobs):
+                el = time.time() - t0
+                print(f"  {what}: {i}/{len(jobs)} trees, {el:.0f} s elapsed, about {el / i * (len(jobs) - i):.0f} s left",
+                      flush=True)
+    return res
+
+
+TYPICAL_OUT = "docs/results/bend3d_typical"
+"""Where ``--typical`` writes, and :mod:`treeskel.model3d` reads the typical shape (``typical_shape.json``)."""
+
+
+def typical_main(args) -> int:
+    """``--typical``: learn the typical winter shape and compare summer with it (development rows only).
+
+    Pass 1 fits every development tree's winter bends with the chosen prior (``docs/results/bend3d/report.json``)
+    and samples them along each part; the typical shape is learnt from all trees and, for each fold, from the
+    other folds' trees. Pass 2 fits summer (the lined-up hand mask and the U-Net's mask) with the plane and with
+    the out-of-fold typical shape as the prior's mean. The rule (:data:`TYPICAL_RULE`) decides whether
+    :mod:`treeskel.model3d` uses the shape.
+    """
+    import json
+    from pathlib import Path
+
+    from treeskel.guided_gt import load_clicks
+    from treeskel.io import index_dataset
+    from treeskel.segment import hand_mask, load_masks
+    from treeskel.summer_gt import load_overlays
+
+    out = Path(TYPICAL_OUT if args.out == "docs/results/bend3d" else args.out)
+    figure = "docs/figures/bend3d_typical.png" if args.figure == "docs/figures/bend3d.png" else args.figure
+    split = json.loads(Path(args.split).read_text())
+    fold_rows = split["fold_val_rows"]
+    failed: list[str] = []
+    if args.from_saved:
+        rows = load_csv(Path(args.from_saved) / "trees.csv")
+        shapes = json.loads((Path(args.from_saved) / "typical_shape.json").read_text())
+        out = Path(args.out if args.out != "docs/results/bend3d" else args.from_saved)
+    else:
+        if not args.data_dirs:
+            print("give the dataset folder(s), or --from-saved")
+            return 2
+        chosen = Path("docs/results/bend3d/report.json")
+        params = params_of(json.loads(chosen.read_text())["chosen"]) if chosen.exists() else BendParams()
+        clicks = load_clicks(args.clicks)
+        records = {t.tree_id: t for d in args.data_dirs for t in index_dataset(d).trees
+                   if t.row not in set(split["test_rows"])}
+        ids = sorted(t for t in records if t in clicks and not clicks[t].skip and clicks[t].complete
+                     and (not args.trees or t in args.trees))
+        if not ids:
+            print("No development-row trees with winter clicks found; nothing to measure.")
+            return 1
+        if args.trees and args.out == "docs/results/bend3d":
+            out = Path("outputs/bend3d_typical_partial")     # a run on chosen trees never overwrites the full run
+        print(f"Pass 1: winter bends ({setting_key(params)}) of {len(ids)} development trees...", flush=True)
+        winter = run_parallel(typical_winter, [(records[t], clicks[t], params) for t in ids], "pass 1", args.jobs)
+        shapes = fold_shapes(winter, fold_rows)
+        # Each tree's summer is fitted with the shape learnt without its own fold.
+        overlays = load_overlays(args.mask_overlay)
+        unet = load_masks(Path(args.unet)) if Path(args.unet).exists() else {}
+        jobs = [(records[t], hand_mask(records[t], overlays), unet.get(t), params,
+                 shapes["folds"][fold_of(records[t].row, fold_rows)]) for t in ids]
+        print(f"Pass 2: summer with the plane and with the typical shape as the prior's mean...", flush=True)
+        rows = [{"tree": w["tree"], "row": w["row"], "source": "winter", "setting": "main", "model": "bent",
+                 "error": w["error"], **(w["measures"] or {})} for w in winter]
+        rows += [r for rs in run_parallel(typical_summer, jobs, "pass 2", args.jobs) for r in rs]
+        out.mkdir(parents=True, exist_ok=True)
+        save_csv(out / "trees.csv", rows)
+        rows = load_csv(out / "trees.csv")
+        shapes = {**shapes, "prior": setting_key(params), "min_trees": MIN_TREES,
+                  "trees": len([w for w in winter if w["profiles"] is not None])}
+        (out / "typical_shape.json").write_text(json.dumps(shapes, indent=1))
+        np.savez_compressed(out / "profiles.npz", ids=np.array([w["tree"] for w in winter if w["profiles"] is not None]),
+                            **{p: np.array([w["profiles"][p] for w in winter if w["profiles"] is not None])
+                               for p in PARTS}, **{f"stations_{p}": STATIONS[p] for p in PARTS})
+    report = summarise_typical(rows, shapes)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(report, indent=2))
+    lines = typical_lines(report)
+    print("\n".join(lines))
+    try:
+        (out / "output.txt").write_text("\n".join(lines) + "\n")
+    except OSError as e:
+        failed.append(f"{out / 'output.txt'}: {e.strerror or e}")
+    if figure:
+        Path(figure).parent.mkdir(parents=True, exist_ok=True)
+        plot_typical(report, Path(figure), failed)
+    print(f"\nSaved trees.csv, typical_shape.json, profiles.npz, report.json and output.txt in {out}"
+          + (f", and {figure}" if figure else ""))
     for f in failed:
         print(f"Could not write {f}")
     return 1 if failed else 0

@@ -98,6 +98,10 @@ summer plane; tree by tree):
   four leader and mask pairs). The pre-run statement that "their bends stay near the plane either way" holds
   for their size (median 0.7–0.9 cm), but they are noise rather than signal.
 
+**Follow-up:** the summer leaders looked nearly straight in the 3D models, because summer does not see them
+and the prior's mean was the plane. `docs/results/bend3d_typical/` makes the typical winter shape the mean
+instead (its rule fixed before its own 449-tree run), and the viewer can exaggerate the bends for display.
+
 ## What the preview got wrong
 
 The 21-tree preview (below) was right about step 1, and wrong on most sizes:

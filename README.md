@@ -143,6 +143,7 @@ python -m treeskel.benchmark                               # run time and memory
 python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
 python -m treeskel.bend3d data/raw                         # bends out of the plane: winter, then summer (development rows)
+python -m treeskel.bend3d data/raw --typical               # the typical winter shape as the bends' prior (development rows)
 python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
 python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
 python -m treeskel.model3d build --tree R05N12 --data data/raw --flat    # ... with every branch on the tree's plane

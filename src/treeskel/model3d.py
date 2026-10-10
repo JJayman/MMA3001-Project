@@ -101,6 +101,13 @@ BARK = (0.56, 0.42, 0.30)
 UNSURE = (0.80, 0.76, 0.70)
 """The colour of branch sections whose depth was not seen (the bends): kept near the plane, uncertain."""
 
+TYPICAL_REPORT = Path("docs/results/bend3d_typical/report.json")
+"""The typical-shape run of :mod:`treeskel.bend3d` (``--typical``): ``build`` uses its shape as the prior's mean
+only if its rule passed (``rule.adopt``)."""
+
+TYPICAL_SHAPE = Path("docs/results/bend3d_typical/typical_shape.json")
+"""The typical winter shape that run learnt from every development tree."""
+
 BENDS_REPORT = Path("docs/results/bend3d/report.json")
 """The 449-tree run of :mod:`treeskel.bend3d`, whose chosen prior ``build`` bends with (τ 2 cm, L 20 cm)."""
 
@@ -325,8 +332,8 @@ def ball(centre: np.ndarray, radius: float, rings: int = 10, sides: int = 16) ->
 
 
 def merge(meshes: Sequence[dict]) -> dict:
-    """Several meshes as one (with per-vertex ``colours`` if every mesh has them)."""
-    keys = ["vertices", "normals", "faces"] + (["colours"] if all("colours" in m for m in meshes) else [])
+    """Several meshes as one (with per-vertex ``colours`` and ``bend`` if every mesh has them)."""
+    keys = ["vertices", "normals", "faces"] + [k for k in ("colours", "bend") if all(k in m for m in meshes)]
     out = {key: [] for key in keys}
     k = 0
     for m in meshes:
@@ -352,6 +359,20 @@ def bend_params(report: Path = BENDS_REPORT):
     return BendParams()
 
 
+def typical_prior(report: Path = TYPICAL_REPORT, shape: Path = TYPICAL_SHAPE) -> dict | None:
+    """The typical winter shape to use as the prior's mean, if :mod:`treeskel.bend3d`'s typical-shape run is
+    saved and its rule (fixed before the run) passed; otherwise None (the plane)."""
+    if not (Path(report).exists() and Path(shape).exists()):
+        return None
+    if not json.loads(Path(report).read_text()).get("rule", {}).get("adopt"):
+        return None
+    return json.loads(Path(shape).read_text())["all"]
+
+
+VIEW_FLIP = np.array([1.0, -1.0, -1.0])
+"""The camera frame's axes as the model's (:func:`to_view`), for vectors."""
+
+
 def to_view(points: np.ndarray, origin: np.ndarray) -> np.ndarray:
     """Camera-frame points (``y`` down, ``z`` away) as the model's: ``y`` up, ``z`` towards the camera,
     ``origin`` (the fork) at 0."""
@@ -360,7 +381,8 @@ def to_view(points: np.ndarray, origin: np.ndarray) -> np.ndarray:
 
 
 def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.ndarray, camera: Camera = Camera(),
-               per_unit: float = METRES_PER_UNIT, slab: float = SLAB_M, leaf_step: int = 2, bends=None) -> dict:
+               per_unit: float = METRES_PER_UNIT, slab: float = SLAB_M, leaf_step: int = 2, bends=None,
+               typical: dict | None = None) -> dict:
     """The 3D model of one summer photo and its 256x256 branch mask.
 
     Args:
@@ -372,12 +394,15 @@ def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.n
         leaf_step: Every this many pixels become a leaf point.
         bends: A :class:`treeskel.bend3d.BendParams` to let the branches bend out of the plane where the summer
             depth sees the wood (ridge readings, :func:`treeskel.bend3d.prepare`); None keeps them on the plane.
-            Sections whose bend is uncertain (few or no readings) stay near the plane and are drawn in
+            Sections whose bend is uncertain (few or no readings) stay near the prior's mean and are drawn in
             :data:`UNSURE`.
+        typical: With ``bends``, the typical winter shape (:func:`treeskel.bend3d.typical_shape`) as the prior's
+            mean instead of the plane, so unread sections take the typical shape (:func:`typical_prior`).
 
     Returns:
         ``{"branches": mesh, "leaves": {"points", "colours"}, "measures", "plane"}``; the mesh (with per-vertex
-        ``colours``) and points in metres in the model's frame (:func:`to_view`), the measures as
+        ``colours``, and ``bend``: each vertex's move out of the plane, for the viewer's exaggeration) and points
+        in metres in the model's frame (:func:`to_view`), the measures as
         :func:`treeskel.tree3d.tree_measures` with sizes in metres, and with ``bends`` those of
         :func:`treeskel.bend3d.bend_measures` under ``"bends"``.
 
@@ -408,19 +433,23 @@ def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.n
     fork = on_plane(camera.rays(paths["trunk"][-1:]), plane)[0] * per_unit
     centres = {p: on_plane(camera.rays(paths[p]), plane) * per_unit for p in PARTS}       # metres
     unsure = {p: np.zeros(len(paths[p]), bool) for p in PARTS}
+    moves = {p: np.zeros((len(paths[p]), 3)) for p in PARTS}          # each point's move out of the plane (m)
     if bends is not None:
-        from treeskel.bend3d import bend_measures, bent_points, fit_bends, posterior_sd, prepare
+        from treeskel.bend3d import bend_measures, bent_points, fit_bends, posterior_sd, prepare, prior_mean
 
         # Each skeleton point moves along its ray to its fitted bend; the summer depth counts only where the
-        # wood is a ridge, so sections inside the canopy keep near the plane, with a large uncertainty.
+        # wood is a ridge, so sections inside the canopy keep near the prior's mean (the plane, or the typical
+        # winter shape), with a large uncertainty.
         prep = prepare(paths, depth, valid, widths, camera, ridge=True, scale=per_unit)
-        fit = fit_bends(prep, bends)
+        fit = fit_bends(prep, bends, mean=prior_mean(prep, typical) if typical else None)
         sd = posterior_sd(fit)
         pts = bent_points(prep, fit["h"])
         centres = {p: pts[prep.nodes[p]] for p in PARTS}
+        moves = {p: prep.rays[prep.nodes[p]] * fit["h"][prep.nodes[p], None] for p in PARTS}
         unsure = {p: sd[prep.nodes[p]] > bends.uncertain * bends.spread for p in PARTS}
         fork = pts[0]
         measures["bends"] = bend_measures(prep, fit["h"], sd, bends, SUMMER_SCALE, sigma=fit["sigma"])
+        measures["prior"] = "the typical winter shape" if typical else "the plane"
     meshes, top_radius = [], None
     for p in PARTS:
         centre = centres[p]
@@ -432,9 +461,15 @@ def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.n
         if p == "trunk":
             top_radius = float(r[-1])
         colour = np.where((np.interp(s, seg, unsure[p].astype(float)) > 0.5)[:, None], UNSURE, BARK)
-        meshes.append({**tube(to_view(line, fork), r), "colours": tube_colours(colour)})
+        # The move out of the plane along the tube, smoothed like its centre line, as a view-frame vector.
+        move = np.stack([np.interp(s, seg, moves[p][:, j]) for j in range(3)], 1)
+        if len(move) > 3:
+            move = ndi.gaussian_filter1d(move, SMOOTH_M / STEP_M / 2, axis=0, mode="nearest")
+        meshes.append({**tube(to_view(line, fork), r), "colours": tube_colours(colour),
+                       "bend": tube_colours(move * VIEW_FLIP)})
     knot = ball(np.zeros(3), top_radius or MIN_RADIUS_M)
-    meshes.append({**knot, "colours": np.tile(UNSURE if unsure["trunk"][-1] else BARK, (len(knot["vertices"]), 1))})
+    meshes.append({**knot, "colours": np.tile(UNSURE if unsure["trunk"][-1] else BARK, (len(knot["vertices"]), 1)),
+                   "bend": np.tile(moves["trunk"][-1] * VIEW_FLIP, (len(knot["vertices"]), 1))})
     branches = merge(meshes)
 
     # The leaves: the summer depth near the tree's plane, coloured by the photo.
@@ -553,9 +588,10 @@ def viewer_data(model: dict, title: str, source: str) -> dict:
                  ["Leaders' depth seen", None if not np.isfinite(bent.get("left_anchors", np.nan)) else
                   format((bent["left_anchors"] + bent["right_anchors"]) / 2, ".0%"), ""]]
     return {
-        "title": title, "source": source, "bends": bool(bent),
+        "title": title, "source": source, "bends": bool(bent), "prior": m.get("prior", "the plane"),
         "mesh": {"positions": _b64(b["vertices"], "<f4"), "normals": _b64(b["normals"], "<f4"),
-                 "indices": _b64(b["faces"].ravel(), "<u4"), "colours": _b64(_rgb8(b), "u1")},
+                 "indices": _b64(b["faces"].ravel(), "<u4"), "colours": _b64(_rgb8(b), "u1"),
+                 "bend": _b64(b.get("bend", np.zeros_like(b["vertices"])), "<f4")},
         "points": {"positions": _b64(leaves["points"], "<f4"), "colours": _b64(leaves["colours"], "u1"),
                    "count": int(len(leaves["points"]))},
         "measures": rows,
@@ -613,11 +649,14 @@ VIEWER = r"""<!doctype html>
   <label>Leaf opacity <input type="range" id="leafAlpha" min="0.05" max="1" step="0.05" value="1"></label>
   <label>Point size <input type="range" id="pointSize" min="0.3" max="3" step="0.1" value="1"></label>
   <label><input type="checkbox" id="spin"> Turn slowly</label>
+  <label id="exaggerateRow" hidden>Exaggerate bends <input type="range" id="exaggerate" min="1" max="5" step="0.5"
+    value="1"> <span id="exaggerateValue">×1.0</span></label>
   <div class="muted note">Sizes assume the fork is about 2 m from the camera; the leaders end where the photo
     or the prediction ends. Seen from the front, the model looks like the photo.</div>
   <div class="muted note" id="bendNote" hidden>The branches bend out of the tree's plane where the summer depth
-    sees the wood. Pale sections: their depth was not seen (leaves in front), so they are kept near the plane and
-    their bend is uncertain.</div>
+    sees the wood. Pale sections: their depth was not seen (leaves in front), so they follow the prior (<span
+    id="priorName">the plane</span>) and their bend is uncertain. "Exaggerate bends" stretches every bend for
+    display only; the numbers and the .ply files are at true scale.</div>
 </div>
 <button id="toggle" type="button">Hide panel</button>
 <div id="help">Drag to turn · scroll or pinch to zoom · right-drag or shift-drag to move · double-click to reset</div>
@@ -640,7 +679,11 @@ for (const [name, value, unit] of DATA.measures) {
   tr.insertCell().textContent = name;
   const td = tr.insertCell(); td.className = "v"; td.textContent = unit ? value + " " + unit : value;
 }
-if (DATA.bends) document.getElementById("bendNote").hidden = false;
+if (DATA.bends) {
+  document.getElementById("bendNote").hidden = false;
+  document.getElementById("exaggerateRow").hidden = false;
+  document.getElementById("priorName").textContent = DATA.prior;
+}
 document.getElementById("toggle").onclick = (e) => {
   const p = document.getElementById("panel"), hidden = p.style.display === "none";
   p.style.display = hidden ? "" : "none"; e.target.textContent = hidden ? "Hide panel" : "Show panel";
@@ -666,8 +709,10 @@ function program(vs, fs) {
   return p;
 }
 const meshProg = program(`#version 300 es
-  in vec3 position; in vec3 normal; in vec3 colour; uniform mat4 mvp; uniform mat4 view; out vec3 vNormal; out vec3 vColour;
-  void main() { gl_Position = mvp * vec4(position, 1.0); vNormal = mat3(view) * normal; vColour = colour; }`,
+  in vec3 position; in vec3 normal; in vec3 colour; in vec3 bend; uniform mat4 mvp; uniform mat4 view;
+  uniform float exaggerate; out vec3 vNormal; out vec3 vColour;
+  void main() { gl_Position = mvp * vec4(position + (exaggerate - 1.0) * bend, 1.0); vNormal = mat3(view) * normal;
+                vColour = colour; }`,
 `#version 300 es
   precision highp float; in vec3 vNormal; in vec3 vColour; out vec4 outColour;
   void main() { float d = abs(normalize(vNormal).z); outColour = vec4(vColour * (0.38 + 0.62 * d), 1.0); }`);
@@ -688,6 +733,7 @@ const meshPos = decode(DATA.mesh.positions, Float32Array);
 buffer(meshPos, "position", meshProg, 3, gl.FLOAT, false);
 buffer(decode(DATA.mesh.normals, Float32Array), "normal", meshProg, 3, gl.FLOAT, false);
 buffer(decode(DATA.mesh.colours, Uint8Array), "colour", meshProg, 3, gl.UNSIGNED_BYTE, true);
+buffer(decode(DATA.mesh.bend, Float32Array), "bend", meshProg, 3, gl.FLOAT, false);
 const indices = decode(DATA.mesh.indices, Uint32Array);
 const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 const pointVao = gl.createVertexArray(); gl.bindVertexArray(pointVao);
@@ -729,7 +775,10 @@ function lookAt(eye, target) {
 
 const ui = { branches: document.getElementById("showBranches"), leaves: document.getElementById("showLeaves"),
              alpha: document.getElementById("leafAlpha"), size: document.getElementById("pointSize"),
-             spin: document.getElementById("spin") };
+             spin: document.getElementById("spin"), exaggerate: document.getElementById("exaggerate") };
+ui.exaggerate.addEventListener("input", () => {
+  document.getElementById("exaggerateValue").textContent = "×" + parseFloat(ui.exaggerate.value).toFixed(1);
+});
 let dirty = true;
 for (const el of Object.values(ui)) el.addEventListener("input", () => { dirty = true; });
 
@@ -748,6 +797,7 @@ function draw() {
     gl.useProgram(meshProg); gl.bindVertexArray(meshVao);
     gl.uniformMatrix4fv(gl.getUniformLocation(meshProg, "mvp"), false, mvp);
     gl.uniformMatrix4fv(gl.getUniformLocation(meshProg, "view"), false, view);
+    gl.uniform1f(gl.getUniformLocation(meshProg, "exaggerate"), parseFloat(ui.exaggerate.value));
     gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
   }
   if (ui.leaves.checked) {
@@ -821,12 +871,13 @@ requestAnimationFrame(frame);
 # --------------------------------------------------------------------------
 
 def build(name: str, rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.ndarray, out: Path,
-          title: str, source: str, bends=None) -> dict:
+          title: str, source: str, bends=None, typical: dict | None = None) -> dict:
     """Make one tree's model and write its files; returns the paths and the measures.
 
-    ``bends`` (a :class:`treeskel.bend3d.BendParams`) lets the branches bend out of the plane (:func:`tree_model`).
+    ``bends`` (a :class:`treeskel.bend3d.BendParams`) lets the branches bend out of the plane, and ``typical``
+    (a typical winter shape) is then the prior's mean (:func:`tree_model`).
     """
-    model = tree_model(rgb, depth, valid, mask, bends=bends)
+    model = tree_model(rgb, depth, valid, mask, bends=bends, typical=typical)
     out.mkdir(parents=True, exist_ok=True)
     paths = {"html": out / f"{name}.html", "branches": out / f"{name}_branches.ply", "leaves": out / f"{name}_leaves.ply"}
     write_html(paths["html"], model, title, source)
@@ -872,6 +923,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     shape.add_argument("--flat", dest="flat", action="store_true",
                        help="put every skeleton point on the tree's plane (the model before session 15)")
     bu.set_defaults(flat=False)                  # both options share ``flat``: --bends' own default would be True
+    bu.add_argument("--plane-prior", action="store_true",
+                    help="keep the plane as the bends' prior mean even if the typical winter shape was adopted")
     bu.add_argument("--out", default="outputs/model3d")
     args = ap.parse_args(argv)
 
@@ -919,7 +972,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from treeskel.summer_gt import load_overlays
         overlays = load_overlays(args.mask_overlay)
 
-    bends = None
+    bends = typical = None
     if not args.flat:
         # Bending by default is the student's decision after the 449-tree run (rule 3 in docs/results/bend3d/).
         from treeskel.bend3d import setting_key
@@ -928,6 +981,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Bends out of the plane: prior {setting_key(bends)} "
               + ("(chosen by the 449-tree run)" if BENDS_REPORT.exists() else "(provisional: no 449-tree run saved)")
               + "; --flat for every point on the plane")
+        typical = None if args.plane_prior else typical_prior(TYPICAL_REPORT, TYPICAL_SHAPE)
+        if typical is not None:
+            print("Where summer does not see the wood, the branches take the typical winter shape (adopted by the rule "
+                  f"in {TYPICAL_REPORT.parent.as_posix()}; --plane-prior for the plane)")
+        elif not args.plane_prior:
+            print("Where summer does not see the wood, the branches stay near the plane (the typical winter shape "
+                  + ("was not adopted by its rule)" if TYPICAL_REPORT.exists() else "is not learnt yet)"))
     status = 0
     for name, rgb, depth, valid, title, rec in jobs:
         if args.mask == "unet":
@@ -958,7 +1018,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             source = "Branches from the hand-drawn mask, lined up"
         try:
-            res = build(name, rgb, depth, valid, mask, Path(args.out), title, source, bends)
+            res = build(name, rgb, depth, valid, mask, Path(args.out), title, source, bends, typical)
         except ValueError as e:
             print(f"{name}: {e}")
             status = 1
@@ -971,7 +1031,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             b = m["bends"]
             print(f"  bent: V opening {b['v_opening']:.1f}°, trunk {b['trunk_out']:.1f}° out of the V's plane; depth "
                   f"seen on {b['trunk_anchors']:.0%} of the trunk, {(b['left_anchors'] + b['right_anchors']) / 2:.0%} "
-                  "of the leaders (the rest stays near the plane, drawn pale)")
+                  f"of the leaders (the rest follows {m.get('prior', 'the plane')}, drawn pale)")
         print(f"  open {res['files']['html']} in a browser (or the .ply files in Blender, MeshLab or 3D Viewer)")
     return status
 
