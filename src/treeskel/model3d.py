@@ -25,11 +25,13 @@ The project's pieces, end to end, for a single photo:
    wide as the mask, with a ball at the fork; and the summer depth as a cloud
    of coloured points within :data:`SLAB_M` of the tree's plane (the leaves,
    which hide the branches).
-   With ``--bends`` (:mod:`treeskel.bend3d`), each point moves along its ray to the
-   bend fitted to the summer depth where the wood is a depth ridge (the trunk
-   below the canopy, wood against a gap), joined at the fork, with the plane
-   as the prior; sections whose depth was not seen stay near the plane and are
-   drawn pale (:data:`UNSURE`).
+   By default (since session 15; ``--flat`` for the plane alone) each point
+   then moves along its ray to the bend :mod:`treeskel.bend3d` fits to the
+   summer depth where the wood is a depth ridge (the trunk below the canopy,
+   wood against a gap), joined at the fork, with the plane as the prior;
+   sections whose depth was not seen stay near the plane and are drawn pale
+   (:data:`UNSURE`). On the 449 development trees the summer trunk bends the
+   right way more often than not, but by about a third of winter's angle.
 5. **Files:** ``<name>.html`` opens in any browser, with no internet and
    nothing to install (drag to turn, scroll to zoom, the leaves can be faded
    or hidden); ``<name>_branches.ply`` and ``<name>_leaves.ply`` open in
@@ -48,7 +50,7 @@ python -m treeskel.model3d build --tree R12N02 --data data/raw    # a test-row t
 python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
 python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # a development tree, out of fold
 python -m treeskel.model3d build --tree R12N02 --data data/raw --mask saved --saved docs/results/final_test/predicted_masks.npz
-python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved --bends   # branches may leave the plane
+python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved --flat    # every point on the plane
 ```
 """
 
@@ -97,10 +99,10 @@ BARK = (0.56, 0.42, 0.30)
 """The branches' colour (RGB, 0–1)."""
 
 UNSURE = (0.80, 0.76, 0.70)
-"""The colour of branch sections whose depth was not seen (``--bends``): kept near the plane, uncertain."""
+"""The colour of branch sections whose depth was not seen (the bends): kept near the plane, uncertain."""
 
 BENDS_REPORT = Path("docs/results/bend3d/report.json")
-"""The 449-tree run of :mod:`treeskel.bend3d`, whose chosen prior ``--bends`` uses when it exists."""
+"""The 449-tree run of :mod:`treeskel.bend3d`, whose chosen prior ``build`` bends with (τ 2 cm, L 20 cm)."""
 
 
 # --------------------------------------------------------------------------
@@ -341,7 +343,7 @@ def tube_colours(colours: np.ndarray, sides: int = 16, caps: bool = True) -> np.
 
 
 def bend_params(report: Path = BENDS_REPORT):
-    """The prior ``--bends`` uses: the one :mod:`treeskel.bend3d`'s 449-tree run chose, if saved, else the
+    """The prior ``build`` bends with: the one :mod:`treeskel.bend3d`'s 449-tree run chose, if saved, else the
     default of :class:`treeskel.bend3d.BendParams`."""
     from treeskel.bend3d import BendParams, params_of
 
@@ -863,9 +865,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     bu.add_argument("--split", default="splits.json", help=argparse.SUPPRESS)          # tests only
     bu.add_argument("--mask-overlay", default="annotations/mask_overlay.json", help="the hand masks' line-up")
     bu.add_argument("--device")
-    bu.add_argument("--bends", action="store_true",
-                    help="let the branches bend out of the tree's plane where the summer depth sees the wood "
-                         "(treeskel.bend3d); sections it does not see stay near the plane, drawn pale")
+    shape = bu.add_mutually_exclusive_group()
+    shape.add_argument("--bends", dest="flat", action="store_false",
+                       help="(the default) let the branches bend out of the tree's plane where the summer depth sees "
+                            "the wood (treeskel.bend3d); sections it does not see stay near the plane, drawn pale")
+    shape.add_argument("--flat", dest="flat", action="store_true",
+                       help="put every skeleton point on the tree's plane (the model before session 15)")
+    bu.set_defaults(flat=False)                  # both options share ``flat``: --bends' own default would be True
     bu.add_argument("--out", default="outputs/model3d")
     args = ap.parse_args(argv)
 
@@ -914,12 +920,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         overlays = load_overlays(args.mask_overlay)
 
     bends = None
-    if args.bends:
+    if not args.flat:
+        # Bending by default is the student's decision after the 449-tree run (rule 3 in docs/results/bend3d/).
         from treeskel.bend3d import setting_key
 
         bends = bend_params()
         print(f"Bends out of the plane: prior {setting_key(bends)} "
-              + ("(chosen by the 449-tree run)" if BENDS_REPORT.exists() else "(provisional: no 449-tree run saved)"))
+              + ("(chosen by the 449-tree run)" if BENDS_REPORT.exists() else "(provisional: no 449-tree run saved)")
+              + "; --flat for every point on the plane")
     status = 0
     for name, rgb, depth, valid, title, rec in jobs:
         if args.mask == "unet":

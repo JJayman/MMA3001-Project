@@ -92,6 +92,14 @@ camera, different (autumn) capture.
   scale putting the median fork at **2.0 m** (Chen et al.'s 1.8–2.2 m):
   0.01197 m per unit (`treeskel.depth3d`). Angles need only the zero and focal
   length; sizes rest on the 2.0 m. See `docs/results/depth3d/`, `tree3d/`.
+- **Bends out of the plane** (session 15, the student's request and plan;
+  `treeskel.bend3d`): each branch is a smooth curve along its axis depth with
+  the plane as a Gaussian-process prior, τ 2 cm and L 20 cm (chosen by block
+  cross-validation on all 449 development trees' winter depth; every fold
+  agreed); summer counts only depth-ridge readings. **`model3d build` bends by
+  default** (the student's decision after the rule fixed before the 449-tree
+  run passed; `--flat` gives the plane); unseen sections are drawn pale. See
+  `docs/results/bend3d/README.md`.
 
 ## Where things are
 
@@ -116,7 +124,7 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                bend3d.py (trunk and leaders as smooth 3D curves that may leave the plane: robust
                Gaussian-process fit joined at the fork, block cross-validation, summer ridge readings),
                model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
-               named U-Net to the git-ignored models/; `--bends` lets the branches leave the plane)
+               named U-Net to the git-ignored models/; bends by default, `--flat` for the plane)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -240,15 +248,18 @@ See the latest file in `docs/progress/`. As of session 14:
      | Test functions | 27 test files, 409 test functions in `tests/` |
      | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment with CPU PyTorch; can be remade on the student's PC with the same command |
   4. Optional: the 3D step once on the test rows (with the caveat).
-- **Session 15 (in progress): bends out of the plane** (the student's request and four-step plan;
-  `treeskel.bend3d`, `docs/results/bend3d/README.md`). Method, synthetic checks and the rules for the
-  449-tree run are committed; **the run on the student's PC is next**
-  (`python -m treeskel.bend3d data/raw --profiles R01N05 R01N13 R07N29 R15N05 R09N34 R01N18`, about 30 min).
-  The 21-tree preview (`docs/results/bend3d_preview/`, not a result) suggests: the bends predict left-out
-  winter depth far better than the plane; the trunk stands about 25° out of the V's plane (root behind),
-  repeated in summer; and the bent V is about 2.2° wider than the plane's, which would cancel session 13's
-  3D correction (to be settled on 449). `model3d build --bends` is an option, not the default, until the
-  student decides on the 449-tree evidence.
+- **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
+  development trees, the student's PC, 57 min):
+  - *Winter holds bends:* left-out depth 1.92 cm against the plane's 3.13 cm (median per tree, out of fold),
+    better on 94% of trees (89% with 30 px buffers).
+  - *The trunk* stands a median 14.2° out of the V's plane, root behind (13.3° with ridge readings only;
+    row 1, the edge row, 26°). Leaders bow about 1.7 cm.
+  - *The 3D V:* bending the leaders widens it by 1.6°, so it is 0.9° (not 2.6°) narrower than the 2D V; the
+    depth cannot say which is right, and either way the 2D results stand.
+  - *Summer:* sees the trunk (45% of readings), almost never the leaders (3%); its trunk angle is closer to
+    winter's than the plane's on 60% of trees (U-Net) but only about a third of the size (slope 0.32).
+  - The 21-tree preview overstated the sizes (trunk 25°, V +2.2°): 9 of its trees are row 1.
+  - Code changed: rebuild `docs/test_report.html` before submission (the docs are rebuilt).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

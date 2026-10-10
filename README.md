@@ -23,8 +23,8 @@ average tree, negative worse). Every summer prediction is scored against the sam
 | **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
 | Run time | the U-Net predicts a photo in 9.7 ms on a GPU, 116 ms on a CPU, and trains in 2 minutes | `docs/results/benchmark/` |
 | 3D | the trees are flat to a median 1.7 cm (sizes assume 2 m from the camera to the fork); the V in the photo is about 2.3° wider than in the tree's own plane | `docs/results/depth3d/`, `tree3d/` |
-| 3D model of a summer photo | opens in any browser: [`docs/results/model3d/R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
-| Bends out of the plane | method, checks and rules committed; the 449-tree run is pending | `docs/results/bend3d/` |
+| Bends out of the plane | the winter depth holds bends: left-out depth predicted to 1.9 cm against the plane's 3.1 cm (94% of trees); the trunk stands a median 14° out of the V's plane; letting the leaders bend leaves the 3D V 0.9° (not 2.6°) narrower than the 2D V | `docs/results/bend3d/` |
+| 3D model of a summer photo | opens in any browser, the branches bent where summer sees the wood: [`R01N13.html`](docs/results/model3d/R01N13.html), [`R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
 
 ## Documentation
 
@@ -145,7 +145,7 @@ python -m treeskel.tree3d data/raw                         # the trees in 3D, wi
 python -m treeskel.bend3d data/raw                         # bends out of the plane: winter, then summer (development rows)
 python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
 python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
-python -m treeskel.model3d build --tree R05N12 --data data/raw --bends   # ... with branches that may leave the plane
+python -m treeskel.model3d build --tree R05N12 --data data/raw --flat    # ... with every branch on the tree's plane
 pdoc -d google -o docs/html src/treeskel   # build the HTML documentation (docs/html/)
 pytest --html=docs/test_report.html --self-contained-html   # the test report
 ```

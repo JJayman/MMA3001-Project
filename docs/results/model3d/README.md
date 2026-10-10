@@ -11,11 +11,18 @@ opened and turned around. `treeskel.model3d` joins the project's pieces end to e
    `docs/results/depth3d/`, `docs/results/tree3d/`).
 4. **Model:** tubes as wide as the mask, a ball at the fork, and the summer depth within 0.75 m of the
    plane as coloured points (the leaves).
+5. **Bends** (session 15, the default since the 449-tree run): each skeleton point moves along its ray to the
+   bend `treeskel.bend3d` fits to the summer depth where the wood is seen; unseen sections stay near the
+   plane, drawn pale (below). `--flat` keeps every point on the plane, as before.
 
-`R15N05.html` is the example (a development tree, its mask from the 5-fold run, so from a network that never
-saw row 15). Open it in any browser: it needs no internet and nothing installed. Drag to turn, scroll to
-zoom, right-drag or shift-drag to move, and fade or hide the leaves. Figure:
-`docs/figures/model3d_R15N05.jpg`.
+The examples (development trees, their masks from the 5-fold run, so from networks that never saw their
+rows) open in any browser, with no internet and nothing installed: drag to turn, scroll to zoom, right-drag
+or shift-drag to move, and fade or hide the leaves.
+
+- `R15N05.html`: the example since session 13, rebuilt with bends; little of its trunk is seen in summer,
+  so it stays near the plane, pale. Figure (the flat model of session 13): `docs/figures/model3d_R15N05.jpg`.
+- `R01N13.html`: a tree whose summer trunk is seen, chosen by a rule (below). Figure of both, from the front
+  and the side: `docs/figures/model3d_bends.png` (`bends_figure.py`).
 
 ## Making one
 
@@ -85,30 +92,48 @@ lined-up development trees, which is the same set).
   session 10).
 - **The branches lie on one plane** unless `--bends` is given (session 15, below).
 
-## Bends out of the plane (`--bends`, session 15)
+## Bends out of the plane (session 15; the default)
 
 ```bash
-python -m treeskel.model3d build --tree R01N05 --data data/raw --mask saved --bends
+python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved          # bends (the default)
+python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved --flat   # every point on the plane
 ```
 
-With `--bends` each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the
-summer depth (`docs/results/bend3d/`): a smooth curve per part, joined at the fork, with the plane as its
-prior. Only the summer readings where the branch is a depth ridge count (its sides at least about 5 cm
-farther), so the depth of leaves in front is not followed. **Sections whose depth was not seen are drawn
-pale** (`UNSURE`): there the bend's posterior standard deviation is more than half the prior's, and the
-branch stays near the plane. Seen from the front the model still looks like the photo; turned side-on, the
-trunk can run back out of the V's plane. The viewer's panel adds the bent V opening, the trunk's angle out
-of the V's plane and how much of the trunk's and the leaders' depth was seen.
+Each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the summer depth
+(`docs/results/bend3d/`): a smooth curve per part, joined at the fork, with the plane as its prior (τ 2 cm,
+L 20 cm, chosen on the 449 development trees' winter depth). Only the summer readings where the branch is a
+depth ridge count (its sides at least about 5 cm farther), so the depth of leaves in front is not followed.
+**Sections whose depth was not seen are drawn pale** (`UNSURE`): there the bend's posterior standard
+deviation is more than half the prior's, and the branch stays near the plane. Seen from the front the model
+still looks like the photo; turned side-on, the trunk can run back out of the V's plane. The viewer's panel
+adds the bent V opening, the trunk's angle out of the V's plane and how much of the trunk's and the leaders'
+depth was seen.
 
-- **What summer sees:** on the 21 preview trees, the trunk below the canopy (29–45% of its readings) and
-  almost none of the leaders (4%); the trunk was sure enough to draw in bark colour (less than half of it uncertain) on 9 of 21 hand masks
-  and 7 of 20 U-Net masks.
-  R15N05's mask: everything pale (19% of its trunk read, noisy).
-- **The prior** is the one the 449-tree run chooses (read from `docs/results/bend3d/report.json`); until that
-  run is saved, the provisional τ 2 cm, L 20 cm (`build` says which).
-- **Not the default yet:** whether `build` should bend by default is the student's decision after the
-  449-tree run, by the rule in `docs/results/bend3d/README.md` (summer closer to winter than the plane on
-  the trunk's angle, tree by tree, with the U-Net's masks).
-- **Checked:** the plane's own measures are unchanged with `--bends`; the colours reach the viewer and the
-  `.ply` file; the page opened in headless Chromium without errors, front and side views as expected
-  (R01N05: the trunk 32.5° out of the V's plane in summer, 31.9° in winter on the preview).
+**Why it is the default:** the rule fixed before the 449-tree run (`docs/results/bend3d/README.md`, rule 3)
+passed, and the student chose to follow it. With the U-Net's masks the summer trunk's angle out of the V's
+plane is closer to winter's than the plane's on 60% of the 433 trees (Wilcoxon p 4e-8).
+
+**What to know when showing one** (449 development trees, `docs/results/bend3d/analysis_output.txt`):
+
+- **Summer sees the trunk below the canopy, almost never the leaders:** a median 45% of the trunk's readings
+  count, 3% of the leaders'. The trunk is drawn as seen (less than half of it uncertain) on 214 of 433 U-Net
+  masks.
+- **The summer bend is about a third of the real one.** The trunk's angle out of the V's plane is a median
+  2.9° in summer against 14.2° in winter (Theil–Sen slope 0.32): with few, noisy readings the prior pulls it
+  back towards the plane. It usually leans the right way, by too little.
+- **Seen trunks are the ones to trust:** where the trunk is drawn as seen, its angle follows winter's with a
+  rank correlation of 0.52; where it is pale, 0.25.
+- **The leaders' bends are noise:** their bows come out 0.1–0.2 cm further from winter's than the plane's
+  (median size 0.7–0.9 cm). They are drawn pale.
+
+**The examples.** `R15N05.html` (the session-13 example, kept): 19% of its trunk read, none of it sure, so the
+model stays within a few centimetres of the plane. `R01N13.html`: chosen by a rule, not by eye: among the
+development trees in the repository whose U-Net trunk is drawn as seen, the one whose summer-against-winter
+trunk-angle error (12.2°) is nearest the median of all 214 such trees (11.4°). Its summer trunk is 16.3° out
+of the V's plane (winter 28.5°); 85% of its trunk is read and 72% drawn as seen.
+
+**Checked:** the plane's own measures are unchanged by the bends; the colours reach the viewer and the
+`.ply` file; the page opens in headless Chromium without errors, front and side views as expected; the
+examples' bent measures equal the 449-tree run's for the same trees (R15N05 −2.4°, R01N13 16.3°). A test
+caught that `build` had not been bending by default at first (both options shared one setting, whose
+default came from `--bends`).

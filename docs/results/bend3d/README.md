@@ -16,9 +16,103 @@ The student's plan, followed here:
    obstacle: at a predicted branch pixel the depth may be a leaf in front, so a branch fitted to every
    reading would follow the foliage.
 
-**Status: method, checks and rules committed; the 449-tree run is still to be made on the student's PC**
-(the command is at the end). The 21 development trees in the repository give a preview in
-[`../bend3d_preview/`](../bend3d_preview/); it is not a result (see below).
+**Status: done on the 449 development trees** (the student's PC, 10 October; results below). The method,
+the checks and the rules were committed before the run (58782a6, merged in PR #56); the run's files are
+`cv.csv`, `trees.csv`, `report.json`, `output.txt` and `docs/figures/bend3d.png`, `bend3d_profiles.png`. The
+summary was remade from the saved rows (`--from-saved`) after one reporting fix: failed planes are now
+listed per camera setting (the run's own list had lumped in the trees that fail only at zeros 262 and 255).
+`analysis.py` (output `analysis_output.txt`) adds the follow-up numbers, from the same rows.
+
+## Results (449 development trees)
+
+**Step 1: the winter depth holds bends.** The rule passes by a wide margin.
+
+| Left-out blocks, mean absolute error | Plane | Bends (τ 2 cm, L 20 cm) |
+|---|---|---|
+| Pooled over all readings | 3.59 cm | 2.47 cm |
+| Trunk / left / right leader | 5.11 / 3.39 / 3.42 cm | 3.20 / 2.37 / 2.40 cm |
+| Per tree, median, out of fold (445 trees) | 3.13 cm | **1.92 cm**: better on **94%** (Wilcoxon p 3e-71) |
+| The same with 30 px buffers | 3.42 cm | 2.38 cm: better on 89% (p 3e-66) |
+
+- **The prior:** τ 2 cm, L 20 cm, chosen on the pooled error and by every fold on the other four; τ 8 / L 40,
+  τ 4 / L 20 and τ 4 / L 40 were within 0.06 cm. The bends change over about 20 cm and are a few
+  centimetres in size.
+- **The depth's noise** along a branch is 1.17 cm (median per tree; quartiles 1.00–1.37).
+
+**What the bends are (winter, main setting; median [quartiles]):**
+
+| Measure | Bends | Across the calibration range |
+|---|---|---|
+| Trunk out of the V's plane (root behind) | **14.2°** [6.9, 21.1] | 12.6–16.4° |
+| ... with ridge readings only (the trunk clear of the ground) | 13.3° [5.3, 20.2]; rank correlation 0.92 with all readings | – |
+| Leaders' bow out of the V's plane | 1.7 cm in size (left −0.3, right −0.6 cm signed) | 1.3–2.2 cm |
+| Farthest from the plane: trunk / leaders | 4.9 / 4.1–4.3 cm | leaders 3.4–5.2 cm |
+| Leaders' lines on their stretch out of the tree's plane (top behind) | 3.7° / 4.1° | – |
+| ... the whole leaders in view | 0.7° / 1.5° | – |
+| V opening, bends − plane | **+1.6°** [+0.9, +2.3] | +1.1 to +2.3° |
+
+- **The trunk stands out of the V's plane on most trees,** its root behind. It is in the depth itself, not
+  the ground's: with only the readings where the trunk stands clear of its surroundings it is 13.3°, tree by
+  tree within a median 1.6° of all readings. It is largest in **row 1**, the orchard's edge row (median
+  26.4°; every other row 8.5–18.6°); 10 trees exceed 40°, 6 of them in row 1 (`analysis_output.txt`).
+- **The leaders bow by a couple of centimetres** and curve: on the stretch the V is measured on, their
+  lines tilt about 4° back from the tree's plane, while the whole leaders lie within 0.7° and 1.5° of it, so
+  in the depth they rise more steeply above the fork and lean towards the camera higher up.
+- **The V opening in 3D.** Letting the leaders bend widens the 3D V by 1.6° (median), so it lies between
+  the plane's and the photo's:
+
+  | V opening, tree by tree (winter, 445 trees) | Median [quartiles] |
+  |---|---|
+  | Plane − photo (session 13's 3D correction; here with the axis depth, 0.3° more than session 13's surface depth) | −2.6° [−3.4, −1.8] |
+  | Bends − photo | **−0.9°** [−1.9, +0.1]; narrower on 73% of trees (the plane on 99%) |
+
+  On synthetic flat trees the bends do not open the V (−0.03°), so the widening comes from the depth along
+  the lower leaders. Whether that is the leaders' real shape or a bias of the depth near the fork, the depth
+  alone cannot tell, and summer cannot check it (it does not see the leaders). Either way the 3D V is within
+  1–3° of the 2D V, so the project's 2D results stand; the size of the 3D correction is less certain than
+  session 13 said (0.9–2.6°, not 2.3°).
+- **Failed planes** under the main setting: 4 winter trees (R01N30, R07N26, R08N22, R11N15, all among
+  session 13's six turned planes); more at zeros 262 (11) and 255 (12), which their medians leave out.
+
+**Step 4: summer, against winter's bends** (ridge readings only; median |summer − winter|, bends against the
+summer plane; tree by tree):
+
+| | U-Net (433–434 trees) | Hand masks (442–443 trees) |
+|---|---|---|
+| Readings that count: trunk / leaders | 45% / 3% | 47% / 2–3% |
+| **Trunk out of the V's plane** | bends 12.0° against 14.5°; closer on **60%** (p 4e-8); rank correlation 0.38 | 12.5° against 14.4°; closer on 58% (p 2e-7); 0.33 |
+| Left / right bow | 1.85 / 1.71 cm against 1.73 / 1.63 cm; closer on 44% / 44% (p 0.11 / 0.03) | 1.81 / 1.84 against 1.72 / 1.63; 47% / 42% (p 0.03 / 3e-4) |
+| V opening | 3.01° against 3.00°; 48% (p 0.13) | 2.83° against 2.72°; 46% (p 0.05) |
+
+- **Rule 3 passes:** with the U-Net's masks the summer trunk's angle is closer to winter's than the plane's
+  on 60% of trees (p 4e-8). **The student's decision:** follow the rule, so `model3d build` now bends by
+  default (`--flat` gives the plane), with the caveats below written into `docs/results/model3d/README.md`.
+- **But summer recovers only about a third of the angle.** The summer trunk's angle is a median 2.9°
+  (U-Net; hand masks 2.5°) against winter's 14.2°, a Theil–Sen slope of 0.32 on winter's: with few, noisy
+  ridge readings the prior pulls it most of the way back to the plane. The direction is right more often
+  than not; the size is too small.
+- **The pale marking helps a little.** Where `model3d` draws the summer trunk as seen (less than half of it
+  uncertain; 214 U-Net trees), it agrees with winter in rank about twice as well as where it draws it pale
+  (0.52 against 0.25); the bends beat the plane about equally often in both (62% and 58%).
+- **The leaders' bows are slightly worse than the plane's** (by 0.1–0.2 cm, significant on three of the
+  four leader and mask pairs). The pre-run statement that "their bends stay near the plane either way" holds
+  for their size (median 0.7–0.9 cm), but they are noise rather than signal.
+
+## What the preview got wrong
+
+The 21-tree preview (below) was right about step 1, and wrong on most sizes:
+
+| | Preview (20 trees) | 449 trees |
+|---|---|---|
+| Bends better out of fold | 95% | 94% |
+| Trunk out of the V's plane | 25.4° | 14.2° |
+| V opening, bends − plane | +2.2° | +1.6° |
+| Leaders' stretch tilt | 5.5° | 3.7–4.1° |
+| Summer trunk, rank correlation with winter (hand masks / U-Net) | 0.63 / 0.64 | 0.33 / 0.38 |
+
+Nine of the 21 preview trees are in row 1, whose trunks stand farthest out of the plane. The preview
+was labelled as no result before the run; it is a fifth case of a small local sample misleading (sessions
+6, 8, 9 and 10 before).
 
 ## Method (`treeskel.bend3d`)
 
@@ -30,8 +124,8 @@ The student's plan, followed here:
 - **Which readings count.** Winter: every reading. Summer: only where the branch is a **depth ridge**,
   with both sides (6 px beyond its edge) reading at least 4 units (about 5 cm) farther, or nothing. Inside
   the canopy a reading at a branch pixel is usually a leaf in front, and the depth there is a smooth
-  surface with no ridge; the trunk below the canopy and wood seen against a gap pass. On the preview,
-  summer keeps 29–45% of the trunk's readings and 4% of the leaders'.
+  surface with no ridge; the trunk below the canopy and wood seen against a gap pass. On the 449 trees
+  summer keeps a median 45–47% of the trunk's readings and 2–3% of the leaders'.
 - **The plane**: the robust plane of `treeskel.tree3d` through every reading's axis point; the bends are
   measured from it. A plane turned more than 60° from the camera is a failed fit (R07N26 on the preview, one
   of session 13's six).
@@ -108,7 +202,7 @@ are not loaded (`splits.json`).
    angle with ridge readings only (`winter ridges`: the trunk where it stands clear of the ground), and every
    measure under the calibration range (zeros 262, 366 and 255; focal lengths 585 and 647).
 
-## The preview on the 21 trees in the repository (not a result)
+## The preview on the 21 trees in the repository (not a result; as written before the run)
 
 `docs/results/bend3d_preview/` is the same command on `data/sample` and `data/tuning`. 17 of these trees were
 picked in session 4 as problem trees, and claims from them failed on all 449 trees in sessions 6, 8
@@ -134,10 +228,10 @@ the fitted bends and their ±2 SD band.
 
 ```bash
 python -m treeskel.bend3d data/raw --profiles R01N05 R01N13 R07N29 R15N05 R09N34 R01N18
+python -m treeskel.bend3d --from-saved docs/results/bend3d --figure ""     # the summary again, no images
+python docs/results/bend3d/analysis.py                                     # the follow-up numbers
 ```
 
-About 30 minutes on 8 threads, longer on fewer (phase 1, the cross-validation, about 13 s a tree; phase 2, the chosen prior
-under six camera settings and three skeletons, about 18 s a tree). It writes `cv.csv`, `trees.csv`,
-`report.json` and `output.txt` here, and `docs/figures/bend3d.png` and `bend3d_profiles.png`. Push those
-files; `python -m treeskel.bend3d --from-saved docs/results/bend3d` remakes the summary without images.
-After it, `model3d build --bends` uses the chosen prior (it reads `report.json`).
+It took 57 minutes on the student's PC (cross-validation 20 min, the chosen prior on every source and setting
+37 min), about twice the estimate made here. `model3d build --bends` reads the chosen prior from
+`report.json`.
