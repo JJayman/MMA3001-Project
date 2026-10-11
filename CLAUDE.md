@@ -294,6 +294,15 @@ See the latest file in `docs/progress/`. As of session 15:
     once on the test rows, as a secondary line with the caveat; that code is written after the verdict. The
     second ensemble (seeds 3–5) is run, deciding nothing. Eight GPU runs in all. The HTML docs and the test
     report were rebuilt after the code changes (546 passed).
+  - *Results* (`docs/results/segment_variants/README.md`, `checks_after_runs.py`): the rule passed both changes
+    and names the centre-line ensemble (4.004° against the named run's 4.224°). **But its test is too lenient
+    between trainings:** seven trainings of the named recipe range 3.997–4.471°, and the rule's test calls
+    triples of the same recipe different in 3 of 10 splits (its own baseline triple p = 0.027). At the level
+    of trainings, the centre-line loss's V-opening gain is not established (p 0.11); its higher coverage of
+    the hand masks' centre lines is (0.866 → 0.883, p 0.008). Ensembling beats its own members on all three
+    ensembles (p ≤ 0.006, 0.06–0.14°) and halves the disagreement between trainings (0.67° → 0.36°).
+    **The student is to choose:** A, the rule's centre-line ensemble, or B, an ensemble of the named recipe;
+    then the test-row secondary report's code. Label audit: verdicts not yet filled in (0 of 40).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
