@@ -1,53 +1,53 @@
 {
   "trees": 40,
-  "judged_trees": 40,
+  "judged_trees": 0,
   "parts": {
     "trunk": {
-      "on": 40,
+      "on": 0,
       "off": 0,
       "hidden": 0,
-      "share_off": 0.0,
+      "share_off": NaN,
       "interval": [
-        0.0,
-        0.08762453925039232
+        NaN,
+        NaN
       ]
     },
     "left": {
-      "on": 40,
+      "on": 0,
       "off": 0,
       "hidden": 0,
-      "share_off": 0.0,
+      "share_off": NaN,
       "interval": [
-        0.0,
-        0.08762453925039232
+        NaN,
+        NaN
       ]
     },
     "right": {
-      "on": 40,
+      "on": 0,
       "off": 0,
       "hidden": 0,
-      "share_off": 0.0,
+      "share_off": NaN,
       "interval": [
-        0.0,
-        0.08762453925039232
+        NaN,
+        NaN
       ]
     }
   },
   "leaders": {
-    "on": 80,
+    "on": 0,
     "off": 0,
     "hidden": 0,
-    "share_off": 0.0,
+    "share_off": NaN,
     "interval": [
-      0.0,
-      0.0458197362645751
+      NaN,
+      NaN
     ]
   },
   "trees_any_off": 0,
-  "trees_any_off_share": 0.0,
+  "trees_any_off_share": NaN,
   "trees_any_off_interval": [
-    0.0,
-    0.08762453925039232
+    NaN,
+    NaN
   ],
   "off_trees": []
 }

@@ -1,6 +1,8 @@
 # Label audit: are the lined-up hand masks locally off? (session 16)
 
-**Status: sample drawn; verdicts not yet given.**
+**Status: sample drawn; no usable verdicts yet.** A first pass (12 October 2026) marked all 120 parts `on`.
+The student was not sure what was being asked, so it is not used as a result. It is kept in
+[`sample_first_pass.csv`](sample_first_pass.csv), and `sample.csv` was reset for a second pass.
 
 ## Why
 
@@ -25,8 +27,10 @@ result are in [`../segment_variants/rule.md`](../segment_variants/rule.md).
 
 ## How to judge (the student, by eye)
 
-**The verdicts.** For each tree, judge three parts: the trunk, the left leader (its tip is further left)
-and the right leader. Each gets one of:
+**The verdicts.** You are checking whether the hand-drawn mask, as lined up, sits on the branches you can
+see in the photo. [`on_vs_off_example.jpg`](on_vs_off_example.jpg) shows both cases (made by
+[`example.py`](example.py); the "off" one is made up for the guide). For each tree, judge three parts: the
+trunk, the left leader (its tip is further left) and the right leader. Each gets one of:
 
 - **on:** where the wood is visible, the magenta outline follows it to within about half the branch's width;
 - **off:** along a stretch at least a trunk's width long, the outline lies beside the visible wood by about
@@ -51,4 +55,4 @@ part among those judged, with Wilson 95% intervals, and the trees with any part 
 
 ## Results
 
-Not yet.
+None yet: the first pass is not used (see the status above).
