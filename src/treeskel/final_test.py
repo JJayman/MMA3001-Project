@@ -383,15 +383,23 @@ def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], te
         compare_with: An earlier evaluation's folder (its ``predictions.csv`` column ``model``), or None.
 
     Returns:
-        ``{"seeds", "members": [{"seed", "no_fork", "scores", "v_opening": {tree: degrees}}], "vs_members",
-        "compare_with", "vs_compare_with"}``:
-        the comparisons are on the V opening's absolute error, tree by tree
-        (:func:`treeskel.seg_compare.paired`; ``a`` is the ensemble).
+        ``{"seeds", "members": [{"seed", "no_fork", "stubs", "scores", "v_opening_every_tree",
+        "v_opening": {tree: degrees}}], "vs_members", "compare_with", "vs_compare_with"}``:
+        ``scores`` as the final test scores (a stub left out), ``v_opening_every_tree`` with stubs as the mean
+        shape; the comparisons are on the V opening's absolute error over every tree, stubs as the mean shape,
+        tree by tree (:func:`treeskel.seg_compare.paired`; ``a`` is the ensemble).
     """
     from treeskel.seg_compare import paired
     from treeskel.segment import read_predictions
 
     v = MEASURES.index("v_opening")
+
+    def every_tree(values: np.ndarray) -> np.ndarray:
+        """The V opening with a stub (a fork but no V opening) as the mean shape too, as a mask with no fork
+        already is: so every network is compared on every tree (session 16's development rule; a first
+        version left stubs out, which dropped exactly the trees where networks fail)."""
+        return np.where(np.isfinite(values), values, base[:, v])
+
     members, member_err = [], []
     for seed, probs in zip(seeds, member_probs):
         seg = np.full(y.shape, np.nan)
@@ -399,13 +407,17 @@ def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], te
             meas = recipe_mask(probs[i], recipe, params)[1]
             seg[i] = [meas[k] for k in MEASURES]
         filled = fill_failures(seg, base)
+        all_v = every_tree(filled[:, v])
         members.append({"seed": int(seed), "no_fork": int((~np.isfinite(seg).any(axis=1)).sum()),
+                        "stubs": int((np.isfinite(seg).any(axis=1) & ~np.isfinite(seg[:, v])).sum()),
                         "scores": {k: evaluate(y[:, j], filled[:, j], base[:, j], row_index)
                                    for j, k in enumerate(MEASURES)},
+                        "v_opening_every_tree": evaluate(y[:, v], all_v, base[:, v], row_index),
                         "v_opening": {t: (None if not np.isfinite(filled[i, v]) else round(float(filled[i, v]), 2))
                                       for i, t in enumerate(test)}})
-        member_err.append(np.abs(filled[:, v] - y[:, v]))
-    mine = {t: float(abs(ensemble_filled[i, v] - y[i, v])) for i, t in enumerate(test)}
+        member_err.append(np.abs(all_v - y[:, v]))
+    ens_v = every_tree(ensemble_filled[:, v])
+    mine = {t: float(abs(ens_v[i] - y[i, v])) for i, t in enumerate(test)}
     average = {t: float(np.mean([e[i] for e in member_err])) for i, t in enumerate(test)}
     out = {"seeds": [int(s) for s in seeds], "members": members, "vs_members": paired(mine, average),
            "compare_with": str(compare_with) if compare_with else None, "vs_compare_with": None}
@@ -414,7 +426,7 @@ def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], te
         # The earlier evaluation saved 2 decimals; the ensemble is rounded alike, so equal predictions tie.
         theirs = {t: abs(earlier[(t, "v_opening")][1] - earlier[(t, "v_opening")][0])
                   for t in test if (t, "v_opening") in earlier}
-        ours = {t: abs(round(float(ensemble_filled[i, v]), 2) - earlier[(t, "v_opening")][0])
+        ours = {t: abs(round(float(ens_v[i]), 2) - earlier[(t, "v_opening")][0])
                 for i, t in enumerate(test) if (t, "v_opening") in earlier}
         out["vs_compare_with"] = paired(ours, theirs)
     return out
@@ -669,10 +681,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if ensemble is not None:
         say(f"\nThe ensemble's {len(seeds)} networks, each on its own (V opening):")
         for mem in ensemble["members"]:
-            sc = mem["scores"]["v_opening"]
+            sc = mem["v_opening_every_tree"]
             if sc.get("n", 0) >= 3:
-                say(f"  seed {mem['seed']}: MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f}  "
-                    f"({mem['no_fork']} with no fork)")
+                say(f"  seed {mem['seed']}: MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f}  over all {sc['n']} trees "
+                    f"({mem['no_fork']} with no fork, {mem['stubs']} stubs, both as the mean shape)")
         c = ensemble["vs_members"]
         if c.get("n", 0) >= 3:
             say(f"Ensemble against its networks' average, tree by tree: MAE {c['mean_b']:.2f} -> {c['mean_a']:.2f}, "
