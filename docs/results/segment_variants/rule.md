@@ -1,8 +1,13 @@
 # Improving the mask model: the centre-line loss and an ensemble (session 16)
 
-**Status: proposed on 11 October 2026 from the student's plan; to be confirmed by the student before the
-first run.** The commit that adds this file is the record. A change agreed before the first run gets its
-own commit, also before the first run. Nothing here changes after a run has started. The code that applies
+**Status: confirmed by the student on 11 October 2026, before any run.** The student answered the three
+open points:
+1. the rule as written: yes;
+2. an adopted change is reported once on the test rows: yes;
+3. the second ensemble is run: yes.
+
+The commit that adds this file is the record, and the commit that records these answers came before the
+first run. Nothing here changes after a run has started. The code that applies
 the rule is `treeskel.seg_compare` (`decide`, `verdict`); its tests are in `tests/test_seg_compare.py`.
 
 ## What stays as it is
@@ -12,10 +17,16 @@ the rule is `treeskel.seg_compare` (`decide`, `verdict`); its tests are in `test
 - **The test rows are not read** by anything in this experiment. They were used once, in session 12, and
   can no longer be an untouched test. Every result below is a development result: 449 trees, 5 row-grouped
   folds, each tree predicted by networks that never saw its row.
-- **To decide now, before any result:** if a change is adopted, is it reported once on the test rows,
-  beside the final test and with the caveat that those rows were already used? The assistant's
-  suggestion is yes, as a secondary line, because that is what `CLAUDE.md` allows. A fresh independent
-  test would need new data.
+- **The test rows after the verdict (the student's decision):** if a change is adopted, it is reported
+  **once** on the test rows. It is a secondary line beside the final test, with the caveat that those rows
+  were already used in session 12. If nothing is adopted, the test rows are not run again.
+  - **The network:** the adopted recipe trains on all 449 development trees, as the final test's did. Its
+    epochs are the median of the epochs its development folds chose.
+  - **An adopted ensemble** is three such trainings, seeds 0, 1 and 2, with their probabilities averaged.
+  - **The scoring:** the 92 test trees, against their winter traces, exactly as in the final test.
+  - **The code:** written after the verdict and before that run, and it runs once, as `final_test` does.
+    It cannot change the verdict.
+  - A fresh, independent test would need new data.
 
 ## The weakness being targeted
 
@@ -100,8 +111,14 @@ python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --cldice --seed 2 --no-grow
 python -m treeskel.seg_compare ensemble docs/results/segment_lined_up_rerun docs/results/segment_lined_up_seed1 docs/results/segment_lined_up_seed2 --out docs/results/segment_lined_up_ensemble --data data/raw
 python -m treeskel.seg_compare ensemble docs/results/segment_lined_up_cldice docs/results/segment_lined_up_cldice_seed1 docs/results/segment_lined_up_cldice_seed2 --out docs/results/segment_lined_up_cldice_ensemble --data data/raw
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 3 --no-grow
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 4 --no-grow
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 5 --no-grow
+python -m treeskel.seg_compare ensemble docs/results/segment_lined_up_seed3 docs/results/segment_lined_up_seed4 docs/results/segment_lined_up_seed5 --out docs/results/segment_lined_up_ensemble_b --data data/raw
 python -m treeskel.seg_compare compare data/raw
 ```
+
+The last four training commands are the second ensemble (the student's decision; it decides nothing).
 
 Then push `docs/results/` and `docs/figures/`.
 
@@ -160,11 +177,10 @@ Then push `docs/results/` and `docs/figures/`.
   - the share whose incomplete status flips.
 
   The student's motivation for the ensemble is stability. One ensemble cannot show that an ensemble is
-  stable; that needs a second, independent one. **Optional:** seeds 3, 4 and 5 of the named recipe
-  (`--seed 3 --no-grow`, and so on), then
-  `seg_compare ensemble ... --out docs/results/segment_lined_up_ensemble_b`. `compare` then reports how far
+  stable; that needs a second, independent one. **Run (the student's decision):** seeds 3, 4 and 5 of the
+  named recipe, ensembled into `docs/results/segment_lined_up_ensemble_b`. `compare` then reports how far
   the two ensembles are apart, against how far single runs are apart. This adds about 60 minutes of GPU
-  time.
+  time. Seeds 3–5 are in no comparison of the rule.
 - **Disagreement as a warning:** whether the members' spread on the V opening ranks the trees the ensemble
   gets wrong.
   - It counts as useful if Spearman's ρ is above 0 with p < 0.05.

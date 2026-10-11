@@ -1,6 +1,6 @@
 # The mask model: the centre-line loss and an ensemble (session 16)
 
-**Status: planned; no run yet.**
+**Status: the rule is confirmed by the student (11 October 2026); no run yet.**
 
 - **The plan and its rule:** [`rule.md`](rule.md), fixed before any run.
 - **The check done before any run:** [`loss_check.py`](loss_check.py), with its output in

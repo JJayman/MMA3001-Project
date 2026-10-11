@@ -290,9 +290,10 @@ See the latest file in `docs/progress/`. As of session 15:
     run: 4.22° instead of the report's 4.10°).
   - *Label audit:* 40 trees drawn (seed 16, row-stratified) and committed before anyone looked
     (`docs/results/label_audit/sample.csv`); the student's verdicts (on, off, hidden per part).
-  - *Status:* the rule awaits the student's confirmation before the first run; the test-row question (report
-    an adopted change once, with the caveat?) is to be answered first too. The HTML docs and the test report
-    were rebuilt after the code changes (546 passed).
+  - *Status:* the rule was confirmed by the student before any run (11 October). An adopted change is reported
+    once on the test rows, as a secondary line with the caveat; that code is written after the verdict. The
+    second ensemble (seeds 3–5) is run, deciding nothing. Eight GPU runs in all. The HTML docs and the test
+    report were rebuilt after the code changes (546 passed).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
