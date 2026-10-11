@@ -122,3 +122,119 @@ def test_cli_sample_once_draw_and_summary(tmp_path, capsys):
     assert sorted(p.name for p in out.iterdir()) == ["01_R01N01.jpg", "02_R15N05.jpg"]
     assert main(["summary", "--sample", str(local), "--report", str(tmp_path / "r.json")]) == 0
     assert json.loads((tmp_path / "r.json").read_text())["judged_trees"] == 0
+
+
+# --- judging key by key ------------------------------------------------------------------------------
+
+def judge_table(tmp_path, trees=("R01N01", "R02N02", "R05N03")):
+    path = tmp_path / "sample.csv"
+    write_template(path, list(trees))
+    return path
+
+
+def test_the_judge_asks_trunk_left_right_and_saves_every_verdict(tmp_path):
+    from treeskel.label_audit import AuditJudge
+
+    path = judge_table(tmp_path)
+    j = AuditJudge(path)
+    assert j.tree == "R01N01" and "TRUNK" in j.prompt()
+    for k in "ofh":
+        j.key(k)
+    assert j.tree == "R02N02" and j.part == 0                              # on to the next tree
+    saved = read_verdicts(path)
+    assert [saved[0][p] for p in ("trunk", "left", "right")] == ["on", "off", "hidden"]
+    j.key("o")
+    assert read_verdicts(path)[1]["trunk"] == "on"                          # saved at once, not only per tree
+    j.key("x")                                                              # an unknown key changes nothing
+    assert j.part == 1
+    again = AuditJudge(path)                                                # a new start resumes where it stopped
+    assert again.tree == "R02N02" and again.part == 1 and again.judged() == 1
+
+
+def test_undo_reaches_back_into_the_previous_tree(tmp_path):
+    from treeskel.label_audit import AuditJudge
+
+    j = AuditJudge(judge_table(tmp_path))
+    for k in "ooo":
+        j.key(k)
+    assert j.tree == "R02N02"
+    j.key("backspace")
+    assert j.tree == "R01N01" and j.part == 2 and j.rows[0]["right"] == ""
+    assert read_verdicts(j.path)[0]["right"] == ""
+    j.key("f")
+    assert j.rows[0]["right"] == "off" and j.tree == "R02N02"
+    j.key("p")
+    assert j.tree == "R01N01" and "done" in j.prompt()                      # a complete tree is shown, not re-asked
+    j.key("o")
+    assert j.rows[0]["trunk"] == "on" and j.tree == "R01N01"               # judging keys do nothing there
+    j.key("u")
+    j.key("u")
+    j.key("u")
+    assert j.part == 0 and all(j.rows[0][p] == "" for p in ("trunk", "left", "right"))
+
+
+def test_when_all_are_judged_q_quits(tmp_path):
+    from treeskel.label_audit import AuditJudge
+
+    j = AuditJudge(judge_table(tmp_path, ("R01N01",)))
+    for k in "ohh":
+        j.key(k)
+    assert j.tree is None and "All 1 trees judged" in j.prompt()
+    j.key("q")
+    assert j.done and summarise(read_verdicts(j.path))["judged_trees"] == 1
+
+
+def test_a_failed_save_is_reported_and_tried_again(tmp_path, monkeypatch):
+    import treeskel.label_audit as la
+
+    j = la.AuditJudge(judge_table(tmp_path))
+    real = la.write_verdicts
+
+    def locked(path, rows):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(la, "write_verdicts", locked)
+    j.key("o")
+    assert "COULD NOT SAVE" in j.prompt() and read_verdicts(j.path)[0]["trunk"] == ""
+    j.key("q")
+    assert not j.done                                                       # not quit with unsaved verdicts
+    monkeypatch.setattr(la, "write_verdicts", real)
+    j.key("space")                                                          # any key tries again
+    assert j.message == "" and read_verdicts(j.path)[0]["trunk"] == "on"
+
+
+def test_a_table_saved_by_excel_with_a_byte_order_mark_is_read(tmp_path):
+    path = tmp_path / "s.csv"
+    path.write_bytes("﻿tree,row,trunk,left,right,notes\r\nR01N01,1,on,OFF,hidden,\r\n".encode("utf-8"))
+    rows = read_verdicts(path)
+    assert rows[0]["tree"] == "R01N01" and [rows[0][p] for p in ("trunk", "left", "right")] == ["on", "off", "hidden"]
+
+
+def test_the_judging_window_passes_keys_to_the_judge(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from treeskel.label_audit import AuditJudge, run_judge
+
+    j = AuditJudge(judge_table(tmp_path, ("R01N01", "R02N02")))
+    asked = []
+
+    def image(t):
+        asked.append(t)
+        return np.zeros((20, 30, 3), np.uint8)
+
+    fig = run_judge(j, image, show=False)
+    assert asked == ["R01N01"]
+
+    class Key:
+        def __init__(self, key):
+            self.key = key
+
+    for k in "ofo":
+        fig._judge_on_key(Key(k))
+    assert asked == ["R01N01", "R02N02"] and read_verdicts(j.path)[0]["left"] == "off"
+    fig._judge_on_key(Key("q"))
+    assert j.done
+    plt.close("all")
