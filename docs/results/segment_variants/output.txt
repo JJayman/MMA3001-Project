@@ -1,0 +1,81 @@
+Scoring segment_lined_up_joined...
+Scoring segment_lined_up_rerun_joined...
+Scoring segment_lined_up_seed1_joined...
+Scoring segment_lined_up_seed2_joined...
+Scoring segment_lined_up_cldice_joined...
+Scoring segment_lined_up_cldice_seed1_joined...
+Scoring segment_lined_up_cldice_seed2_joined...
+Scoring segment_lined_up_ensemble_joined...
+Scoring segment_lined_up_cldice_ensemble_joined...
+Scoring segment_lined_up_ensemble_b_joined...
+Scoring segment_lined_up_seed3_joined...
+Scoring segment_lined_up_seed4_joined...
+Scoring segment_lined_up_seed5_joined...
+
+Each run, its joined masks (development trees, out of fold):
+  run                                       V MAE  skill no fork incompl. side br. stray  extra clDice  tsens  tprec
+  segment_lined_up                          4.224 +0.750       2       38       10    33  0.040  0.867  0.871  0.866
+  segment_lined_up_rerun                    4.205 +0.752       2       45       11    38  0.041  0.866  0.868  0.866
+  segment_lined_up_seed1                    4.448 +0.689       5       57       10    42  0.041  0.863  0.866  0.863
+  segment_lined_up_seed2                    4.471 +0.694       5       54       13    41  0.039  0.863  0.865  0.864
+  segment_lined_up_cldice                   4.124 +0.763       4       42        8    34  0.040  0.870  0.884  0.859
+  segment_lined_up_cldice_seed1             4.219 +0.750       2       30       11    27  0.038  0.869  0.881  0.859
+  segment_lined_up_cldice_seed2             4.076 +0.770       8       43        9    30  0.037  0.870  0.884  0.859
+  segment_lined_up_ensemble                 4.293 +0.728       6       48        9    31  0.040  0.870  0.873  0.870
+  segment_lined_up_cldice_ensemble          4.004 +0.803       2       31        8    20  0.037  0.877  0.891  0.866
+  segment_lined_up_ensemble_b               4.150 +0.753       3       38       11    35  0.037  0.870  0.873  0.869
+  segment_lined_up_seed3                    3.997 +0.807       3       43       12    40  0.040  0.863  0.865  0.864
+  segment_lined_up_seed4                    4.416 +0.733       4       58       12    42  0.042  0.860  0.862  0.862
+  segment_lined_up_seed5                    4.205 +0.722       6       38       15    28  0.038  0.864  0.867  0.864
+  (V MAE over every tree with a winter value, a mask with no fork or no V opening counting as the mean shape;
+   skill as in the run's own report; incompl.: trees with no fork or a short leader; side br., stray: trees with any)
+
+The rule (rule.md):
+  Centre-line loss (3 runs) against the named recipe (3 runs):
+    V opening MAE 4.375 -> 4.140, lower on 55% of 449 trees, p 0.009: better
+    side_branches  0.028 -> 0.022 per tree, p 0.071
+    incomplete     0.116 -> 0.085 per tree, p 2.4e-04
+    PASSED
+  Ensemble of the named recipe against its 3 members:
+    V opening MAE 4.375 -> 4.293, lower on 53% of 449 trees, p 0.002: better
+    side_branches  0.028 -> 0.023 per tree, p 0.746
+    incomplete     0.116 -> 0.107 per tree, p 0.521
+    PASSED
+  Named candidate: three U-Nets trained with the centre-line loss, probabilities averaged (development numbers: segment_lined_up_cldice_ensemble_joined)
+
+Tree by tree on the V opening's error (descriptive):
+  segment_lined_up_rerun vs segment_lined_up                         4.224 -> 4.205  lower 50%  p 0.930
+  segment_lined_up_seed1 vs segment_lined_up                         4.224 -> 4.448  lower 47%  p 0.317
+  segment_lined_up_seed2 vs segment_lined_up                         4.224 -> 4.471  lower 51%  p 0.864
+  segment_lined_up_cldice vs segment_lined_up                        4.224 -> 4.124  lower 55%  p 0.101
+  segment_lined_up_cldice_seed1 vs segment_lined_up                  4.224 -> 4.219  lower 52%  p 0.163
+  segment_lined_up_cldice_seed2 vs segment_lined_up                  4.224 -> 4.076  lower 50%  p 0.466
+  segment_lined_up_ensemble vs segment_lined_up                      4.224 -> 4.293  lower 52%  p 0.305
+  segment_lined_up_cldice_ensemble vs segment_lined_up               4.224 -> 4.004  lower 55%  p 0.011
+  segment_lined_up_ensemble_b vs segment_lined_up                    4.224 -> 4.150  lower 53%  p 0.009
+  segment_lined_up_seed3 vs segment_lined_up                         4.224 -> 3.997  lower 52%  p 0.116
+  segment_lined_up_seed4 vs segment_lined_up                         4.224 -> 4.416  lower 49%  p 0.989
+  segment_lined_up_seed5 vs segment_lined_up                         4.224 -> 4.205  lower 55%  p 0.021
+  segment_lined_up_cldice vs segment_lined_up_rerun                  4.205 -> 4.124  lower 50%  p 0.609
+  segment_lined_up_cldice_seed1 vs segment_lined_up_seed1            4.448 -> 4.219  lower 53%  p 0.018
+  segment_lined_up_cldice_seed2 vs segment_lined_up_seed2            4.471 -> 4.076  lower 51%  p 0.363
+  segment_lined_up_cldice_ensemble vs segment_lined_up_ensemble      4.293 -> 4.004  lower 53%  p 0.054
+  segment_lined_up_cldice_ensemble vs its members                    4.140 -> 4.004  lower 56%  p 0.003
+
+Null check: samples of the named recipe against each other, 0 of 6 pairs at p < 0.05:
+  segment_lined_up             vs segment_lined_up_rerun       4.224 / 4.205  p 0.930
+  segment_lined_up             vs segment_lined_up_seed1       4.224 / 4.448  p 0.317
+  segment_lined_up             vs segment_lined_up_seed2       4.224 / 4.471  p 0.864
+  segment_lined_up_rerun       vs segment_lined_up_seed1       4.205 / 4.448  p 0.320
+  segment_lined_up_rerun       vs segment_lined_up_seed2       4.205 / 4.471  p 0.852
+  segment_lined_up_seed1       vs segment_lined_up_seed2       4.448 / 4.471  p 0.273
+
+Between samples (named recipe, 3 pairs): V opening a median 0.67° apart, 4.2% of trees more than 5°, incomplete status differs on 8.3%
+
+Between samples (centre-line loss, 3 pairs): V opening a median 0.66° apart, 4.4% of trees more than 5°, incomplete status differs on 7.0%
+
+Between samples (two ensembles, 1 pairs): V opening a median 0.36° apart, 2.9% of trees more than 5°, incomplete status differs on 6.2%
+
+Members' spread as a warning (segment_lined_up_ensemble): Spearman +0.14 (p 0.003) with the error; MAE 9.06° on the 10% most spread, 3.76° on the rest; 38% of the 10% largest errors flagged (10% by chance)
+
+Members' spread as a warning (segment_lined_up_cldice_ensemble): Spearman +0.07 (p 0.123) with the error; MAE 6.70° on the 10% most spread, 3.70° on the rest; 24% of the 10% largest errors flagged (10% by chance)
