@@ -248,12 +248,12 @@ See the latest file in `docs/progress/`. As of session 15:
      | Requirement | Status (session 15) |
      |---|---|
      | ReadMe | results at a glance (bends and the typical shape added in session 15), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named; the AI-use section in the student's first person (session 14; numbers updated in session 15) |
-     | HTML documentation | `docs/html/` (pdoc, Google format), 25 modules (`bend3d` added); the package page lists them in the order of the work |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 504 passed, 0 skipped on the student's PC (452 passed, 14 skipped in the assistant's environment without PyTorch) |
+     | Source code, functional `main` | 546 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
      | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
      | Test functions | 31 test files, 476 test functions in `tests/` (session 16) |
-     | Test report | `docs/test_report.html` (pytest-html), made on the student's PC after session 15's last code change (504 passed) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's code changes: 546 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -291,8 +291,8 @@ See the latest file in `docs/progress/`. As of session 15:
   - *Label audit:* 40 trees drawn (seed 16, row-stratified) and committed before anyone looked
     (`docs/results/label_audit/sample.csv`); the student's verdicts (on, off, hidden per part).
   - *Status:* the rule awaits the student's confirmation before the first run; the test-row question (report
-    an adopted change once, with the caveat?) is to be answered first too. Code changed: rebuild the HTML
-    docs and the test report before submission.
+    an adopted change once, with the caveat?) is to be answered first too. The HTML docs and the test report
+    were rebuilt after the code changes (546 passed).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
