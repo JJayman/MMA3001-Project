@@ -72,6 +72,9 @@ src/treeskel/    Python package
   bend3d.py      the trunk and leaders as smooth 3D curves that may leave the plane where the depth sees the
                  wood (winter; summer through the leaves, uncertain sections marked); summer against winter
   model3d.py     a summer RGB-D photo as a 3D model to open and turn in a browser (and .ply files)
+  seg_compare.py the centre-line loss and an ensemble of three trainings against the named U-Net (development
+                 rows): ensembles from saved runs, the masks' structure (short leaders, side branches), the rule
+  label_audit.py a representative sample of the lined-up hand masks, judged by eye for local misalignment
 annotations/     clicks and alignments per tree (winter_clicks.json, season_pairs.json, season_overlay.json), committed
 data/matches/    winter-summer point matches per matcher (from align.py), committed
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
@@ -147,6 +150,12 @@ python -m treeskel.bend3d data/raw --typical               # the typical winter 
 python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
 python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
 python -m treeskel.model3d build --tree R05N12 --data data/raw --flat    # ... with every branch on the tree's plane
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 1 --no-grow     # another sample
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --cldice --no-grow     # centre-line loss
+python -m treeskel.seg_compare ensemble <run> <run> <run> --out docs/results/segment_lined_up_ensemble --data data/raw
+python -m treeskel.seg_compare compare data/raw            # every variant against the named U-Net, and the rule
+python -m treeskel.label_audit draw data/raw               # the label audit's images (the sample is committed)
+python -m treeskel.label_audit summary                     # after the verdicts are filled in
 pdoc -d google -o docs/html src/treeskel   # build the HTML documentation (docs/html/)
 pytest --html=docs/test_report.html --self-contained-html   # the test report
 ```

@@ -128,7 +128,10 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                Gaussian-process fit joined at the fork, block cross-validation, summer ridge readings),
                model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
                named U-Net to the git-ignored models/; bends by default, `--flat` for the plane;
-               the typical winter shape as the prior if adopted, `--plane-prior`; bend exaggeration slider)
+               the typical winter shape as the prior if adopted, `--plane-prior`; bend exaggeration slider),
+               seg_compare.py (session 16: the centre-line loss and three-training ensembles against the
+               named U-Net on the development rows; ensembles from saved runs, the masks' structure, the
+               rule), label_audit.py (a fixed random sample of lined-up hand masks, judged by eye)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -249,7 +252,7 @@ See the latest file in `docs/progress/`. As of session 15:
      | Licence | `LICENSE`, GNU GPL v3 |
      | Source code, functional `main` | 504 passed, 0 skipped on the student's PC (452 passed, 14 skipped in the assistant's environment without PyTorch) |
      | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
-     | Test functions | 28 test files, 440 test functions in `tests/` |
+     | Test functions | 31 test files, 476 test functions in `tests/` (session 16) |
      | Test report | `docs/test_report.html` (pytest-html), made on the student's PC after session 15's last code change (504 passed) |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
@@ -274,6 +277,22 @@ See the latest file in `docs/progress/`. As of session 15:
     just above the fork, 1–1.5 cm behind around 0.8 m, back near the top). The shape alone is nearer still on
     the angles (7.0°, 2.7°) but the same for every tree; summer's readings follow the individual tree (rank
     0.38–0.49) but pull the angles low. Reported, not used.
+- **Session 16: improving the mask model** (the student's plan; `docs/results/segment_variants/rule.md`):
+  - *Two changes against the named U-Net, development rows only:* the soft-clDice centre-line loss
+    (`segment --cldice`: BCE + 0.5 Dice + 0.5 clDice, 25 soft-skeleton erosions) and an ensemble of three
+    trainings (`seg_compare ensemble`: out-of-fold probabilities averaged, threshold 0.5, joined).
+  - *Three samples of each recipe:* session 12's re-run is seed 0 of the named recipe (the unchanged code
+    trains bit for bit as `main`), plus seeds 1, 2; the centre-line loss with seeds 0, 1, 2. Five new GPU
+    runs. Each tree's error is averaged over a recipe's samples, because one run against the named run mixes
+    the change with run-to-run noise.
+  - *The rule* (`seg_compare.decide`): V opening MAE lower, Wilcoxon p < 0.05, and no significant increase in
+    side branches or incomplete masks. Stubs (fork, no V opening) count as the mean shape here (the named
+    run: 4.22° instead of the report's 4.10°).
+  - *Label audit:* 40 trees drawn (seed 16, row-stratified) and committed before anyone looked
+    (`docs/results/label_audit/sample.csv`); the student's verdicts (on, off, hidden per part).
+  - *Status:* the rule awaits the student's confirmation before the first run; the test-row question (report
+    an adopted change once, with the caveat?) is to be answered first too. Code changed: rebuild the HTML
+    docs and the test report before submission.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
