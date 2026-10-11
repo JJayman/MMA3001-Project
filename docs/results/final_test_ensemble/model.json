@@ -1,0 +1,9 @@
+{
+  "run": "docs/results/segment_lined_up_joined",
+  "ensemble_seeds": [0, 1, 2],
+  "development_run": "docs/results/segment_lined_up_ensemble_joined",
+  "compare_with": "docs/results/final_test",
+  "named": "2026-10-12, session 16, the student's choice B, after the development runs",
+  "why": "the rule in docs/results/segment_variants/rule.md passed both changes, but its null check showed its tree-by-tree test too lenient between trainings; only ensembling survives the check (it beat its own members on all three development ensembles, p <= 0.006, and halved the disagreement between retrainings), so the named recipe is ensembled and the centre-line loss is not used",
+  "status": "reported once on the test rows beside the final test (+0.88), not instead of it: the test rows were used in session 12"
+}

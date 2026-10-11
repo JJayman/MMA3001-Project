@@ -1,8 +1,9 @@
 # The mask model: the centre-line loss and an ensemble (session 16)
 
 **Status:** the runs are done (the student's PC, 11–12 October 2026). The rule passed both changes, but its
-own null check shows that its test is too lenient between trainings. **What to adopt is the student's
-decision, still to be made** (see the end).
+own null check shows that its test is too lenient between trainings. **The student chose option B**
+(12 October): an ensemble of the named recipe, reported once on the test rows
+([`../final_test_ensemble/`](../final_test_ensemble/)). The centre-line loss is not used.
 
 ## Files
 
@@ -125,7 +126,7 @@ cancel in this comparison:
 
   By chance, 10% of the largest errors would be flagged.
 
-## The decision (the student's, pending)
+## The decision (the student's, 12 October 2026): B
 
 - **A. As the rule says:** the centre-line ensemble, reported once on the test rows. The report must add
   that the null check found the rule's test too lenient, so its centre-line half is not established on
@@ -136,3 +137,9 @@ cancel in this comparison:
   - the final test (+0.88) stays the headline;
   - "three trainings averaged" is the change with evidence behind it;
   - the test-row report's code is written after the choice, and it runs once.
+
+**Chosen: B.** The test-row report is specified in
+[`../final_test_ensemble/README.md`](../final_test_ensemble/README.md) and its `model.json`, both committed
+before it runs:
+- the final test's recipe and 34 epochs;
+- three networks (seeds 0–2), their probabilities averaged.

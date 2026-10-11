@@ -131,7 +131,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                the typical winter shape as the prior if adopted, `--plane-prior`; bend exaggeration slider),
                seg_compare.py (session 16: the centre-line loss and three-training ensembles against the
                named U-Net on the development rows; ensembles from saved runs, the masks' structure, the
-               rule), label_audit.py (a fixed random sample of lined-up hand masks, judged by eye)
+               rule), label_audit.py (a fixed random sample of lined-up hand masks, judged by eye
+               in a key-press window, `judge`)
 tests/         pytest (run: pytest); synthetic V-tree fixtures in test_winter_gt.py
 data/sample/   9 committed trees incl. R04N01 (row-4 copy case)
 data/matches/  winter-summer matches per matcher (computed on the student's PC)
@@ -250,10 +251,10 @@ See the latest file in `docs/progress/`. As of session 15:
      | ReadMe | results at a glance (bends and the typical shape added in session 15), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named; the AI-use section in the student's first person (session 14; numbers updated in session 15) |
      | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 546 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
+     | Source code, functional `main` | 554 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
      | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
-     | Test functions | 31 test files, 476 test functions in `tests/` (session 16) |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's code changes: 546 passed, 0 skipped |
+     | Test functions | 31 test files, 484 test functions in `tests/` (session 16) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's last code change: 554 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -301,8 +302,11 @@ See the latest file in `docs/progress/`. As of session 15:
     of trainings, the centre-line loss's V-opening gain is not established (p 0.11); its higher coverage of
     the hand masks' centre lines is (0.866 → 0.883, p 0.008). Ensembling beats its own members on all three
     ensembles (p ≤ 0.006, 0.06–0.14°) and halves the disagreement between trainings (0.67° → 0.36°).
-    **The student is to choose:** A, the rule's centre-line ensemble, or B, an ensemble of the named recipe;
-    then the test-row secondary report's code. Label audit: verdicts not yet filled in (0 of 40).
+    **The student chose B** (12 October): an ensemble of the named recipe, the centre-line loss not used.
+    The test-row secondary report is specified in `docs/results/final_test_ensemble/` (`model.json`: the
+    final test's recipe and 34 epochs, seeds 0–2, probabilities averaged; `final_test --out
+    docs/results/final_test_ensemble`, once). Label audit: a key-press window (`label_audit judge`);
+    verdicts not yet given (0 of 40).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
