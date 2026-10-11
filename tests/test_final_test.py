@@ -179,3 +179,34 @@ def test_an_ensemble_runs_once_and_its_first_network_is_the_final_tests(tmp_path
     assert (tmp_path / "figures" / "final_test_ensemble_skill.png").exists()
     assert (tmp_path / "figures" / "final_test_ensemble_examples.jpg").exists()
     assert main([*common, "--out", str(out)]) == 1 and "run once" in capsys.readouterr().out
+
+
+def test_an_ensembles_comparisons_count_a_networks_stub_as_the_mean_shape(monkeypatch):
+    """A network whose mask has a fork but no V opening (a stub) must not drop that tree from the comparisons:
+    the first version did, which left out exactly the trees where networks fail."""
+    import treeskel.final_test as ft
+
+    test = ["T1", "T2", "T3", "T4"]
+    v = MEASURES.index("v_opening")
+    y = np.full((4, len(MEASURES)), 50.0)
+    base = np.full((4, len(MEASURES)), 40.0)
+    # Two networks: the second leaves a stub on T4 (its other measures known, the V opening not).
+    table = {0: [50.0, 52.0, 48.0, 51.0], 1: [51.0, 49.0, 50.0, np.nan]}
+
+    def fake(prob, recipe, params):
+        seed, i = int(prob[0]), int(prob[1])
+        meas = dict.fromkeys(MEASURES, 1.0)
+        meas["v_opening"] = table[seed][i]
+        return np.zeros((256, 256), bool), meas, False
+
+    monkeypatch.setattr(ft, "recipe_mask", fake)
+    probs = [np.array([[s, i] for i in range(4)], float) for s in (0, 1)]
+    ensemble = np.array([[50.0], [50.0], [50.0], [60.0]]) * np.ones((1, len(MEASURES)))
+    out = ft.ensemble_scores(probs, [0, 1], test, {}, SegParams(), y, base, np.zeros(4, int), ensemble, None)
+    second = out["members"][1]
+    assert second["stubs"] == 1 and second["scores"]["v_opening"]["n"] == 3      # as the final test scores
+    assert second["v_opening_every_tree"]["n"] == 4 and second["v_opening"]["T4"] is None
+    c = out["vs_members"]
+    assert c["n"] == 4                                                           # T4 kept: the stub is the mean
+    assert c["mean_b"] == pytest.approx(np.mean([0.5, 1.5, 1.0, (1 + 10) / 2]))  # T4: |51-50| and |40-50|
+    assert c["mean_a"] == pytest.approx(np.mean([0, 0, 0, 10]))

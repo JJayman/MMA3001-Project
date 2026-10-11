@@ -143,3 +143,8 @@ cancel in this comparison:
 before it runs:
 - the final test's recipe and 34 epochs;
 - three networks (seeds 0–2), their probabilities averaged.
+
+**On the test rows** ([`../final_test_ensemble/`](../final_test_ensemble/)), the ensemble scored +0.81, against
++0.81 to +0.88 for four single trainings of the same recipe (the final test's network was the best). It was no
+closer to winter than its own networks (p 0.65): on two short-leader trees, two of the three networks failed,
+and the average followed them.
