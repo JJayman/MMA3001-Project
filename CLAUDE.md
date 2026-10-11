@@ -312,7 +312,10 @@ See the latest file in `docs/progress/`. As of session 15:
     stubs; corrected (`like_for_like.py`, code fixed, test added). The final test stays the headline; report
     that a network of this recipe scores about +0.81 to +0.88 there.
   - *Label audit:* the key-press window (`label_audit judge`). A first pass marked all 120 parts on, but the
-    student was unsure what was asked: not used, kept in `sample_first_pass.csv`, and `sample.csv` reset.
+    student was unsure what was asked: not used, kept in `sample_first_pass.csv`. **Second pass: 2 of 75
+    judged leaders off (3% [1%, 9%]), every trunk on, 5 leaders hidden** (R02N27, R05N29 left leaders off):
+    under the 10% fixed beforehand, so label position is a minor, measured limitation. The second pass revised
+    the first sheet (every part started as on), noted as a possible anchoring.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
