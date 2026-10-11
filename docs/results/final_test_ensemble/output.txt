@@ -1,0 +1,77 @@
+Named model: docs\results\segment_lined_up_joined (the rule in docs/results/segment_variants/rule.md passed both changes, but its null check showed its tree-by-tree test too lenient between trainings; only ensembling survives the check (it beat its own members on all three development ensembles, p <= 0.006, and halved the disagreement between retrainings), so the named recipe is ensembled and the centre-line loss is not used)
+  recipe: size 256, encoder resnet18, depth False, batch 8, seed 0; masks lined up (annotations/mask_overlay.json); pieces joined within 19.3 px; 34 epochs (median of the folds' [46, 32, 33, 35, 34])
+  an ensemble: 3 networks, seeds [0, 1, 2], probabilities averaged; development skill from docs\results\segment_lined_up_ensemble_joined
+
+Measuring the winter traces and hand masks of 92 test trees (rows [3, 12, 16])...
+  done in 37 s
+
+Loading 449 development trees' summer photos and hand masks...
+  449 have a hand mask to train on
+Training on 449 trees for 34 epochs on cuda (network 1 of 3, seed 0)...
+  epoch   1: train 1.382
+  epoch   5: train 0.636
+  epoch  10: train 0.365
+  epoch  15: train 0.307
+  epoch  20: train 0.268
+  epoch  25: train 0.249
+  epoch  30: train 0.236
+Training on 449 trees for 34 epochs on cuda (network 2 of 3, seed 1)...
+  epoch   1: train 1.292
+  epoch   5: train 0.642
+  epoch  10: train 0.372
+  epoch  15: train 0.309
+  epoch  20: train 0.277
+  epoch  25: train 0.252
+  epoch  30: train 0.235
+Training on 449 trees for 34 epochs on cuda (network 3 of 3, seed 2)...
+  epoch   1: train 1.287
+  epoch   5: train 0.578
+  epoch  10: train 0.351
+  epoch  15: train 0.301
+  epoch  20: train 0.270
+  epoch  25: train 0.247
+  epoch  30: train 0.238
+  trained in 5.8 min
+
+Test rows [3, 12, 16]: 92 trees; 0 predicted masks with no fork (the mean shape); 17 masks joined
+Skill over the development mean shape [95% bootstrap interval over trees] (per test row; the same run's development skill):
+
+Headline (no reference direction):
+  v_opening    hand masks               n  92  MAE  2.86  skill +0.91 [+0.87, +0.94]  r 0.96  better than the mean  84%  rows +0.93 +0.90 +0.89
+  v_opening    model                    n  92  MAE  3.78  skill +0.81 [+0.64, +0.91]  r 0.90  better than the mean  79%  rows +0.80 +0.86 +0.79  (development +0.73)
+  left_bend    hand masks               n  92  MAE  4.52  skill +0.67 [+0.48, +0.81]  r 0.84  better than the mean  77%  rows +0.56 +0.61 +0.83
+  left_bend    model                    n  92  MAE  4.82  skill +0.69 [+0.56, +0.80]  r 0.83  better than the mean  76%  rows +0.63 +0.79 +0.67  (development +0.57)
+  right_bend   hand masks               n  92  MAE  5.47  skill +0.65 [+0.50, +0.76]  r 0.83  better than the mean  72%  rows +0.56 +0.71 +0.66
+  right_bend   model                    n  91  MAE  5.04  skill +0.67 [+0.51, +0.78]  r 0.82  better than the mean  74%  rows +0.59 +0.73 +0.66  (development +0.50)
+
+From the trunk's axis:
+  left_angle   hand masks               n  91  MAE  6.08  skill +0.68 [+0.43, +0.82]  r 0.87  better than the mean  79%  rows +0.57 +0.74 +0.84
+  left_angle   model                    n  91  MAE  5.65  skill +0.74 [+0.63, +0.84]  r 0.89  better than the mean  77%  rows +0.74 +0.79 +0.70  (development +0.63)
+  right_angle  hand masks               n  91  MAE  6.25  skill +0.71 [+0.54, +0.81]  r 0.89  better than the mean  74%  rows +0.61 +0.68 +0.85
+  right_angle  model                    n  91  MAE  6.36  skill +0.70 [+0.55, +0.80]  r 0.88  better than the mean  75%  rows +0.65 +0.63 +0.79  (development +0.71)
+  lean         hand masks               n  91  MAE  5.99  skill +0.65 [+0.40, +0.79]  r 0.86  better than the mean  75%  rows +0.52 +0.67 +0.84
+  lean         model                    n  91  MAE  5.56  skill +0.70 [+0.55, +0.82]  r 0.88  better than the mean  73%  rows +0.68 +0.68 +0.75  (development +0.66)
+
+From the photo's vertical:
+  trunk_tilt   hand masks               n  91  MAE  5.38  skill +0.57 [+0.25, +0.75]  r 0.80  better than the mean  62%  rows +0.49 +0.51 +0.76
+  trunk_tilt   model                    n  91  MAE  4.78  skill +0.67 [+0.52, +0.79]  r 0.84  better than the mean  71%  rows +0.66 +0.54 +0.80  (development +0.66)
+  left_tilt    hand masks               n  92  MAE  2.75  skill +0.86 [+0.80, +0.91]  r 0.95  better than the mean  75%  rows +0.86 +0.85 +0.90
+  left_tilt    model                    n  92  MAE  2.99  skill +0.83 [+0.76, +0.88]  r 0.93  better than the mean  73%  rows +0.85 +0.83 +0.81  (development +0.60)
+  right_tilt   hand masks               n  92  MAE  3.01  skill +0.81 [+0.71, +0.87]  r 0.94  better than the mean  77%  rows +0.88 +0.50 +0.89
+  right_tilt   model                    n  92  MAE  3.97  skill +0.59 [+0.24, +0.78]  r 0.83  better than the mean  73%  rows +0.51 +0.55 +0.74  (development +0.66)
+  lean_v       hand masks               n  92  MAE  2.54  skill +0.76 [+0.64, +0.84]  r 0.93  better than the mean  70%  rows +0.79 +0.55 +0.90
+  lean_v       model                    n  92  MAE  2.99  skill +0.62 [+0.40, +0.76]  r 0.86  better than the mean  66%  rows +0.51 +0.59 +0.76  (development +0.54)
+
+The ensemble's 3 networks, each on its own (V opening):
+  seed 0: MAE  3.64  skill +0.85  (1 with no fork)
+  seed 1: MAE  3.88  skill +0.81  (1 with no fork)
+  seed 2: MAE  3.41  skill +0.88  (0 with no fork)
+Ensemble against its networks' average, tree by tree: MAE 3.51 -> 3.34, lower on 46% of 90 trees, Wilcoxon p 0.906
+Ensemble against docs\results\final_test, tree by tree: MAE 3.37 -> 3.78, lower on 48%, Wilcoxon p 0.677
+
+Pixels against the test rows' hand masks as drawn (not lined up; secondary), median:
+  iou              0.121
+  dice             0.216
+  precision        0.223
+  recall           0.210
+  dice_best_shift  0.827
