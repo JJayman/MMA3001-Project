@@ -251,10 +251,10 @@ See the latest file in `docs/progress/`. As of session 15:
      | ReadMe | results at a glance (bends and the typical shape added in session 15), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named; the AI-use section in the student's first person (session 14; numbers updated in session 15) |
      | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 554 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
+     | Source code, functional `main` | 555 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
      | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
-     | Test functions | 31 test files, 484 test functions in `tests/` (session 16) |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's last code change: 554 passed, 0 skipped |
+     | Test functions | 31 test files, 485 test functions in `tests/` (session 16) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's last code change: 555 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -305,8 +305,14 @@ See the latest file in `docs/progress/`. As of session 15:
     **The student chose B** (12 October): an ensemble of the named recipe, the centre-line loss not used.
     The test-row secondary report is specified in `docs/results/final_test_ensemble/` (`model.json`: the
     final test's recipe and 34 epochs, seeds 0–2, probabilities averaged; `final_test --out
-    docs/results/final_test_ensemble`, once). Label audit: a key-press window (`label_audit judge`);
-    verdicts not yet given (0 of 40).
+    docs/results/final_test_ensemble`, once). **Run once (12 October): no gain.** On the same 92 trees the
+    ensemble scored +0.81 (MAE 3.78°), against four single trainings at +0.81 to +0.88 (3.37–3.88°; the final
+    test's network was the best). It was no closer than its own networks (p 0.65): on R03N10 and R16N12, two
+    of three networks failed and the average followed. The run's printed member comparison had left out
+    stubs; corrected (`like_for_like.py`, code fixed, test added). The final test stays the headline; report
+    that a network of this recipe scores about +0.81 to +0.88 there.
+  - *Label audit:* the key-press window (`label_audit judge`). A first pass marked all 120 parts on, but the
+    student was unsure what was asked: not used, kept in `sample_first_pass.csv`, and `sample.csv` reset.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
