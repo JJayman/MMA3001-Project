@@ -177,7 +177,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 15:
+See the latest file in `docs/progress/`. As of session 16:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -197,7 +197,8 @@ See the latest file in `docs/progress/`. As of session 15:
   opening **+0.88** [+0.81, +0.92] on test rows 3, 12, 16 (hand masks +0.91).
   **The test rows are now used:** nothing more may be chosen on them; a new
   method is developed on the development rows and, at most, reported once on
-  the test rows with that caveat.
+  the test rows with that caveat. Session 16 did this once (the ensemble, no
+  gain); four trainings of the named recipe score +0.81 to +0.88 there.
 - **Known limit:** on 7% of the development trees scored on the V opening
   (31 of 444) the U-Net's mask has a leader that stops short under the leaves
   ("short leaders" always means predicted leaders: no winter trace or hand
@@ -241,18 +242,18 @@ See the latest file in `docs/progress/`. As of session 15:
      R03N10). See `docs/results/model3d/README.md`.
   2. The report.
   3. **Before submission: the repository requirements.** All met as of
-     session 15. If any code changes after that, rebuild the last two before
+     session 16. If any code changes after that, rebuild the last two before
      submitting: `pdoc -d google -o docs/html src/treeskel` and
      `pytest --html=docs/test_report.html --self-contained-html` (on the
      student's PC: `pip install pytest-html` first if missing).
 
-     | Requirement | Status (session 15) |
+     | Requirement | Status (session 16) |
      |---|---|
-     | ReadMe | results at a glance (bends and the typical shape added in session 15), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named; the AI-use section in the student's first person (session 14; numbers updated in session 15) |
+     | ReadMe | results at a glance (session 16's mask experiments added), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named and both uses of them stated; the AI-use section in the student's first person (session 14; updated in session 16) |
      | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work |
      | Licence | `LICENSE`, GNU GPL v3 |
      | Source code, functional `main` | 555 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
-     | Docstrings and inline comments | 495 of 495 public functions, classes and methods, and every nested helper; comments on intent in the longest functions |
+     | Docstrings and inline comments | 532 of 532 public functions, classes and methods, and 70 of 70 nested helpers (session 16); comments on intent in the longest functions |
      | Test functions | 31 test files, 485 test functions in `tests/` (session 16) |
      | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's last code change: 555 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).

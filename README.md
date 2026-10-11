@@ -185,15 +185,18 @@ Whole orchard rows are held out as a final test set (rows 3, 12 and 16: 92 of th
 selection. The split is saved in `splits.json`, committed before any model is
 trained, and reloaded with `--load` so it never changes. Row 4 is excluded
 because all of its winter depth images are identical. Grouping by row stops neighbouring trees, which share background,
-lighting and capture session, from appearing in both training and test data. The test rows were used once,
-for the final test in session 12, after the model had been named on the development rows
-([`docs/results/final_test/naming_rule.md`](docs/results/final_test/naming_rule.md)).
+lighting and capture session, from appearing in both training and test data. The test rows were used for
+the final test in session 12, after the model had been named on the development rows
+([`docs/results/final_test/naming_rule.md`](docs/results/final_test/naming_rule.md)). They were used once
+more in session 16, for one secondary result declared and committed before it ran: an ensemble of three
+trainings of the named model ([`docs/results/final_test_ensemble/`](docs/results/final_test_ensemble/)).
+It showed no gain and changed nothing; the final test stays the headline.
 
 
 ## How I used AI in this project
 
-I used an AI assistant, Claude Code (Anthropic), throughout the project, in 15 work sessions from
-23 September to 10 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 16 work sessions from
+23 September to 12 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
 was mine, what the AI did, and the mistakes it made and how they were caught.
 
 **What I did:**
@@ -201,9 +204,11 @@ was mine, what the AI did, and the mistakes it made and how they were caught.
 - chose the project and its idea: a ground truth from the bare winter photos, to judge predictions made
   from the leafy summer photos;
 - made the decisions: cross-validation on whole orchard rows, excluding row 4, switching to the dataset
-  version with tree numbers, training on the hand masks, the depth registration and the shape of the
-  masks at the fork; and agreed each rule for choosing between models before its result was seen;
-- clicked the ground truth for all 541 trees, and lined up all 449 development hand masks by hand;
+  version with tree numbers, training on the hand masks, the depth registration, the shape of the
+  masks at the fork, and which model changes to try last (a centre-line loss and an ensemble) and what to
+  keep of them; and agreed each rule for choosing between models before its result was seen;
+- clicked the ground truth for all 541 trees, lined up all 449 development hand masks by hand, and
+  checked a random sample of 40 of them for leaders drawn off the wood;
 - ran everything that needed the full dataset or the GPU on my own computer;
 - looked at the images, which found problems the numbers had missed: row 4's copied depth images, leaders
   drawn too thin, a fork that looked like a circle, and predicted leaders that stop short.
@@ -218,10 +223,13 @@ was mine, what the AI did, and the mistakes it made and how they were caught.
 **How the work was checked:** the AI was wrong often enough that nothing was taken on trust. Its mistakes
 included judging an image offset by eye, a tuning measure biased towards the old settings, branch widths
 measured from the sunlit half only, depth and colour images combined for eight sessions without checking
-that they lined up, and a count of short leaders that mixed two definitions. They were caught by my
-looking at the images, by synthetic tests with known answers, and by running each check on all 449
-development trees instead of a few. Every rule for choosing a model was fixed before its result was seen,
-and the test rows were used once, for the final test. 504 automated tests cover the code
-([`docs/test_report.html`](docs/test_report.html)).
+that they lined up, a count of short leaders that mixed two definitions, a rule for comparing trainings
+whose test was too lenient (a null check I had agreed to beforehand caught it), and a comparison that left
+out exactly the trees where a model failed. They were caught by my looking at the images, by synthetic
+tests with known answers, by checks on samples that should not differ, and by running each check on all
+449 development trees instead of a few. When I was unsure what a task asked, as with the label audit, I
+said so and it was redone. Every rule for choosing a model was fixed before its result was seen; the test
+rows were used for the final test and once more for one declared secondary result. 555 automated tests
+cover the code ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.
