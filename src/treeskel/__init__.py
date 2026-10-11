@@ -43,6 +43,13 @@ The modules, in the order of the work:
 - `treeskel.tree3d`: each tree's plane, the V in that plane, its lean and sizes.
 - `treeskel.bend3d`: smooth 3D curves that may bend out of that plane where the depth sees the wood.
 - `treeskel.model3d`: a summer photo as a 3D model (an HTML viewer and ``.ply`` files).
+
+**Improving the mask model (session 16)**
+
+- `treeskel.seg_compare`: the centre-line loss and an ensemble of three trainings against the named
+  U-Net, on the development rows; the masks' structure (short leaders, side branches) and the rule.
+- `treeskel.label_audit`: a representative sample of the lined-up hand masks, judged for local
+  misalignment.
 """
 
 __version__ = "0.1.0"

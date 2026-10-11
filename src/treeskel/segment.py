@@ -45,6 +45,16 @@ augmentation is made in pixels, so it keeps angles in the wider frame.
 branch pixels are only about 6% of the frame, and the Dice term keeps the
 thin leaders from being traded for background.
 
+**Centre-line loss** (``--cldice``, session 16, the student's first candidate
+for completing leaders): a small break in a thin leader costs few pixels but
+loses the leader's angles. Shit et al.'s (2021) soft clDice
+(:func:`soft_cldice_loss`) compares the masks' soft centre lines
+(:func:`soft_skeleton`) instead: the loss becomes ``BCE + (1 − α)·Dice +
+α·clDice`` (:data:`CLDICE_WEIGHT`, :data:`CL_ITERS`). It may also reward
+joining the wrong branches, so its runs are scored on side branches too
+(:mod:`treeskel.seg_compare`). Session 12 used clDice only to choose a
+threshold for growing finished masks; here it trains the network.
+
 **Augmentation** (:func:`augment_pair`): as for the angle CNN, a random crop
 of 80–100% of the area, the mirror image half of the time and colour jitter;
 here also a rotation of up to ±10° (the camera's roll between rows reaches a
@@ -130,6 +140,10 @@ python -m treeskel.segment --replot docs/results/segment # figures only
 python -m treeskel.segment --join docs/results/segment_lined_up   # its masks joined: segment_lined_up_joined/
 python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun   # grown, threshold chosen again
 python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined  # leaders continued, pruned
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 1 --no-grow
+                                                         # another sample: docs/results/segment_lined_up_seed1/
+python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --cldice --no-grow
+                                                         # the centre-line loss: segment_lined_up_cldice/
 ```
 """
 
@@ -151,6 +165,22 @@ import numpy as np
 from treeskel.shape import MASK_ZOOM, MEASURES, ShapeParams, mask_branches, shape_measures
 from treeskel.shape_cnn import _inner_rows, _n, normalise
 from treeskel.shape_model import HEADLINE, TRUNK_RELATIVE, VERTICAL, evaluate, load_table, print_scores
+
+CLDICE_WEIGHT = 0.5
+"""``α`` of the centre-line loss when it is switched on (``--cldice``, session 16): the loss is
+``BCE + (1 − α)·Dice + α·clDice``, Shit et al.'s (2021) combination ``(1 − α)·Dice + α·clDice`` at their
+public implementation's default ``α`` = 0.5 (checked in their repository, ``soft_dice_cldice``), with the
+named recipe's cross-entropy kept. Fixed before any run; not tuned."""
+
+CL_ITERS = 25
+"""Erosions of the soft skeleton (:func:`soft_skeleton`). A branch whose distance transform peaks at ``d``
+px needs ``d − 1`` erosions, or the centre line of its wide parts is missing (checked on synthetic bars and
+discs, ``tests/test_segment_cldice.py``), and the loss would then ignore the trunk. The development hand
+masks' trunk radius at the fork reaches 14.8 mask px (448 trees), their widest point 17.0 on the 21 local
+development trees (the base of the trunk is drawn wider), 19.0 at the augmentation's largest zoom (1/√0.8).
+25 leaves room for wider trunks on the trees not in the repository: an erosion past a branch's width adds
+nothing, so too many cost only time. (The authors' implementation uses 10, for thin vessels.) Fixed before
+any run."""
 
 
 @dataclass(frozen=True)
@@ -177,6 +207,11 @@ class SegParams:
         threshold: Probability above which a pixel is branch.
         seed: Random seed (each training run adds its own offset).
         depth: Also give the network the summer depth, as a fourth channel.
+        cldice: Weight ``α`` of the soft centre-line Dice in the loss
+            (:func:`seg_loss`, session 16): ``BCE + (1 − α)·Dice + α·clDice``.
+            0, the named recipe, leaves the loss as it was.
+        cl_iters: Erosions of the soft skeleton (:func:`soft_skeleton`); only
+            used when ``cldice`` > 0 (:data:`CL_ITERS`).
     """
 
     size: int | tuple[int, int] = 256
@@ -192,6 +227,8 @@ class SegParams:
     threshold: float = 0.5
     seed: int = 0
     depth: bool = False
+    cldice: float = 0.0
+    cl_iters: int = CL_ITERS
 
 
 def whole_photo(params: SegParams) -> bool:
@@ -346,8 +383,70 @@ def UNet(encoder: str = "resnet18", pretrained: bool = True, channels: int = 3):
 # Training
 # --------------------------------------------------------------------------
 
-def seg_loss(logits, target, known=None):
-    """Binary cross-entropy plus soft Dice loss (``1 − 2|P∩T| / (|P| + |T|)``, per photo, smoothed by 1).
+def soft_erode(x):
+    """Soft erosion of ``(B, 1, H, W)`` maps in [0, 1]: the minimum over each pixel and its four neighbours
+    (Shit et al., 2021). Past the frame's edge counts as branch, so a trunk leaving the frame is not eaten
+    from its cut end."""
+    import torch
+    import torch.nn.functional as F
+
+    return torch.min(-F.max_pool2d(-x, (3, 1), 1, (1, 0)), -F.max_pool2d(-x, (1, 3), 1, (0, 1)))
+
+
+def soft_dilate(x):
+    """Soft dilation of ``(B, 1, H, W)`` maps: the maximum over each pixel's 3x3 neighbourhood."""
+    import torch.nn.functional as F
+
+    return F.max_pool2d(x, 3, 1, 1)
+
+
+def soft_skeleton(x, iters: int = CL_ITERS):
+    """A differentiable centre line of ``(B, 1, H, W)`` maps in [0, 1] (Shit et al., 2021).
+
+    The map is eroded ``iters`` times; at each step what an opening (erosion
+    then dilation) removes is the part that thins out there, and it is added
+    to the skeleton where not already counted. On a binary mask the result
+    is a one- or two-pixel centre line; on probabilities it is soft, so the
+    loss can push along it. A branch wider than ``iters`` erosions keeps no
+    centre line (:data:`CL_ITERS`).
+    """
+    import torch.nn.functional as F
+
+    skel = F.relu(x - soft_dilate(soft_erode(x)))
+    for _ in range(iters):
+        x = soft_erode(x)
+        delta = F.relu(x - soft_dilate(soft_erode(x)))
+        skel = skel + F.relu(delta - skel * delta)         # add only what is not yet on the skeleton
+    return skel
+
+
+def soft_cldice_loss(p, target, iters: int = CL_ITERS, smooth: float = 1.0):
+    """``1 − clDice`` of soft masks, per photo (Shit et al., 2021): the soft version of :func:`cl_dice`.
+
+    Topology precision is the share of the prediction's soft centre line
+    that lies in the target, topology sensitivity the share of the target's
+    centre line that lies in the prediction; clDice is their harmonic mean.
+    A leader that stops short or breaks loses sensitivity even when it costs
+    few pixels; a side branch the target does not have loses precision.
+
+    Args:
+        p: ``(B, H, W)`` probabilities.
+        target: ``(B, H, W)`` masks in [0, 1].
+        iters: Erosions of :func:`soft_skeleton`.
+        smooth: Added to both sides of each ratio (as the Dice term's 1).
+
+    Returns:
+        ``(B,)`` losses in [0, 1].
+    """
+    sp, st = soft_skeleton(p.unsqueeze(1), iters)[:, 0], soft_skeleton(target.unsqueeze(1), iters)[:, 0]
+    prec = ((sp * target).sum(dim=(1, 2)) + smooth) / (sp.sum(dim=(1, 2)) + smooth)
+    sens = ((st * p).sum(dim=(1, 2)) + smooth) / (st.sum(dim=(1, 2)) + smooth)
+    return 1 - 2 * prec * sens / (prec + sens)
+
+
+def seg_loss(logits, target, known=None, cldice: float = 0.0, iters: int = CL_ITERS):
+    """Binary cross-entropy plus soft Dice loss (``1 − 2|P∩T| / (|P| + |T|)``, per photo, smoothed by 1),
+    and, with ``cldice`` = α > 0, the centre-line loss: ``BCE + (1 − α)·Dice + α·clDice``.
 
     Args:
         logits: ``(B, H, W)`` network outputs.
@@ -356,6 +455,9 @@ def seg_loss(logits, target, known=None):
             the masks say something (1) or nothing (0, the whole photo's side
             columns). Pixels of weight 0 count in neither term; None counts
             every pixel, exactly as before.
+        cldice: Weight of :func:`soft_cldice_loss` (:data:`CLDICE_WEIGHT` when
+            used); 0 returns exactly the loss of the named recipe.
+        iters: The soft skeleton's erosions (:data:`CL_ITERS`).
     """
     import torch
     import torch.nn.functional as F
@@ -370,7 +472,14 @@ def seg_loss(logits, target, known=None):
         p, target = p * known, target * known
     inter = (p * target).sum(dim=(1, 2))
     dice = 1 - (2 * inter + 1) / (p.sum(dim=(1, 2)) + target.sum(dim=(1, 2)) + 1)
-    return bce + dice.mean()
+    if not cldice:
+        return bce + dice.mean()                            # the named recipe, unchanged
+    return bce + (1 - cldice) * dice.mean() + cldice * soft_cldice_loss(p, target, iters).mean()
+
+
+def _loss_options(params: SegParams) -> dict:
+    """The recipe's extra :func:`seg_loss` arguments: none for the named recipe, so its calls stay as they were."""
+    return {"cldice": params.cldice, "iters": params.cl_iters} if params.cldice else {}
 
 
 def augment_pair(x, m, generator, params: SegParams = SegParams(), flip_p: float = 0.5, known=None):
@@ -498,6 +607,7 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
     steps = max(1, math.ceil(n / params.batch)) * max(1, epochs)
     # The learning rate falls along half a cosine, from its full value at the first step to 0 at the last.
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda step: 0.5 * (1 + math.cos(math.pi * min(step, steps) / steps)))
+    extra = _loss_options(params)                           # the centre-line term, if the recipe has one
     log = []
     for epoch in range(1, epochs + 1):
         model.train()
@@ -510,10 +620,10 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
             # Each batch is augmented afresh (crop, rotation, mirror, colour), the masks moved with their photos.
             if known is None:
                 x, m = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params)
-                loss = seg_loss(model(x), m)
+                loss = seg_loss(model(x), m, **extra)
             else:
                 x, m, k = augment_pair(_float(x_uint8[idx]), _float(m_uint8[idx]), gen, params, known=known)
-                loss = seg_loss(model(x), m, k)
+                loss = seg_loss(model(x), m, k, **extra)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -524,8 +634,12 @@ def train_seg(model, x_uint8, m_uint8, epochs: int, params: SegParams, seed: int
             # The held-out loss is on the prediction as it will be made (mirror image averaged in), so the
             # probabilities are turned back into logits for the same loss function.
             p = torch.as_tensor(predict_masks(model, val[0])).clamp(1e-6, 1 - 1e-6)
-            record["val_loss"] = float(seg_loss(torch.logit(p), _float(val[1]).cpu(),
-                                               None if known is None else known.cpu()))
+            # The epochs are chosen by the recipe's own loss, centre-line term included. That term's soft
+            # skeleton takes seconds per epoch on a CPU, so it is computed where the network runs; the named
+            # recipe's loss stays on the CPU, exactly as before.
+            where = dev if extra else "cpu"
+            record["val_loss"] = float(seg_loss(torch.logit(p).to(where), _float(val[1]).to(where),
+                                               None if known is None else known.to(where), **extra))
         log.append(record)
         if on_epoch:
             on_epoch(record)
@@ -1391,18 +1505,26 @@ def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tup
                              f"{what} with no fork count as the mean shape")
 
 
-def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str]) -> None:
-    """Loss against epoch while choosing the epochs (:func:`treeskel.shape_cnn.plot_training`)."""
+def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str],
+                  cldice: float = 0.0) -> None:
+    """Loss against epoch while choosing the epochs (:func:`treeskel.shape_cnn.plot_training`); ``cldice`` is
+    the recipe's centre-line weight, named on the axis."""
     from treeskel.shape_cnn import plot_training
 
+    loss = "cross-entropy + Dice" if not cldice else f"cross-entropy + {1 - cldice:g} Dice + {cldice:g} clDice"
     plot_training(log, chosen, path, failed, "U-Net on the hand masks: loss while choosing the epochs",
-                  ylabel="Loss (cross-entropy + Dice)")
+                  ylabel=f"Loss ({loss})")
 
 
 def figure_runs(key: str) -> tuple[str, ...]:
     """The runs drawn in ``key``'s skill figure, in order (:data:`FIGURE_RUNS`), ``key`` included."""
     if key in FIGURE_RUNS:
         return FIGURE_RUNS[key]
+    if any(tag in key for tag in ("_seed", "_cldice", "_ensemble")):
+        # Session 16's samples of the recipe and its variants: drawn beside the named run and its re-run.
+        if key.endswith("_joined"):
+            return ("segment_lined_up_joined", "segment_lined_up_rerun_joined", key)
+        return ("segment_lined_up", "segment_lined_up_rerun", key)
     base = ("shape_cnn", "shape_cnn_480x640", "segment", "segment_lined_up", "segment_lined_up_joined")
     return base[:base.index(key) + 1] if key in base else base[:3] + (key,)
 
@@ -1428,19 +1550,25 @@ def replot(out: Path, figures: Path) -> list[str]:
     plot_skill(report, figures / f"{out.name}_skill.png", failed, _other_runs(out.parent, key))
     if (out / "training_log.csv").exists():                 # a joined run has none: it trained nothing
         with open(out / "training_log.csv", newline="") as f:
-            plot_learning(list(csv.DictReader(f)), report["epochs"], figures / f"{out.name}_training.png", failed)
+            plot_learning(list(csv.DictReader(f)), report["epochs"], figures / f"{out.name}_training.png", failed,
+                          report.get("params", {}).get("cldice", 0.0))
     return failed
 
 
 def variant(params: SegParams, lined_up: bool = False) -> str:
     """The run's name, which is also its results folder: ``segment``, ``segment_depth``, ``segment_resnet34``,
-    ``segment_lined_up`` (trained on the lined-up masks), ..."""
+    ``segment_lined_up`` (trained on the lined-up masks), ..., then ``_cldice`` for the centre-line loss
+    (``_cldice0.3`` at another weight than :data:`CLDICE_WEIGHT`) and ``_seed1`` for another seed than 0."""
     name = "segment" + ("_lined_up" if lined_up else "") + ("_depth" if params.depth else "")
     if params.encoder != SegParams.encoder:
         name += f"_{params.encoder}"
     if whole_photo(params):
-        return f"{name}_{input_shape(params)[0]}x{input_shape(params)[1]}"
-    return name if params.size == SegParams.size else f"{name}_{params.size}"
+        name = f"{name}_{input_shape(params)[0]}x{input_shape(params)[1]}"
+    elif params.size != SegParams.size:
+        name = f"{name}_{params.size}"
+    if params.cldice:
+        name += "_cldice" if params.cldice == CLDICE_WEIGHT else f"_cldice{params.cldice:g}"
+    return name if params.seed == SegParams.seed else f"{name}_seed{params.seed}"
 
 
 # --------------------------------------------------------------------------
@@ -1946,7 +2074,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "annotations/mask_overlay.json); only lined-up trees train")
     ap.add_argument("--batch", type=int, default=SegParams.batch,
                     help="photos per training step (smaller if the GPU runs out of memory; recorded in the report)")
-    ap.add_argument("--seed", type=int, default=SegParams.seed)
+    ap.add_argument("--seed", type=int, default=SegParams.seed,
+                    help="random seed; another seed is another sample of the recipe (named _seed<n>)")
+    ap.add_argument("--cldice", nargs="?", type=float, const=CLDICE_WEIGHT, default=0.0, metavar="ALPHA",
+                    help=f"add the soft centre-line Dice to the loss, at weight ALPHA (default {CLDICE_WEIGHT:g}): "
+                         "BCE + (1 - ALPHA) Dice + ALPHA clDice")
+    ap.add_argument("--no-grow", action="store_true",
+                    help="skip scoring the grown masks after training (session 12's idea, not adopted)")
     ap.add_argument("--examples", type=int, default=6, help="trees in the example figure")
     ap.add_argument("--replot", metavar="DIR", help="only redraw the figures from this results folder")
     ap.add_argument("--join", metavar="DIR",
@@ -2002,8 +2136,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     from treeskel.io import index_dataset
 
+    if not 0 <= args.cldice <= 1:
+        ap.error(f"--cldice takes a weight between 0 and 1; got {args.cldice:g}")
     params = SegParams(size=size, encoder=args.encoder, epochs=args.epochs, batch=args.batch, seed=args.seed,
-                       depth=args.depth)
+                       depth=args.depth, cldice=args.cldice)
     out = Path(args.out or f"docs/results/{variant(params, args.mask_overlay is not None)}")
     if (out / "report.json").exists() and not args.overwrite:
         print(f"{out} already holds a run. Give another --out (e.g. {out}_2), or --overwrite to replace it.")
@@ -2194,7 +2330,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (out / "predictions.csv").exists() and (out / "predicted_masks.npz").exists():
         print(f"\n--- The same masks with their pieces joined (gaps up to {args.join_gap:g} px) ---")
         failed += joined_run(out, args.join_gap, figures=figures)[1]
-    if (out / "predictions.csv").exists() and (out / "probabilities.npz").exists():
+    if (out / "predictions.csv").exists() and (out / "probabilities.npz").exists() and not args.no_grow:
         hands = {t: hand_mask(records[t], overlays) for i, t in enumerate(trees) if done[i] and has[i]}
         failed += _grow_and_score(out, hands, args.join_gap, figures)
     for f in failed:
