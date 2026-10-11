@@ -118,3 +118,64 @@ def test_the_final_evaluation_runs_once_on_the_local_trees(tmp_path, capsys):
     (out / "model.json").unlink()
     (out / "report.json").unlink()
     assert main(args) == 1 and "name the model first" in capsys.readouterr().out
+
+
+# --- session 16: an ensemble, reported once afterwards ------------------------------------------------
+
+def ensemble_model(out, run, seeds=(0, 1), development=None, compare=None):
+    """model.json for an ensemble of the named recipe."""
+    out.mkdir(parents=True, exist_ok=True)
+    named = {"run": str(run), "ensemble_seeds": list(seeds), "why": "an ensemble in a test"}
+    if development:
+        named["development_run"] = str(development)
+    if compare:
+        named["compare_with"] = str(compare)
+    (out / "model.json").write_text(json.dumps(named))
+    return out
+
+
+def test_an_ensemble_recipe_names_its_seeds_and_development_run(tmp_path):
+    single, _ = named_run(tmp_path)
+    run = Path(json.loads((single / "model.json").read_text())["run"])
+    dev = tmp_path / "results" / "ensemble_joined"
+    dev.mkdir()
+    (dev / "report.json").write_text(json.dumps({"scores": {k: {"segmentation": {"skill": 0.7}} for k in MEASURES}}))
+    r = named_recipe(ensemble_model(tmp_path / "ens", run, (0, 1, 2), dev, single) / "model.json")
+    assert r["members"] == [0, 1, 2] and r["epochs"] == 1                   # the named recipe's epochs
+    assert r["development"]["scores"]["v_opening"]["segmentation"]["skill"] == 0.7
+    assert r["compare_with"] == str(single) and named_recipe(single / "model.json")["members"] is None
+    for bad in ((0,), (1, 1)):
+        with pytest.raises(ValueError):
+            named_recipe(ensemble_model(tmp_path / f"bad{len(bad)}", run, bad) / "model.json")
+
+
+def test_an_ensemble_runs_once_and_its_first_network_is_the_final_tests(tmp_path, capsys):
+    """Two networks on the local trees: the first is trained exactly as the single network of the final test
+    (same seed, same code path), so on the CPU its scores are the single run's."""
+    single, split = named_run(tmp_path, join=True)
+    run = Path(json.loads((single / "model.json").read_text())["run"])
+    common = [str(ROOT / "data" / "sample"), str(ROOT / "data" / "tuning"), "--split", str(split),
+              "--figures", str(tmp_path / "figures"), "--device", "cpu", "--random-weights", "--jobs", "2",
+              "--examples", "1", "--table", str(ROOT / "data/shape/shape_measures.csv"),
+              "--clicks", str(ROOT / "annotations/winter_clicks.json")]
+    assert main([*common, "--out", str(single)]) == 0
+    out = ensemble_model(tmp_path / "final_test_ensemble", run, (0, 1), compare=single)
+    capsys.readouterr()
+    assert main([*common, "--out", str(out)]) == 0
+    text = capsys.readouterr().out
+    assert "network 2 of 2, seed 1" in text and "an ensemble: 2 networks" in text
+    rep, one = json.loads((out / "report.json").read_text()), json.loads((single / "report.json").read_text())
+    ens = rep["ensemble"]
+    assert ens["seeds"] == [0, 1] and rep["seed"] == [1000, 1001] and len(ens["members"]) == 2
+    # Network 1 of the ensemble is the final test's network: the same V opening on every test tree.
+    import csv
+    with open(single / "predictions.csv", newline="") as f:
+        theirs = {r["tree"]: float(r["model"]) for r in csv.DictReader(f) if r["measure"] == "v_opening" and r["model"]}
+    ours = ens["members"][0]["v_opening"]
+    assert theirs and set(theirs) == {t for t, v in ours.items() if v is not None}
+    assert all(ours[t] == pytest.approx(theirs[t], abs=0.006) for t in theirs)
+    assert ens["members"][0]["scores"]["v_opening"]["n"] == one["scores"]["v_opening"]["model"]["n"]
+    assert ens["compare_with"] == str(single) and ens["vs_compare_with"]["n"] == 2
+    assert (tmp_path / "figures" / "final_test_ensemble_skill.png").exists()
+    assert (tmp_path / "figures" / "final_test_ensemble_examples.jpg").exists()
+    assert main([*common, "--out", str(out)]) == 1 and "run once" in capsys.readouterr().out

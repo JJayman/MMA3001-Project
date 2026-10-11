@@ -40,7 +40,8 @@ Usage, from the command line:
 
 ```
 python -m treeskel.label_audit sample            # the sample, docs/results/label_audit/sample.csv (done once)
-python -m treeskel.label_audit draw data/raw     # its images, outputs/label_audit/ (the student's PC)
+python -m treeskel.label_audit judge data/raw    # judge them in a window: o on, f off, h hidden (the student's PC)
+python -m treeskel.label_audit draw data/raw     # or only the images, outputs/label_audit/, and fill in the table
 python -m treeskel.label_audit summary           # after the verdicts are filled in: report.json
 ```
 """
@@ -146,7 +147,7 @@ def read_verdicts(path: Path) -> list[dict[str, str]]:
     Raises:
         ValueError: A verdict that is not allowed (the row and value are named).
     """
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:      # utf-8-sig: Excel may add a byte-order mark
         rows = list(csv.DictReader(f))
     for r in rows:
         for p in PARTS:
@@ -155,6 +156,172 @@ def read_verdicts(path: Path) -> list[dict[str, str]]:
                 raise ValueError(f"{r['tree']}: {p} is {r[p]!r}; use one of {', '.join(VERDICTS)}")
             r[p] = v
     return rows
+
+
+def write_verdicts(path: Path, rows: Sequence[dict[str, str]]) -> None:
+    """Save the table with its verdicts (the columns of :func:`write_template`), through a temporary file, so
+    that a failed write never leaves half a table."""
+    path = Path(path)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["tree", "row", *PARTS, "notes"])
+        for r in rows:
+            w.writerow([r["tree"], r["row"], *(r.get(p, "") for p in PARTS), r.get("notes", "")])
+    tmp.replace(path)
+
+
+KEYS = {"o": "on", "f": "off", "h": "hidden"}
+"""The judging keys (:class:`AuditJudge`): o for on, f for off, h for hidden."""
+
+JUDGE_HELP = ("For the part asked: o = on the wood   f = off (beside the visible wood by about its width or more)   "
+              "h = hidden (too little wood visible)\n"
+              "u or backspace = undo (also back into the previous tree)    n / p = next / previous tree    "
+              "q = quit   (every key is saved at once; run again to carry on)")
+
+
+class AuditJudge:
+    """Steps through the sample, asking for the trunk, then the left and the right leader of each tree.
+
+    Every key goes through :meth:`key`, so the logic is tested without a
+    window. The table is saved after every verdict, and a new start opens
+    the first tree with a part still unjudged.
+
+    Args:
+        path: The sample's table (``sample.csv``).
+    """
+
+    def __init__(self, path: Path):
+        """Read the table and go to the first part not yet judged."""
+        self.path = Path(path)
+        self.rows = read_verdicts(self.path)
+        self.message = ""
+        self.done = False
+        self.index, self.part = self._first_open()
+
+    def _first_open(self) -> tuple[int, int]:
+        """The first tree and part without a verdict (past the end if all are judged)."""
+        for i, r in enumerate(self.rows):
+            for j, p in enumerate(PARTS):
+                if not r[p]:
+                    return i, j
+        return len(self.rows), 0
+
+    @property
+    def tree(self) -> str | None:
+        """The tree being judged, or None when every tree is judged."""
+        return self.rows[self.index]["tree"] if self.index < len(self.rows) else None
+
+    def judged(self) -> int:
+        """Trees with all three parts judged."""
+        return sum(all(r[p] for p in PARTS) for r in self.rows)
+
+    def prompt(self) -> str:
+        """The window's title: the tree, the verdicts so far, and the part asked."""
+        if self.tree is None:
+            return f"All {len(self.rows)} trees judged. Press q to save and quit."
+        r = self.rows[self.index]
+        given = "   ".join(f"{p}: {r[p] or '-'}" for p in PARTS)
+        names = {"trunk": "the TRUNK", "left": "the LEFT leader (tip further left)",
+                 "right": "the RIGHT leader (tip further right)"}
+        ask = (f"Judge {names[PARTS[self.part]]}" if self.part < len(PARTS)
+               else "This tree is done: n for the next, u to change it")
+        return (f"{self.tree}  ({self.index + 1}/{len(self.rows)}, {self.judged()} judged)    {given}\n{ask}"
+                + (f"    {self.message}" if self.message else ""))
+
+    def save(self) -> bool:
+        """Write the table; False (with a message) if it cannot be written, e.g. open in Excel."""
+        try:
+            write_verdicts(self.path, self.rows)
+        except OSError as e:
+            self.message = f"COULD NOT SAVE ({e.strerror or e}): close {self.path.name} elsewhere and press a key again"
+            return False
+        self.message = ""
+        return True
+
+    def key(self, key: str) -> None:
+        """Handle one key press (see :data:`JUDGE_HELP`). Every change is saved at once, so a save that failed
+        (the table open in another program) is tried again at the next key."""
+        k = (key or "").lower()
+        if k == "q":
+            self.done = self.save()
+            return
+        if k in ("n", "p"):
+            self.index = min(max(self.index + (1 if k == "n" else -1), 0), max(len(self.rows) - 1, 0))
+            r = self.rows[self.index]
+            self.part = next((j for j, p in enumerate(PARTS) if not r[p]), len(PARTS))
+            return
+        if k in ("u", "backspace"):
+            if self.part == 0 and self.index > 0:           # back into the previous tree
+                self.index -= 1
+                self.part = len(PARTS)
+            if self.part > 0:
+                self.part -= 1
+                self.rows[self.index][PARTS[self.part]] = ""
+                self.save()
+            return
+        if k in KEYS and self.tree is not None and self.part < len(PARTS):
+            self.rows[self.index][PARTS[self.part]] = KEYS[k]
+            self.part += 1
+            self.save()
+            if self.part == len(PARTS):                     # the tree is complete: on to the next open part
+                self.index, self.part = self._first_open()
+        elif self.message:
+            self.save()                                     # any other key retries a failed save
+
+
+def run_judge(judge: AuditJudge, image, show: bool = True):
+    """The judging window: each tree's panel (:func:`draw_panel`), the prompt above it, keys to
+    :meth:`AuditJudge.key`.
+
+    Args:
+        judge: The judge.
+        image: ``image(tree) -> (H, W, 3) uint8`` panel of a tree.
+        show: Block in ``plt.show()`` (False only for tests).
+
+    Returns:
+        The matplotlib figure.
+    """
+    import matplotlib.pyplot as plt
+
+    for k in ("keymap.save", "keymap.quit", "keymap.back", "keymap.forward", "keymap.home", "keymap.pan",
+              "keymap.zoom", "keymap.fullscreen", "keymap.xscale", "keymap.yscale", "keymap.grid"):
+        plt.rcParams[k] = []                                # free the judging keys (o, f, h, n, p, q, u)
+    fig, ax = plt.subplots(figsize=(13, 7.5))
+    fig.subplots_adjust(0.005, 0.005, 0.995, 0.86)
+    ax.set_axis_off()
+    fig.text(0.5, 0.995, JUDGE_HELP, ha="center", va="top", fontsize=8)
+    title = fig.text(0.5, 0.93, "", ha="center", va="top", fontsize=12, fontweight="bold")
+    shown = {"tree": None, "picture": None}
+
+    def update() -> None:
+        """Show the current tree's panel (if it changed) and the prompt."""
+        t = judge.tree
+        if t != shown["tree"]:
+            shown["tree"] = t
+            pic = image(t) if t is not None else np.full((10, 10, 3), 255, np.uint8)
+            if shown["picture"] is None:
+                shown["picture"] = ax.imshow(pic)
+            else:
+                shown["picture"].set_data(pic)
+                shown["picture"].set_extent((-0.5, pic.shape[1] - 0.5, pic.shape[0] - 0.5, -0.5))
+        title.set_text(judge.prompt())
+        fig.canvas.draw_idle()
+
+    def on_key(ev) -> None:
+        """Pass a key to the judge, then redraw (or close after q)."""
+        judge.key(ev.key)
+        if judge.done:
+            plt.close(fig)
+            return
+        update()
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+    fig._judge_on_key = on_key                              # for tests: the handler without a display
+    update()
+    if show:  # pragma: no cover - needs a display
+        plt.show()
+    return fig
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -240,9 +407,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     d.add_argument("data_dirs", nargs="+")
     d.add_argument("--mask-overlay", default="annotations/mask_overlay.json")
     d.add_argument("--out", default="outputs/label_audit")
+    j = sub.add_parser("judge", help="judge the sample in a window, key by key (needs the photos)")
+    j.add_argument("data_dirs", nargs="+")
+    j.add_argument("--mask-overlay", default="annotations/mask_overlay.json")
     m = sub.add_parser("summary", help="summarise the filled-in verdicts")
     m.add_argument("--report", default="docs/results/label_audit/report.json")
-    for p in (s, d, m):
+    for p in (s, d, j, m):
         p.add_argument("--sample", default=str(SAMPLE_CSV), help="the sample's table")
     args = ap.parse_args(argv)
     path = Path(args.sample)
@@ -292,6 +462,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         for f in failed:
             print(f"Could not draw {f}")
         return 1 if failed else 0
+
+    if args.command == "judge":  # pragma: no cover - needs a display
+        from treeskel.io import index_dataset, load_tree
+        from treeskel.segment import hand_mask
+        from treeskel.summer_gt import load_overlays
+
+        judge = AuditJudge(path)
+        records = {t.tree_id: t for dd in args.data_dirs for t in index_dataset(dd).trees}
+        overlays = load_overlays(args.mask_overlay)
+        missing = [r["tree"] for r in judge.rows if r["tree"] not in records]
+        if missing:
+            print(f"Not in {', '.join(args.data_dirs)}: {', '.join(missing)}")
+            return 1
+        order = [r["tree"] for r in judge.rows]
+
+        def image(t):
+            """The tree's panel: the photo beside the lined-up hand mask's outline."""
+            label = f"{t}  ({order.index(t) + 1}/{len(order)})   left: photo   right: lined-up hand mask's outline"
+            return np.asarray(draw_panel(load_tree(records[t], "summer")["rgb"], hand_mask(records[t], overlays), label))
+
+        print(f"{judge.judged()} of {len(judge.rows)} trees judged so far. The window opens on the first open part.")
+        run_judge(judge, image)
+        judge.save()
+        print(f"{judge.judged()} of {len(judge.rows)} trees judged; saved {path}. "
+              "When all are done: python -m treeskel.label_audit summary")
+        return 0
 
     rows = read_verdicts(path)
     s = summarise(rows)

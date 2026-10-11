@@ -22,6 +22,7 @@ average tree, negative worse). Every summer prediction is scored against the sam
 | Summer models (5 row-grouped folds, 449 development trees) | V opening skill: ridge on CNN features +0.10, fine-tuned angle CNN +0.18, **U-Net on the lined-up hand masks, pieces joined, +0.75**; the hand masks themselves +0.87 | `docs/results/shape/`, `segment_lined_up_joined/` |
 | **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
 | Run time | the U-Net predicts a photo in 9.7 ms on a GPU, 116 ms on a CPU, and trains in 2 minutes | `docs/results/benchmark/` |
+| Improving the masks (session 16, development rows) | seven trainings of the same recipe range 4.00–4.47° in V-opening error, which is more than any change moved it. A centre-line (clDice) loss covers more of the labelled branches, but its V-opening gain is not established. Three trainings averaged beat their own members by 0.06–0.14° and halve the disagreement between retrainings (0.67° → 0.36°); chosen, and to be reported once on the test rows | `docs/results/segment_variants/` |
 | 3D | the trees are flat to a median 1.7 cm (sizes assume 2 m from the camera to the fork); the V in the photo is about 2.3° wider than in the tree's own plane | `docs/results/depth3d/`, `tree3d/` |
 | Bends out of the plane | the winter depth holds bends: left-out depth predicted to 1.9 cm against the plane's 3.1 cm (94% of trees); the trunk stands a median 14° out of the V's plane; letting the leaders bend leaves the 3D V 0.9° (not 2.6°) narrower than the 2D V. In summer the typical winter shape fills in what the leaves hide: trunk angle off by 8.5° instead of 12.0°, leader tilts by 3.0° instead of 4.5° | `docs/results/bend3d/`, `bend3d_typical/` |
 | 3D model of a summer photo | opens in any browser, the branches bent where summer sees the wood: [`R01N13.html`](docs/results/model3d/R01N13.html), [`R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
@@ -142,6 +143,7 @@ python -m treeskel.segment data/raw --grow docs/results/segment_lined_up_rerun  
 python -m treeskel.segment --continue docs/results/segment_lined_up_rerun_joined   # short leaders continued, pruned
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --size 480 640   # whole photo, full size
 python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
+python -m treeskel.final_test data/raw --out docs/results/final_test_ensemble   # session 16's ensemble, once (secondary)
 python -m treeskel.benchmark                               # run time and memory of every method (GPU and CPU)
 python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
@@ -154,7 +156,8 @@ python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --cldice --no-grow     # centre-line loss
 python -m treeskel.seg_compare ensemble <run> <run> <run> --out docs/results/segment_lined_up_ensemble --data data/raw
 python -m treeskel.seg_compare compare data/raw            # every variant against the named U-Net, and the rule
-python -m treeskel.label_audit draw data/raw               # the label audit's images (the sample is committed)
+python -m treeskel.label_audit judge data/raw              # the label audit, key by key (the sample is committed)
+python -m treeskel.label_audit draw data/raw               # or only its images, to fill in sample.csv by hand
 python -m treeskel.label_audit summary                     # after the verdicts are filled in
 pdoc -d google -o docs/html src/treeskel   # build the HTML documentation (docs/html/)
 pytest --html=docs/test_report.html --self-contained-html   # the test report

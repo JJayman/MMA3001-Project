@@ -25,18 +25,29 @@ result are in [`../segment_variants/rule.md`](../segment_variants/rule.md).
 
 ## How to judge (the student, by eye)
 
-1. On the PC: `python -m treeskel.label_audit draw data/raw`. This writes one image per tree to
-   `outputs/label_audit/`: the photo's centre 480x480 (the masks' frame) beside the same image with the
-   lined-up hand mask's outline in magenta. No prediction is shown.
-2. In `sample.csv`, give each part one verdict:
-   - **Parts:** `trunk`, `left` and `right`. The left leader is the one whose tip is further left.
-   - **`on`:** where the wood is visible, the outline follows it to within about half the branch's width.
-   - **`off`:** along a stretch at least a trunk's width long, the mask lies beside the visible wood by
-     about the branch's width or more.
-   - **`hidden`:** too little of that part's wood is visible to judge.
-   - **`notes`:** anything worth keeping, for example "left leader drawn on a side branch".
-3. Run `python -m treeskel.label_audit summary`. It writes `report.json`: for each part, the share `off`
-   among those judged, with Wilson 95% intervals, and the trees with any part off.
+**The verdicts.** For each tree, judge three parts: the trunk, the left leader (its tip is further left)
+and the right leader. Each gets one of:
+
+- **on:** where the wood is visible, the magenta outline follows it to within about half the branch's width;
+- **off:** along a stretch at least a trunk's width long, the outline lies beside the visible wood by about
+  the branch's width or more;
+- **hidden:** too little of that part's wood is visible to judge.
+
+**In a window (the easy way):** `python -m treeskel.label_audit judge data/raw`.
+- **What it shows:** each tree's photo beside the same photo with the lined-up hand mask's outline. No
+  prediction is shown.
+- **The keys:** **`o`** on, **`f`** off, **`h`** hidden, asked for the trunk, the left leader, then the right
+  leader. **`u`** undoes the last answer, and **`n`** / **`p`** move between trees.
+- **Saving:** every answer is saved to `sample.csv` at once. **`q`** quits, and running the command again
+  carries on where you stopped.
+
+**By hand instead:**
+1. `python -m treeskel.label_audit draw data/raw` writes the same images to `outputs/label_audit/`.
+2. Type `on`, `off` or `hidden` into the `trunk`, `left` and `right` columns of `sample.csv`. Optional notes
+   go in `notes`, for example "left leader drawn on a side branch".
+
+**Then:** `python -m treeskel.label_audit summary` writes `report.json`. It gives the share `off` for each
+part among those judged, with Wilson 95% intervals, and the trees with any part off.
 
 ## Results
 

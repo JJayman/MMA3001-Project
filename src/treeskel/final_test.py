@@ -38,6 +38,15 @@ folds. This module runs once, at the end (session 11's third item):
    (:func:`treeskel.segment.complete_measures`, :func:`treeskel.segment.draw_completion`, with the model a
    development run fitted on all its trees). Reported beside the named model, not instead of it.
 
+6. **An ensemble, reported once afterwards (session 16):** a ``model.json``
+   with ``ensemble_seeds`` trains one network per seed (the named recipe and
+   epochs, each from its own seed), averages their probabilities on the test
+   photos, and scores the average exactly as above. Each member's own masks
+   are scored too, and the ensemble is compared tree by tree with its
+   members and with an earlier evaluation (``compare_with``, e.g. the final
+   test). Its development skill comes from ``development_run``. It goes in
+   its own folder, as a secondary line: the test rows were already used.
+
 It refuses to run if the output folder already holds a report: one final
 evaluation, not one per try. Outputs (``docs/results/final_test/`` by
 default): ``report.json``, ``predictions.csv``, ``mask_scores.csv``,
@@ -45,9 +54,12 @@ default): ``report.json``, ``predictions.csv``, ``mask_scores.csv``,
 ``test_winter_traces.npz``, ``output`` printed as it runs; figures
 ``final_test_skill.png`` and ``final_test_examples.jpg``.
 
-Usage (the student's PC, after ``model.json`` is committed)::
+Usage (the student's PC, after ``model.json`` is committed):
 
-    python -m treeskel.final_test data/raw
+```
+python -m treeskel.final_test data/raw
+python -m treeskel.final_test data/raw --out docs/results/final_test_ensemble    # session 16's ensemble, once
+```
 """
 
 from __future__ import annotations
@@ -105,10 +117,14 @@ def named_recipe(model_file: Path) -> dict:
 
     Returns:
         ``{"named": model.json's content, "run": folder, "params": SegParams, "mask_overlay": path or None,
+        "members": ensemble seeds or None, "development_run": folder, "compare_with": folder or None,
         "join_gap": gap or None, "grow_low": lower threshold or None, "continue_cone": cone or None,
         "complete_coef": the completion model or None,
         "epochs": int, "fold_epochs": [...],
-        "development": the run's report}``.
+        "development": the development run's report (the named run's unless ``development_run``)}``.
+
+    Raises:
+        ValueError: No epochs recorded, or ``ensemble_seeds`` with fewer than two different seeds.
     """
     named = json.loads(Path(model_file).read_text())
     run = Path(named["run"])
@@ -120,13 +136,21 @@ def named_recipe(model_file: Path) -> dict:
     fold_epochs = [int(e["epochs"]) for e in report["epochs"]]
     if not fold_epochs:
         raise ValueError(f"{run}/report.json records no epochs chosen by its folds")
+    seeds = named.get("ensemble_seeds")
+    if seeds is not None:
+        seeds = [int(v) for v in seeds]
+        if len(seeds) < 2 or len(set(seeds)) < len(seeds):
+            raise ValueError(f"ensemble_seeds needs two or more different seeds, got {seeds}")
+    dev_run = Path(named.get("development_run") or run)
+    development = report if dev_run == run else json.loads((dev_run / "report.json").read_text())
     return {"named": named, "run": str(run), "params": SegParams(**p), "mask_overlay": report.get("mask_overlay"),
+            "members": seeds, "development_run": str(dev_run), "compare_with": named.get("compare_with"),
             "join_gap": (report.get("join") or {}).get("gap"), "grow_low": (report.get("grow") or {}).get("low"),
             "continue_cone": (report.get("continue") or {}).get("cone"),
             "complete_coef": (report.get("complete") or {}).get("coef_all"),
             "secondary_complete_coef": _secondary_coef(named),
             "epochs": int(round(statistics.median(fold_epochs))),
-            "fold_epochs": fold_epochs, "development": report}
+            "fold_epochs": fold_epochs, "development": development}
 
 
 def _secondary_coef(named: dict) -> list[float] | None:
@@ -136,6 +160,29 @@ def _secondary_coef(named: dict) -> list[float] | None:
     if not src:
         return None
     return json.loads((Path(src) / "report.json").read_text())["complete"]["coef_all"]
+
+
+def recipe_mask(prob: np.ndarray, recipe: dict, params: SegParams) -> tuple[np.ndarray, dict, bool]:
+    """One test photo's probabilities to the recipe's mask and measures, as in development.
+
+    Thresholded, then grown, joined and continued if the recipe does so, and
+    measured (with short leaders' lines completed if the recipe does so).
+
+    Returns:
+        ``(mask, measures, whether a piece was joined)``.
+    """
+    p = prob_frame(prob, whole_photo(params))
+    mask = p > params.threshold
+    if recipe["grow_low"]:                                  # on the probabilities as development saved them
+        mask = grow_mask(np.round(p * 255) / 255, recipe["grow_low"], mask, params.threshold)
+    joined = False
+    if recipe["join_gap"]:
+        mask, k = join_pieces(mask, recipe["join_gap"])
+        joined = k > 0
+    if recipe["continue_cone"]:
+        mask, _ = continue_leaders(mask, recipe["continue_cone"])
+    meas = complete_measures(mask, recipe["complete_coef"])[0] if recipe["complete_coef"] else mask_shape(mask)[0]
+    return mask, meas, joined
 
 
 def bootstrap_skill(truth: np.ndarray, pred: np.ndarray, base: np.ndarray, n: int = 2000,
@@ -173,9 +220,12 @@ def git_head() -> str | None:
         return None
 
 
-def plot_final(report: dict, path: Path, failed: list[str]) -> None:
+def plot_final(report: dict, path: Path, failed: list[str],
+               title: str = "The final test: the named U-Net's masks against the test rows' winter traces",
+               name: str = "The named U-Net on the test rows") -> None:
     """Skill over the development mean shape per measure on the test rows: the named model and the hand masks
-    with their 95% bootstrap intervals, and the model's development-fold skill as an open marker."""
+    with their 95% bootstrap intervals, and the model's development-fold skill as an open marker. ``title`` and
+    ``name`` (the model's legend entry) change for an ensemble's evaluation."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -195,7 +245,7 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
     fig.patch.set_facecolor(SURFACE)
     _style(ax)
     series = (("hand masks", "Hand masks of the test rows (a person's reading)", "#2a78d6", "o", 0.16),
-              ("model", "The named U-Net on the test rows", "#e34948", "h", 0.0),
+              ("model", name, "#e34948", "h", 0.0),
               ("model, leaders completed", "The same, short leaders predicted on (secondary)", "#1baf7a", "d", -0.16))
     for key, name, colour, marker, off in series:
         for k, y0 in rows_y.items():
@@ -223,8 +273,7 @@ def plot_final(report: dict, path: Path, failed: list[str]) -> None:
         gy -= len(members) + 0.6
     ax.set_xlabel("Skill over the development mean shape, 1 − MSE / MSE(mean)   (lines: 95% interval over trees)",
                   fontsize=8, color=SECONDARY)
-    fig.suptitle("The final test: the named U-Net's masks against the test rows' winter traces", x=0.02, ha="left",
-                 fontsize=10, color=INK, fontweight="bold")
+    fig.suptitle(title, x=0.02, ha="left", fontsize=10, color=INK, fontweight="bold")
     ax.set_title(f"{report['n_trees']} trees of test rows {', '.join(map(str, report['test_rows']))}; "
                  f"{report['no_fork']} with no fork count as the mean shape", loc="left", fontsize=8, color=SECONDARY)
     fig.legend(*ax.get_legend_handles_labels(), loc="lower left", bbox_to_anchor=(0.02, 0.0), ncol=2, frameon=False,
@@ -318,6 +367,59 @@ def secondary_from_saved(out: Path, figures: Path, progress: Callable[[str], Non
     return failed
 
 
+def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], test: Sequence[str], recipe: dict,
+                    params: SegParams, y: np.ndarray, base: np.ndarray, row_index: np.ndarray,
+                    ensemble_filled: np.ndarray, compare_with: Path | None) -> dict:
+    """An ensemble's members, each scored on its own, and the ensemble against them and an earlier evaluation.
+
+    Args:
+        member_probs: Each network's ``(n, H, W)`` test probabilities.
+        seeds: Their seeds.
+        test: The test trees, in order.
+        recipe: :func:`named_recipe`.
+        params: The recipe's parameters.
+        y: ``(n, measures)`` winter truth; ``base`` the development mean shape; ``row_index`` each tree's row.
+        ensemble_filled: The ensemble's measures, no-fork masks as the mean shape.
+        compare_with: An earlier evaluation's folder (its ``predictions.csv`` column ``model``), or None.
+
+    Returns:
+        ``{"seeds", "members": [{"seed", "no_fork", "scores", "v_opening": {tree: degrees}}], "vs_members",
+        "compare_with", "vs_compare_with"}``:
+        the comparisons are on the V opening's absolute error, tree by tree
+        (:func:`treeskel.seg_compare.paired`; ``a`` is the ensemble).
+    """
+    from treeskel.seg_compare import paired
+    from treeskel.segment import read_predictions
+
+    v = MEASURES.index("v_opening")
+    members, member_err = [], []
+    for seed, probs in zip(seeds, member_probs):
+        seg = np.full(y.shape, np.nan)
+        for i in range(len(test)):
+            meas = recipe_mask(probs[i], recipe, params)[1]
+            seg[i] = [meas[k] for k in MEASURES]
+        filled = fill_failures(seg, base)
+        members.append({"seed": int(seed), "no_fork": int((~np.isfinite(seg).any(axis=1)).sum()),
+                        "scores": {k: evaluate(y[:, j], filled[:, j], base[:, j], row_index)
+                                   for j, k in enumerate(MEASURES)},
+                        "v_opening": {t: (None if not np.isfinite(filled[i, v]) else round(float(filled[i, v]), 2))
+                                      for i, t in enumerate(test)}})
+        member_err.append(np.abs(filled[:, v] - y[:, v]))
+    mine = {t: float(abs(ensemble_filled[i, v] - y[i, v])) for i, t in enumerate(test)}
+    average = {t: float(np.mean([e[i] for e in member_err])) for i, t in enumerate(test)}
+    out = {"seeds": [int(s) for s in seeds], "members": members, "vs_members": paired(mine, average),
+           "compare_with": str(compare_with) if compare_with else None, "vs_compare_with": None}
+    if compare_with is not None and (Path(compare_with) / "predictions.csv").exists():
+        earlier = read_predictions(Path(compare_with) / "predictions.csv", "model")
+        # The earlier evaluation saved 2 decimals; the ensemble is rounded alike, so equal predictions tie.
+        theirs = {t: abs(earlier[(t, "v_opening")][1] - earlier[(t, "v_opening")][0])
+                  for t in test if (t, "v_opening") in earlier}
+        ours = {t: abs(round(float(ensemble_filled[i, v]), 2) - earlier[(t, "v_opening")][0])
+                for i, t in enumerate(test) if (t, "v_opening") in earlier}
+        out["vs_compare_with"] = paired(ours, theirs)
+    return out
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Train the named model on all development trees and score it once on the test rows."""
     from concurrent.futures import ProcessPoolExecutor
@@ -377,6 +479,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{'short leaders continued within ' + format(recipe['continue_cone'], 'g') + ' degrees and pruned; ' if recipe['continue_cone'] else ''}"
         f"{'short leader lines completed; ' if recipe['complete_coef'] else ''}"
         f"{recipe['epochs']} epochs (median of the folds' {recipe['fold_epochs']})")
+    if recipe["members"]:
+        say(f"  an ensemble: {len(recipe['members'])} networks, seeds {recipe['members']}, probabilities averaged; "
+            f"development skill from {recipe['development_run']}")
 
     split = json.loads(Path(args.split).read_text())
     test_rows = sorted(int(r) for r in split["test_rows"])
@@ -440,26 +545,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     images, masks, has = load_frames(records, dev, params.size, params.depth, lambda m: None, overlays)
     say(f"  {int(has.sum())} have a hand mask to train on")
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    torch.manual_seed(params.seed)                          # the decoder's first weights, as in development
-    model = UNet(params.encoder, not args.random_weights, channels=images.shape[3]).to(device)
     x = torch.from_numpy(np.ascontiguousarray(images[has].transpose(0, 3, 1, 2))).to(device)
     m = torch.from_numpy(np.ascontiguousarray(masks[has])).to(device)
+    channels = images.shape[3]
     del images, masks
-    say(f"Training on {_n(int(has.sum()), 'tree')} for {_n(recipe['epochs'], 'epoch')} on {device}...")
+    test_images, _, _ = load_frames(records, test, params.size, params.depth, lambda m: None, None)
+    test_x = torch.from_numpy(np.ascontiguousarray(test_images.transpose(0, 3, 1, 2))).to(device)
+    # One network, or one per seed of an ensemble: each from its seed's first weights (as in development) and
+    # trained with that seed plus SEED_OFFSET. With one seed this is exactly the final test's training.
+    seeds = recipe["members"] or [params.seed]
+    member_probs = []
     t0 = time.time()
-    try:
-        train_seg(model, x, m, recipe["epochs"], params, params.seed + SEED_OFFSET,
-                  on_epoch=lambda r: (say(f"  epoch {r['epoch']:3d}: train {r['train_loss']:.3f}")
-                                      if r["epoch"] % 5 == 0 or r["epoch"] == 1 else None))
-    except (OSError, RuntimeError) as e:                   # e.g. out of GPU memory
-        say(f"Training stopped: {type(e).__name__}: {e}\nNothing was scored; the evaluation can be run again "
-            "(close other programs using the GPU).")
-        return 1
+    for i, seed in enumerate(seeds):
+        torch.manual_seed(seed)                             # the decoder's first weights, as in development
+        model = UNet(params.encoder, not args.random_weights, channels=channels).to(device)
+        what = f" (network {i + 1} of {len(seeds)}, seed {seed})" if len(seeds) > 1 else ""
+        say(f"Training on {_n(int(has.sum()), 'tree')} for {_n(recipe['epochs'], 'epoch')} on {device}{what}...")
+        try:
+            train_seg(model, x, m, recipe["epochs"], params, seed + SEED_OFFSET,
+                      on_epoch=lambda r: (say(f"  epoch {r['epoch']:3d}: train {r['train_loss']:.3f}")
+                                          if r["epoch"] % 5 == 0 or r["epoch"] == 1 else None))
+        except (OSError, RuntimeError) as e:               # e.g. out of GPU memory
+            say(f"Training stopped: {type(e).__name__}: {e}\nNothing was scored; the evaluation can be run again "
+                "(close other programs using the GPU).")
+            return 1
+        member_probs.append(predict_masks(model, test_x))
+        del model
     minutes = round((time.time() - t0) / 60, 1)
     del x, m
     say(f"  trained in {minutes} min")
-    test_images, _, _ = load_frames(records, test, params.size, params.depth, lambda m: None, None)
-    prob = predict_masks(model, torch.from_numpy(np.ascontiguousarray(test_images.transpose(0, 3, 1, 2))).to(device))
+    prob = member_probs[0] if len(member_probs) == 1 else np.mean(member_probs, axis=0)
 
     # 3. Measure the predicted masks and score them against the winter traces.
     n = len(test)
@@ -472,17 +587,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     pixel = {}
     joined = 0
     for i, t in enumerate(test):
-        p = prob_frame(prob[i], whole_photo(params))
-        pred[i] = p > params.threshold
-        if recipe["grow_low"]:                              # on the probabilities as development saved them
-            pred[i] = grow_mask(np.round(p * 255) / 255, recipe["grow_low"], pred[i], params.threshold)
-        if recipe["join_gap"]:
-            pred[i], k = join_pieces(pred[i], recipe["join_gap"])
-            joined += k > 0
-        if recipe["continue_cone"]:
-            pred[i], _ = continue_leaders(pred[i], recipe["continue_cone"])
-        meas = (complete_measures(pred[i], recipe["complete_coef"])[0] if recipe["complete_coef"]
-                else mask_shape(pred[i])[0])
+        pred[i], meas, was_joined = recipe_mask(prob[i], recipe, params)
+        joined += was_joined
         seg[i] = [meas[k] for k in MEASURES]
         if second is not None:
             seg2[i] = [complete_measures(pred[i], second)[0][k] for k in MEASURES]
@@ -501,11 +607,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     seg2_filled = fill_failures(seg2, np.array(base))
     row_index = np.array([test_rows.index(records[t].row) for t in test])
     dev_scores = recipe["development"]["scores"]
+    ensemble = None
+    if len(seeds) > 1:
+        ensemble = ensemble_scores(member_probs, seeds, test, recipe, params, y, np.array(base), row_index,
+                                   seg_filled, Path(recipe["compare_with"]) if recipe["compare_with"] else None)
     report = {"named": recipe["named"], "run": recipe["run"], "params": asdict(params),
               "mask_overlay": recipe["mask_overlay"], "join_gap": recipe["join_gap"], "grow_low": recipe["grow_low"],
               "continue_cone": recipe["continue_cone"], "complete_coef": recipe["complete_coef"],
               "epochs": recipe["epochs"],
-              "fold_epochs": recipe["fold_epochs"], "seed": params.seed + SEED_OFFSET, "device": device,
+              "fold_epochs": recipe["fold_epochs"],
+              "seed": params.seed + SEED_OFFSET if len(seeds) == 1 else [v + SEED_OFFSET for v in seeds],
+              "ensemble": ensemble, "development_run": recipe["development_run"], "device": device,
               "weights": "random" if args.random_weights else "IMAGENET1K_V1", "minutes": minutes,
               "code": git_head(), "test_rows": test_rows, "n_trees": n, "n_dev": int(has.sum()),
               "no_fork": no_fork, "masks_joined": joined, "mean_shape": dict(zip(MEASURES, map(float, mean))),
@@ -554,6 +666,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 say(f"  {k:12s} {key:24s} n {sc['n']:3d}  MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f} "
                     f"[{lo:+.2f}, {hi:+.2f}]  r {sc['r']:.2f}  better than the mean {sc['improved']:4.0%}  "
                     f"rows {rowsk}" + (f"  (development {dev_k:+.2f})" if dev_k is not None else ""))
+    if ensemble is not None:
+        say(f"\nThe ensemble's {len(seeds)} networks, each on its own (V opening):")
+        for mem in ensemble["members"]:
+            sc = mem["scores"]["v_opening"]
+            if sc.get("n", 0) >= 3:
+                say(f"  seed {mem['seed']}: MAE {sc['mae']:5.2f}  skill {sc['skill']:+.2f}  "
+                    f"({mem['no_fork']} with no fork)")
+        c = ensemble["vs_members"]
+        if c.get("n", 0) >= 3:
+            say(f"Ensemble against its networks' average, tree by tree: MAE {c['mean_b']:.2f} -> {c['mean_a']:.2f}, "
+                f"lower on {c['a_lower']:.0%} of {c['n']} trees, Wilcoxon p {c['p']:.3f}")
+        c = ensemble.get("vs_compare_with")
+        if c and c.get("n", 0) >= 3:
+            say(f"Ensemble against {ensemble['compare_with']}, tree by tree: MAE {c['mean_b']:.2f} -> "
+                f"{c['mean_a']:.2f}, lower on {c['a_lower']:.0%}, Wilcoxon p {c['p']:.3f}")
     say("\nPixels against the test rows' hand masks as drawn (not lined up; secondary), median:")
     for c, s in report["masks"].items():
         if s["n"]:
@@ -589,7 +716,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         write(out / "predicted_masks_completed.npz", lambda p: save_masks(p, test, drawn))
     figures = Path(args.figures)
     figures.mkdir(parents=True, exist_ok=True)
-    plot_final(report, figures / "final_test_skill.png", failed)
+    stem = "final_test" if ensemble is None else out.name          # the final test's names stay as they were
+    if ensemble is None:
+        plot_final(report, figures / f"{stem}_skill.png", failed)
+    else:
+        plot_final(report, figures / f"{stem}_skill.png", failed,
+                   title=f"An ensemble of {len(seeds)} U-Nets on the test rows (secondary: the rows were used once "
+                         "before)", name=f"{len(seeds)} U-Nets of the named recipe, probabilities averaged")
     if args.examples > 0:
         from PIL import Image
 
@@ -610,10 +743,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             for im in tiles:
                 sheet.paste(im, (0, top))
                 top += im.height
-            write(figures / "final_test_examples.jpg", lambda p: sheet.save(p, quality=85))
+            write(figures / f"{stem}_examples.jpg", lambda p: sheet.save(p, quality=85))
     write(out / "output.txt", lambda p: p.write_text("\n".join(log_lines) + "\n"))
     write(out / "report.json", lambda p: p.write_text(json.dumps(report, indent=2)))   # last: marks it done
-    say(f"\nSaved {out}/ and the figures final_test_skill.png, final_test_examples.jpg in {figures}/")
+    say(f"\nSaved {out}/ and the figures {stem}_skill.png, {stem}_examples.jpg in {figures}/")
     for f in failed:
         print(f"Could not write {f}")
     return 1 if failed else 0

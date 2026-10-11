@@ -1,0 +1,56 @@
+Each training's joined masks (449 development trees; V MAE with stubs and no-fork masks as the mean shape)
+  run                 V MAE incomplete coverage
+  named               4.224         38    0.871
+  _rerun              4.205         45    0.868
+  _seed1              4.448         57    0.866
+  _seed2              4.471         54    0.865
+  _seed3              3.997         43    0.865
+  _seed4              4.416         58    0.862
+  _seed5              4.205         38    0.867
+  _cldice             4.124         42    0.884
+  _cldice_seed1       4.219         30    0.881
+  _cldice_seed2       4.076         43    0.884
+  _ensemble           4.293         48    0.873
+  _ensemble_b         4.150         38    0.873
+  _cldice_ensemble    4.004         31    0.891
+  named recipe, 7 trainings: V MAE 4.281 ± 0.172 (SD), range 3.997-4.471
+
+1. The rule's test on samples of ONE recipe (it should call them different about 1 time in 20)
+  single training against single training: 5 of 21 pairs at p < 0.05
+  _rerun+_seed1+_seed2   vs _seed3+_seed4+_seed5   4.375 vs 4.206  p 0.027   <- the rule's baseline triple
+  _rerun+_seed1+_seed3   vs _seed2+_seed4+_seed5   4.217 vs 4.364  p 0.787
+  _rerun+_seed1+_seed4   vs _seed2+_seed3+_seed5   4.356 vs 4.224  p 0.015
+  _rerun+_seed1+_seed5   vs _seed2+_seed3+_seed4   4.286 vs 4.295  p 0.822
+  _rerun+_seed2+_seed3   vs _seed1+_seed4+_seed5   4.224 vs 4.356  p 0.936
+  _rerun+_seed2+_seed4   vs _seed1+_seed3+_seed5   4.364 vs 4.217  p 0.052
+  _rerun+_seed2+_seed5   vs _seed1+_seed3+_seed4   4.294 vs 4.287  p 0.268
+  _rerun+_seed3+_seed4   vs _seed1+_seed2+_seed5   4.206 vs 4.375  p 0.982
+  _rerun+_seed3+_seed5   vs _seed1+_seed2+_seed4   4.136 vs 4.445  p 0.007
+  _rerun+_seed4+_seed5   vs _seed1+_seed2+_seed3   4.275 vs 4.305  p 0.383
+  triple against triple, as the rule compares: 3 of 10 splits at p < 0.05
+
+2. The centre-line loss, again
+  against the rule's triple (re-run, seeds 1-2)    V MAE 4.375 -> 4.140, p 0.009;  incomplete 0.116 -> 0.085 per tree, p 0.000
+  against the other triple (seeds 3-5)             V MAE 4.206 -> 4.140, p 0.416;  incomplete 0.103 -> 0.085 per tree, p 0.044
+  against all seven trainings                      V MAE 4.281 -> 4.140, p 0.019;  incomplete 0.106 -> 0.085 per tree, p 0.007
+  At the level of whole trainings (3 centre-line against the 7 named-recipe trainings, one-sided permutation over all 120 ways to pick 3 of the 10):
+    V MAE                        4.281 ->   4.140   p 0.108
+    incomplete masks            47.571 ->  38.333   p 0.092
+    coverage (lower is worse)    0.866 ->   0.883   p 0.008
+
+3. Ensembling, against each ensemble's own members (each tree's error averaged over them)
+  _ensemble          V MAE 4.375 -> 4.293, lower on 53%, p 0.0016;  incomplete 0.116 -> 0.107, p 0.52
+  _ensemble_b        V MAE 4.206 -> 4.150, lower on 54%, p 0.0055;  incomplete 0.103 -> 0.085, p 0.76
+  _cldice_ensemble   V MAE 4.140 -> 4.004, lower on 56%, p 0.0026;  incomplete 0.085 -> 0.069, p 0.36
+
+4. Stability between trainings (the student's reason for the ensemble)
+  two single trainings (all 21 pairs)    a median 0.67 deg apart, 4.5% of trees more than 5 deg, incomplete status differs on 8.7%
+  the two independent ensembles          a median 0.36 deg apart, 2.9% of trees more than 5 deg, incomplete status differs on 6.2%
+  where either mask is incomplete: single trainings a median 1.94 deg apart (28% > 5 deg, 1408 tree pairs); ensembles 1.03 deg (23%, 57 trees)
+
+5. The members' spread as a warning (pre-declared: useful if Spearman > 0 with p < 0.05)
+  _ensemble          Spearman +0.14 (p 0.003); MAE 9.06 deg on the 10% most spread, 3.76 on the rest; 38% of the 10% largest errors flagged
+  _ensemble_b        Spearman +0.15 (p 0.001); MAE 9.45 deg on the 10% most spread, 3.56 on the rest; 40% of the 10% largest errors flagged
+  _cldice_ensemble   Spearman +0.07 (p 0.123); MAE 6.70 deg on the 10% most spread, 3.70 on the rest; 24% of the 10% largest errors flagged
+
+Saved docs/figures/segment_variants.png
