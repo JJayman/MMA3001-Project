@@ -145,7 +145,8 @@ annotations/   winter_clicks.json (ground truth), season_overlay.json (alignment
                season_pairs.json (11 trees of clicked pairs, used as a check)
 data/raw/      full dataset, git-ignored, only on the student's PC
 docs/progress/ session summaries (the project's memory)
-docs/figures/, docs/results/  evidence for the report
+docs/figures/, docs/results/  evidence for the report (docs/results/README.md indexes every folder;
+               docs/figures/runs/ holds the figures each training run writes, referred to by no README)
 docs/html/     HTML documentation (pdoc -d google -o docs/html src/treeskel), committed
 docs/test_report.html  pytest-html test report, committed
 model3d.bat    Windows: drop photos on it, or double-click and type a tree id (runs model3d build; CRLF,
