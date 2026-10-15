@@ -27,6 +27,20 @@ average tree, negative worse). Every summer prediction is scored against the sam
 | Bends out of the plane | the winter depth holds bends: left-out depth predicted to 1.9 cm against the plane's 3.1 cm (94% of trees); the trunk stands a median 14° out of the V's plane; letting the leaders bend leaves the 3D V 0.9° (not 2.6°) narrower than the 2D V. In summer the typical winter shape fills in what the leaves hide: trunk angle off by 8.5° instead of 12.0°, leader tilts by 3.0° instead of 4.5° | `docs/results/bend3d/`, `bend3d_typical/` |
 | 3D model of a summer photo | opens in any browser, the branches bent where summer sees the wood: [`R01N13.html`](docs/results/model3d/R01N13.html), [`R15N05.html`](docs/results/model3d/R15N05.html) | `docs/results/model3d/` |
 
+## Try it: a 3D model of a tree
+
+After the setup below, one command makes any tree's 3D model from its summer photo and opens it in the browser.
+The 9-tree sample is enough, and no GPU, network or PyTorch is needed:
+
+```bash
+python -m treeskel.model3d build R12N02
+```
+
+On Windows, double-click `model3d.bat` and type a tree id, or drag a tree's photo onto it. A development tree
+gets its 5-fold mask, from a network that never saw its row. A test-row tree gets the final test's mask, so
+its model matches the reported results. A photo from outside the dataset needs the trained network
+(`python -m treeskel.model3d train data/raw` once, on a GPU). See [`docs/results/model3d/`](docs/results/model3d/).
+
 ## Documentation
 
 - **HTML documentation** of every module, function and class: open [`docs/html/index.html`](docs/html/index.html)
@@ -86,6 +100,7 @@ docs/figures/    figures for the report
 docs/html/       HTML documentation (pdoc)
 docs/test_report.html  test report (pytest-html)
 splits.json      fixed test rows and cross-validation folds (do not change)
+model3d.bat      Windows: drop a summer photo on it, or double-click and type a tree id, for its 3D model
 LICENSE          GNU GPL v3
 ```
 
@@ -149,9 +164,10 @@ python -m treeskel.depth3d data/raw --calibrate            # the depth map's zer
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
 python -m treeskel.bend3d data/raw                         # bends out of the plane: winter, then summer (development rows)
 python -m treeskel.bend3d data/raw --typical               # the typical winter shape as the bends' prior (development rows)
-python -m treeskel.model3d train data/raw                  # once: save the named U-Net (GPU, ~2 min)
-python -m treeskel.model3d build --tree R05N12 --data data/raw   # a summer photo as a 3D model: outputs/model3d/R05N12.html
-python -m treeskel.model3d build --tree R05N12 --data data/raw --flat    # ... with every branch on the tree's plane
+python -m treeskel.model3d build R12N02                    # a tree's summer photo as a 3D model, opened (outputs/model3d/)
+python -m treeskel.model3d build R12N02 --flat             # ... with every branch on the tree's plane
+python -m treeskel.model3d train data/raw                  # once, for photos from outside the dataset (GPU, ~2 min)
+python -m treeskel.model3d build path/to/my_tree_RGB.png   # such a photo, its depth my_tree_D.png beside it
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --seed 1 --no-grow     # another sample
 python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json --cldice --no-grow     # centre-line loss
 python -m treeskel.seg_compare ensemble <run> <run> <run> --out docs/results/segment_lined_up_ensemble --data data/raw
@@ -229,7 +245,7 @@ out exactly the trees where a model failed. They were caught by my looking at th
 tests with known answers, by checks on samples that should not differ, and by running each check on all
 449 development trees instead of a few. When I was unsure what a task asked, as with the label audit, I
 said so and it was redone. Every rule for choosing a model was fixed before its result was seen; the test
-rows were used for the final test and once more for one declared secondary result. 555 automated tests
+rows were used for the final test and once more for one declared secondary result. 567 automated tests
 cover the code ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.

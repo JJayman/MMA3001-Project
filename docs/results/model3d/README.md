@@ -26,36 +26,72 @@ or shift-drag to move, and fade or hide the leaves.
 
 ## Making one
 
+**In one step** (session 17, the student's request: "all you have to do is put in the tree"):
+
+```bash
+python -m treeskel.model3d build R12N02          # any of the 541 trees: outputs/model3d/R12N02.html, opened in the browser
+```
+
+On Windows, double-click `model3d.bat` (in the repository's folder) and type a tree id, or drag photos onto it.
+
+- **The tree** is found in `data/raw`, else `data/sample` or `data/tuning`, so the command works on the
+  9-tree sample straight after `pip install -e .`. Any of a tree's files can be given instead of its id
+  (`build path/to/R12N02_Summer_RGB-13-45-33.png`, or the file dropped on `model3d.bat`).
+- **The mask** is chosen by itself (`--mask auto`, the default), and is always out of sample:
+
+  | Photo | Mask | Network needed |
+  |---|---|---|
+  | A development tree (449) | its 5-fold mask, from a network that never saw its row | no |
+  | A test-row tree (92) | the final test's mask, so the model matches the reported results | no |
+  | A photo from elsewhere, or a row-4 tree (left out of the project) | the trained network's prediction | yes: `train` once |
+
+- **A new photo:** `build path/to/my_tree_RGB.png` finds its depth image beside it by name (`RGB` replaced by
+  `D`, as in the dataset, or `Depth`; `color` or `colour` replaced by `depth`), or give `--depth`. It needs the
+  trained network.
+- `--no-open` only writes the files; several trees or photos can be given at once.
+
+The other ways, as before:
+
 ```bash
 python -m treeskel.model3d train data/raw                       # once (GPU, about 2 min): models/unet_named.pt
-python -m treeskel.model3d build --tree R12N02 --data data/raw    # outputs/model3d/R12N02.html and .ply files
 python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
-python -m treeskel.model3d build --tree R15N05 --data data/sample --mask saved   # no weights needed
-python -m treeskel.model3d build --tree R12N02 --data data/sample --mask saved --saved docs/results/final_test/predicted_masks.npz
+python -m treeskel.model3d build R05N12 --mask unet             # the trained network on a development tree (in-sample)
+python -m treeskel.model3d build R15N05 --mask hand             # the lined-up hand mask
+python -m treeskel.model3d build R12N02 --mask saved --saved docs/results/final_test/predicted_masks.npz
 ```
 
 - `train` repeats the final test's training: the same recipe, the 449 development trees, 34 epochs and
   the same seed. It saves the network (git-ignored, about 57 MB).
 - `build` writes `<name>.html` (the viewer), `<name>_branches.ply` (the tubes) and `<name>_leaves.ply`
   (the points); the `.ply` files open in Blender, MeshLab or Windows 3D Viewer.
-- `--mask saved` uses the development masks of the 5-fold run, and `--mask hand` the lined-up hand mask.
+- `--tree R12N02 --data data/raw`, the form before session 17, still works.
 
 ### Which masks to show (session 14)
 
+Since session 17 `build` picks these by itself; the table says why.
+
 | Tree | Masks | Why |
 |---|---|---|
-| A development tree | `--mask saved` (the default `--saved`) | Each mask is from a network that never saw the tree's row, so it shows how well the model predicts. |
-| A test-row tree, as in the final test | `--mask saved --saved docs/results/final_test/predicted_masks.npz` | The evaluated network's own masks: the 3D model matches the reported results (R12N02: 49.6° in the photo, as in `final_test/predictions.csv`; a test checks this). |
-| A test-row tree or a new photo | `--mask unet` (the default) | The trained network has never seen them. The test rows were used once, for the final test, so building them chooses nothing; report them as a display only. |
+| A development tree | the 5-fold run's (`--mask auto`, or `--mask saved`) | Each mask is from a network that never saw the tree's row, so it shows how well the model predicts. |
+| A test-row tree, as in the final test | the final test's (`--mask auto`, or `--mask saved --saved docs/results/final_test/predicted_masks.npz`) | The evaluated network's own masks: the 3D model matches the reported results (R12N02: 49.6° in the photo, as in `final_test/predictions.csv`; a test checks this). |
+| A new photo | the trained network (`--mask auto` or `unet`) | The trained network has never seen it. |
+| A test-row tree through the trained network | `--mask unet` | A second sample of the recipe (below). The test rows were used once, for the final test, so building them chooses nothing; report them as a display only. |
 
 `--mask unet` on a development tree shows what the network learned, not how well it predicts: `train` trains
-on every development tree with its hand mask. On R06N12 it read 55.3° in the photo, against 39.4° from the
+on every development tree with its hand mask (`build` no longer does this unless asked).
+On R06N12 it read 55.3° in the photo, against 39.4° from the
 5-fold mask and 53.8° in winter. `build` now says so, and the viewer's caption adds "this tree among them";
 `train` records its trees (a network saved before that, like the student's, is checked against the
 lined-up development trees, which is the same set).
 
 ## Checks
 
+- **One step** (session 17): `build <id>` on the 8 sample trees with saved masks wrote the same 24 files, byte
+  for byte, as the explicit `--mask saved` commands (the 5-fold masks for R01N01, R01N02, R15N05, R20N06; the
+  final test's for R03N33, R03N34, R12N02, R12N03), with no network loaded. Tests check that R12N02 reads the
+  final test's 49.6° and R15N05 the 3D run's 51.7°, that any of a tree's files stands for it, that a photo's
+  depth is found beside it, and that row 4 and new photos say when they need the trained network.
+  `model3d.bat` could not be run here (no Windows); a test checks its line endings and what it calls.
 - The numbers in the viewer are the 3D run's for the same tree: R15N05's V opening of 51.7° in the
   plane and 53.9° in the photo, and its 12.9° lean, match `docs/results/tree3d/trees.csv` (a test checks
   this).
@@ -90,14 +126,15 @@ lined-up development trees, which is the same set).
   final test's numbers; use its masks (above) for figures that match them.
 - **The trunk's width** is the U-Net's, which learned the hand masks' widths (drawn wider than the bark;
   session 10).
-- **The branches lie on one plane** unless `--bends` is given (session 15, below).
+- **The branches bend out of the plane only where summer sees the wood** (session 15, below); elsewhere they
+  follow the typical winter shape, drawn pale. `--flat` puts every point on the plane.
 
 ## Bends out of the plane (session 15; the default)
 
 ```bash
-python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved          # bends (the default)
-python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved --flat   # every point on the plane
-python -m treeskel.model3d build --tree R01N13 --data data/raw --mask saved --plane-prior   # bends; unseen parts on the plane
+python -m treeskel.model3d build R01N13                  # bends (the default), its 5-fold mask
+python -m treeskel.model3d build R01N13 --flat           # every point on the plane
+python -m treeskel.model3d build R01N13 --plane-prior    # bends; unseen parts on the plane
 ```
 
 Each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the summer depth
