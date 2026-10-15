@@ -251,8 +251,9 @@ See the latest file in `docs/progress/`. As of session 17:
      ReadMe; HTML documentation; licence; source code, functional `main`, with inline comments and docstrings;
      test functions and a test report; an accessible link; a zipped clone on Moodle). All met as of
      session 17. **The repository was private in session 17**: the link is accessible only once it is public
-     or the markers are given access (the student's choice; making it public also publishes the 9-tree sample
-     of the teaching team's data). The zip should be of a fresh `git clone` (no data/raw, .venv, models or
+     or the markers are given access (the student's choice; making it public also publishes the 26 trees of
+     the teaching team's data in `data/sample` and `data/tuning`, 135 images with the history, and the
+     student's university email on their commits). The zip should be of a fresh `git clone` (no data/raw, .venv, models or
      outputs). If any code changes after that, rebuild the last two before
      submitting: `pdoc -d google -o docs/html src/treeskel` and
      `pytest --html=docs/test_report.html --self-contained-html` (on the
