@@ -211,8 +211,8 @@ It showed no gain and changed nothing; the final test stays the headline.
 
 ## How I used AI in this project
 
-I used an AI assistant, Claude Code (Anthropic), throughout the project, in 16 work sessions from
-23 September to 12 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 17 work sessions from
+23 September to 15 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
 was mine, what the AI did, and the mistakes it made and how they were caught.
 
 **What I did:**
