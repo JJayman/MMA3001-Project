@@ -145,7 +145,8 @@ annotations/   winter_clicks.json (ground truth), season_overlay.json (alignment
                season_pairs.json (11 trees of clicked pairs, used as a check)
 data/raw/      full dataset, git-ignored, only on the student's PC
 docs/progress/ session summaries (the project's memory)
-docs/figures/, docs/results/  evidence for the report
+docs/figures/, docs/results/  evidence for the report (docs/results/README.md indexes every folder;
+               docs/figures/runs/ holds the figures each training run writes, referred to by no README)
 docs/html/     HTML documentation (pdoc -d google -o docs/html src/treeskel), committed
 docs/test_report.html  pytest-html test report, committed
 model3d.bat    Windows: drop photos on it, or double-click and type a tree id (runs model3d build; CRLF,
@@ -331,7 +332,11 @@ See the latest file in `docs/progress/`. As of session 17:
   (or `model3d.bat`, drop a photo or type an id) builds any of the 541 trees from its saved out-of-sample mask,
   with no network, GPU or PyTorch, and opens it; the old explicit forms give byte-identical files on the 8
   sample trees with saved masks. Photos from elsewhere (depth found beside them by name) and row 4 use the
-  trained network. `model3d.bat` was not run in the assistant's environment (no Windows).
+  trained network; a new tree needs its summer photo and summer depth, never the winter photo. `model3d.bat`
+  could not be run in the assistant's environment (no Windows); the student ran it ("it works"). Then the
+  tidy-up (PR #66): `docs/results/README.md` indexes all 57 results folders; the 64 run figures no README
+  refers to moved to `docs/figures/runs/`; two draft figures deleted; no evidence deleted. Open before
+  submission: the repository's visibility, and Moodle's upload limit against the ~259 MB zip of a fresh clone.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

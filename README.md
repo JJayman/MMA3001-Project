@@ -48,8 +48,8 @@ its model matches the reported results. A photo from outside the dataset needs t
 - **Test report:** [`docs/test_report.html`](docs/test_report.html) (pytest, every test with its result).
 - **Session notes** in [`docs/progress/`](docs/progress/): what was done in each work session, the numbers,
   the decisions, how AI was used (and where it was wrong) and the next steps.
-- **Results** in [`docs/results/`](docs/results/), one folder per experiment with a README, and figures in
-  [`docs/figures/`](docs/figures/).
+- **Results** in [`docs/results/`](docs/results/), one folder per experiment, with an index of them all in
+  [`docs/results/README.md`](docs/results/README.md); figures in [`docs/figures/`](docs/figures/).
 
 ## Repository structure
 
@@ -95,8 +95,8 @@ data/matches/    winter-summer point matches per matcher (from align.py), commit
 data/shape/      shape measures and summer image features per development tree (from shape.py), committed
 tests/           pytest test suite
 docs/progress/   session-by-session progress notes (incl. AI use)
-docs/results/    one folder per experiment: README, report.json, per-tree tables
-docs/figures/    figures for the report
+docs/results/    one folder per experiment: README, report.json, per-tree tables (index: docs/results/README.md)
+docs/figures/    figures for the report (runs/: the figures each training run writes)
 docs/html/       HTML documentation (pdoc)
 docs/test_report.html  test report (pytest-html)
 splits.json      fixed test rows and cross-validation folds (do not change)
@@ -211,8 +211,8 @@ It showed no gain and changed nothing; the final test stays the headline.
 
 ## How I used AI in this project
 
-I used an AI assistant, Claude Code (Anthropic), throughout the project, in 16 work sessions from
-23 September to 12 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 17 work sessions from
+23 September to 15 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
 was mine, what the AI did, and the mistakes it made and how they were caught.
 
 **What I did:**
