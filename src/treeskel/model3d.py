@@ -1,20 +1,32 @@
 """Turn one summer RGB-D photo into a 3D model of the tree's trunk and leaders, to open and turn around.
 
+**In one step** (session 17): ``python -m treeskel.model3d build R12N02`` makes
+the model of any of the dataset's trees and opens it in the browser, with no
+network, GPU or PyTorch: the tree is found in ``data/raw``, ``data/sample`` or
+``data/tuning`` (:func:`find_photos`), and its mask is the saved out-of-sample
+one (:func:`auto_masks`). A photo file works too (any of a dataset tree's
+files, or a summer photo from elsewhere with its depth image beside it), and
+on Windows ``model3d.bat`` takes dropped photos or a typed tree id.
+
 The project's pieces, end to end, for a single photo:
 
-1. **The branches** (:func:`predict_mask`): the named U-Net (256x256, ResNet-18
-   encoder, trained on the 449 development trees' lined-up hand masks with the
-   final test's recipe, saved once by ``train``) predicts the trunk and
-   leaders from the summer photo, its mirror image averaged in, and the
-   mask's pieces are joined (:func:`treeskel.segment.join_pieces`). That
-   network was trained on every development tree, so on one of them it shows
-   what it learned, not how well it predicts (``build`` says so). Masks that
-   need no weights: the 5-fold run's for a development tree (each predicted
-   by a network that never saw the tree's row), the final test's own for a
-   test-row tree (:data:`FINAL_TEST_MASKS`), or the lined-up hand mask.
-   ``train`` on a GPU makes a second sample of the recipe, not the final
-   test's network bit for bit: complete masks agree within about a degree,
-   but a short predicted leader can come out complete, or the other way.
+1. **The branches.** By default (``--mask auto``) a dataset tree's mask is
+   the saved out-of-sample one: the 5-fold run's for a development tree (each
+   predicted by a network that never saw the tree's row), the final test's
+   own for a test-row tree (:data:`FINAL_TEST_MASKS`), so its model matches
+   the reported results. Any other photo, and row 4 (left out of the project,
+   so without saved masks), goes to the network (:func:`predict_mask`): the
+   named U-Net (256x256, ResNet-18 encoder, trained on the 449 development
+   trees' lined-up hand masks with the final test's recipe, saved once by
+   ``train``) predicts the trunk and leaders from the summer photo, its
+   mirror image averaged in, and the mask's pieces are joined
+   (:func:`treeskel.segment.join_pieces`). That network was trained on every
+   development tree, so on one of them (``--mask unet``) it shows what it
+   learned, not how well it predicts (``build`` says so); ``--mask hand``
+   gives the lined-up hand mask. ``train`` on a GPU makes a second sample of
+   the recipe, not the final test's network bit for bit: complete masks
+   agree within about a degree, but a short predicted leader can come out
+   complete, or the other way.
 2. **The skeleton** (:func:`treeskel.shape.mask_branches`): trunk, left and
    right centre lines, and each point's half-width from the mask.
 3. **3D** (:mod:`treeskel.tree3d`): the summer depth along the skeleton gives
@@ -45,12 +57,14 @@ fork, and the leaders end where the photo or the prediction ends.
 Usage, from the command line:
 
 ```
-python -m treeskel.model3d train data/raw                     # once, on the GPU: models/unet_named.pt
-python -m treeskel.model3d build --tree R12N02 --data data/raw    # a test-row tree: outputs/model3d/R12N02.html
+python -m treeskel.model3d build R12N02             # any dataset tree: outputs/model3d/R12N02.html, opened
+python -m treeskel.model3d build R05N12 R12N02 --no-open        # several; only write the files
+python -m treeskel.model3d build path/to/R05N12_Summer_RGB-14-2-41.png   # any of a tree's files will do
+python -m treeskel.model3d train data/raw            # once, on the GPU: models/unet_named.pt (for new photos)
+python -m treeskel.model3d build path/to/my_tree_RGB.png        # a new photo, its depth my_tree_D.png beside it
 python -m treeskel.model3d build --rgb photo.png --depth depth.png --name my_tree
-python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved   # a development tree, out of fold
-python -m treeskel.model3d build --tree R12N02 --data data/raw --mask saved --saved docs/results/final_test/predicted_masks.npz
-python -m treeskel.model3d build --tree R05N12 --data data/raw --mask saved --flat    # every point on the plane
+python -m treeskel.model3d build R05N12 --mask unet  # the trained network on a development tree (in-sample)
+python -m treeskel.model3d build R05N12 --flat       # every point on the plane
 ```
 """
 
@@ -59,15 +73,18 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import time
+import webbrowser
 from collections.abc import Sequence
-from dataclasses import asdict, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 
 import numpy as np
 from scipy import ndimage as ndi
 
 from treeskel.depth3d import METRES_PER_UNIT, Camera
+from treeskel.io import TreeRecord
 from treeskel.tree3d import PARTS, depth_along, fit_plane, on_plane, tree_measures
 
 WEIGHTS = Path("models/unet_named.pt")
@@ -870,6 +887,169 @@ requestAnimationFrame(frame);
 # The command line
 # --------------------------------------------------------------------------
 
+DATA_DIRS = ("data/raw", "data/sample", "data/tuning")
+"""Where ``build`` looks for a tree id when ``--data`` is not given, in this order (the folders that exist)."""
+
+_TREE_ID = re.compile(r"R(\d{1,2})([NU])(\d{1,2})", re.IGNORECASE)
+
+_DEPTH_NAMES = (("RGB", "D"), ("rgb", "d"), ("RGB", "Depth"), ("rgb", "depth"),
+                ("Color", "Depth"), ("color", "depth"), ("colour", "depth"))
+"""How a depth image's name is made from its colour photo's (the last match in the name is replaced)."""
+
+
+@dataclass
+class Photo:
+    """One summer photo for ``build``: a dataset tree's (``record``) or a photo from outside the dataset.
+
+    Attributes:
+        name: The tree id, or the photo's file name without its extension; names the output files.
+        record: The tree's files, for a tree of the dataset.
+        rgb: The colour photo, for a photo from outside the dataset.
+        depth: Its 8-bit depth image.
+    """
+
+    name: str
+    record: TreeRecord | None = None
+    rgb: Path | None = None
+    depth: Path | None = None
+
+
+def tree_id(text: str) -> str | None:
+    """``text`` as a tree id in the dataset's form, or None if it is not one.
+
+    Example:
+        >>> tree_id("r12n2"), tree_id("R05N12"), tree_id("photo.png")
+        ('R12N02', 'R05N12', None)
+    """
+    m = _TREE_ID.fullmatch(text.strip())
+    return f"R{int(m[1]):02d}{m[2].upper()}{int(m[3]):02d}" if m else None
+
+
+def depth_for(photo: str | Path) -> Path | None:
+    """The depth image beside a colour photo, found by its name, or None.
+
+    The last ``RGB`` in the name becomes ``D`` (the dataset's own naming: ``R12N02_Summer_RGB-13-45-33.png``
+    and ``R12N02_Summer_D-13-45-33.png``), or ``Depth``; ``color`` or ``colour`` becomes ``depth``.
+    """
+    photo = Path(photo)
+    for old, new in _DEPTH_NAMES:
+        i = photo.name.rfind(old)
+        if i >= 0:
+            candidate = photo.with_name(photo.name[:i] + new + photo.name[i + len(old):])
+            if candidate != photo and candidate.is_file():
+                return candidate
+    return None
+
+
+def _dataset_tree(path: Path) -> str | None:
+    """The tree id in a file name that follows the dataset's naming, or None."""
+    from treeskel.io import parse_filename
+
+    try:
+        return parse_filename(path).tree_id
+    except ValueError:
+        return None
+
+
+def _summer_record(files: Sequence[Path], tree: str) -> TreeRecord | None:
+    """The tree's record from dataset-named files, if they hold its summer photo and depth."""
+    from treeskel.io import parse_filename
+
+    rec = None
+    for f in sorted(files):
+        if _dataset_tree(f) != tree:
+            continue
+        info = parse_filename(f)
+        rec = rec or TreeRecord(tree, info.row, info.position)
+        rec.paths.setdefault((info.season, info.modality), f)
+    return rec if rec and {("summer", "rgb"), ("summer", "depth")} <= rec.paths.keys() else None
+
+
+def find_photos(items: Sequence[str], data_dirs: Sequence[str] | None = None,
+                depth: str | None = None) -> tuple[list[Photo], list[str]]:
+    """Turn what ``build`` was given (tree ids, or files, e.g. dropped on ``model3d.bat``) into the photos to build.
+
+    - A **tree id** (``R12N02``, in any case) is looked up in ``data_dirs`` (default: those of
+      :data:`DATA_DIRS` that exist; the first folder holding the tree wins). Row 4 counts too: its summer
+      photos are sound, only its winter depth is a copy.
+    - A **file named like the dataset's** (any of a tree's files: its summer or winter photo, depth or mask)
+      stands for that tree's summer photo, from the same folder, or else looked up as a tree id.
+    - **Any other file** is a summer photo from outside the dataset. Its depth is ``depth`` (if one such photo
+      is given) or the image beside it named like it (:func:`depth_for`). A file that is another given
+      photo's depth is not built on its own, so a photo can be dropped together with its depth.
+
+    Args:
+        items: Tree ids and file paths, in the order given.
+        data_dirs: Dataset folders for tree ids.
+        depth: The depth image of the one photo from outside the dataset.
+
+    Returns:
+        The photos, each tree once and in the order given, and a message for each item that could not be used.
+    """
+    from treeskel.io import index_dataset
+
+    dirs = [Path(d) for d in data_dirs] if data_dirs else [Path(d) for d in DATA_DIRS if Path(d).is_dir()]
+    known: dict[str, TreeRecord] = {}
+
+    def lookup(tree: str) -> TreeRecord | None:
+        """The tree's record in ``dirs`` (indexed at the first call)."""
+        if not known:
+            for d in dirs:
+                if d.is_dir():
+                    idx = index_dataset(d, exclude_rows=(), exclude_trees=())
+                    for r in (*idx.trees, *idx.incomplete):               # only the summer files are needed
+                        if {("summer", "rgb"), ("summer", "depth")} <= r.paths.keys():
+                            known.setdefault(r.tree_id, r)
+        return known.get(tree)
+
+    outside = [Path(i) for i in items if tree_id(i) is None and Path(i).is_file() and _dataset_tree(Path(i)) is None]
+    their_depths = {depth_for(o) for o in outside} - {None}
+    photos: list[Photo] = []
+    problems: list[str] = []
+    for item in items:
+        path, tree = Path(item), tree_id(item)
+        if tree is not None:
+            rec = lookup(tree)
+            if rec is None:
+                where = ", ".join(d.as_posix() for d in dirs) or "no data folder (none of " + ", ".join(DATA_DIRS) + ")"
+                problems.append(f"{item}: no summer photo of this tree in {where}")
+                continue
+        elif path in outside:
+            if path in their_depths or any(p.rgb == path for p in photos):
+                continue                                       # dropped together with its photo, or twice
+            d = Path(depth) if depth and len(outside) == 1 else depth_for(path)
+            if d is None:
+                problems.append(f"{path.name}: no depth image found beside it (name it like the photo with RGB "
+                                "replaced by D, or give --depth)")
+            else:
+                photos.append(Photo(path.stem, rgb=path, depth=d))
+            continue
+        elif path.is_file():                                   # one of a dataset tree's files
+            tree = _dataset_tree(path)
+            # Its summer files beside it, or (a dataset kept in season folders) wherever the data folders hold them.
+            rec = _summer_record([f for f in path.parent.iterdir() if f.suffix.lower() == ".png"], tree) or lookup(tree)
+            if rec is None:
+                problems.append(f"{path.name}: no summer photo and depth of tree {tree} beside it or in the data folders")
+                continue
+        else:
+            problems.append(f"{item}: neither a tree id (like R12N02) nor a file")
+            continue
+        if all(p.name != tree for p in photos):
+            photos.append(Photo(tree, record=rec))
+    return photos, problems
+
+
+def auto_masks(row: int, test_rows: set[int]) -> Path:
+    """Where the saved out-of-sample mask of a dataset tree in ``row`` is (``build --mask auto``).
+
+    A test-row tree's is the final test's (:data:`FINAL_TEST_MASKS`), so its model matches the reported
+    results; a development tree's is the 5-fold run's (:data:`SAVED_MASKS`), from a network that never saw
+    its row. Either way no trained network is needed. ``train``'s network learned every development tree, so
+    on one of them it would show what it learned, not how well it predicts (session 14).
+    """
+    return FINAL_TEST_MASKS if row in test_rows else SAVED_MASKS
+
+
 def build(name: str, rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.ndarray, out: Path,
           title: str, source: str, bends=None, typical: dict | None = None) -> dict:
     """Make one tree's model and write its files; returns the paths and the measures.
@@ -889,7 +1069,7 @@ def build(name: str, rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask
 
 def main(argv: Sequence[str] | None = None) -> int:
     """``train`` the network once, or ``build`` models from summer photos."""
-    from treeskel.io import index_dataset, load_depth, load_rgb, load_tree
+    from treeskel.io import load_depth, load_rgb, load_tree
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.model3d", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="command", required=True)
@@ -900,15 +1080,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     tr.add_argument("--split", default="splits.json")
     tr.add_argument("--epochs", type=int, help=argparse.SUPPRESS)                     # tests only
     tr.add_argument("--random-weights", action="store_true", help=argparse.SUPPRESS)  # tests only
-    bu = sub.add_parser("build", help="make the 3D model of summer photos")
-    bu.add_argument("--tree", nargs="+", help="tree ids in --data (summer photo and depth)")
-    bu.add_argument("--data", nargs="+", default=["data/raw"], help="dataset folder(s) for --tree")
-    bu.add_argument("--rgb", help="a summer colour photo (640x480 PNG)")
-    bu.add_argument("--depth", help="its 8-bit depth image (640x480 PNG)")
+    bu = sub.add_parser("build", help="make the 3D model of summer photos",
+                        description="Make the 3D model of trees (by id, e.g. R12N02) or of summer photos (files), "
+                                    "and open it in the browser.")
+    bu.add_argument("items", nargs="*", metavar="TREE_OR_PHOTO",
+                    help="tree ids (looked up in --data) or photo files: any of a dataset tree's files, or a summer "
+                         "photo from elsewhere with its depth image beside it (RGB in the name replaced by D)")
+    bu.add_argument("--tree", nargs="+", default=[], help="tree ids, as above (the form before session 17)")
+    bu.add_argument("--data", nargs="+",
+                    help="dataset folder(s) for tree ids (default: those of " + ", ".join(DATA_DIRS) + " that exist)")
+    bu.add_argument("--rgb", help="a summer colour photo (640x480 PNG), with --depth")
+    bu.add_argument("--depth", help="the depth image (640x480 8-bit PNG) of --rgb, or of the one photo given")
     bu.add_argument("--name", help="file name for --rgb (default: the photo's)")
-    bu.add_argument("--mask", choices=("unet", "saved", "hand"), default="unet",
-                    help="unet: the trained network (default; it was trained on every development tree); saved: "
-                         "masks saved by a run (--saved); hand: the lined-up hand mask")
+    bu.add_argument("--mask", choices=("auto", "unet", "saved", "hand"), default="auto",
+                    help="auto (default): a dataset tree's saved out-of-sample mask (5-fold for a development row, the "
+                         "final test's for a test row), the trained network for any other photo; unet: the trained "
+                         "network (it was trained on every development tree); saved: masks saved by a run (--saved); "
+                         "hand: the lined-up hand mask")
     bu.add_argument("--weights", default=str(WEIGHTS))
     bu.add_argument("--saved", default=str(SAVED_MASKS),
                     help=f"masks for --mask saved: the 5-fold development masks (default), or {FINAL_TEST_MASKS} "
@@ -925,6 +1113,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     bu.set_defaults(flat=False)                  # both options share ``flat``: --bends' own default would be True
     bu.add_argument("--plane-prior", action="store_true",
                     help="keep the plane as the bends' prior mean even if the typical winter shape was adopted")
+    bu.add_argument("--open", action=argparse.BooleanOptionalAction, default=True,
+                    help="open each model in the browser once it is made (default; --no-open to only write the files)")
     bu.add_argument("--out", default="outputs/model3d")
     args = ap.parse_args(argv)
 
@@ -932,42 +1122,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         train(args.data_dirs, Path(args.weights), args.device, args.random_weights, args.epochs, args.split)
         return 0
 
-    if bool(args.tree) == bool(args.rgb):
-        ap.error("give --tree (with --data) or --rgb with --depth")
+    items = [*args.items, *args.tree]
+    if not items and not args.rgb:
+        # --data takes several folders, so a tree id written after it is read as one.
+        ids = [d for d in args.data or [] if tree_id(d)]
+        ap.error("give a tree id (like R12N02) or a summer photo"
+                 + (f"; put {' '.join(ids)} before --data, which read it as a folder" if ids else ""))
     if args.rgb and not args.depth:
         ap.error("--rgb needs its --depth image")
-    if args.rgb and args.mask != "unet":
-        ap.error("a photo outside the dataset needs the trained network (--mask unet)")
+    if args.rgb and args.mask not in ("auto", "unet"):
+        ap.error("a photo outside the dataset needs the trained network (--mask auto or unet)")
 
-    network = None
-    if args.mask == "unet":
-        if not Path(args.weights).exists():
-            print(f"No trained network at {args.weights}. Train it once: python -m treeskel.model3d train data/raw\n"
-                  "(or, for a development tree, use --mask saved).")
-            return 1
-        network = load_network(Path(args.weights), args.device)
-        print(f"Network: {args.weights} (trained on {network[2]['n_trees']} trees, {network[2]['epochs']} epochs)")
-
-    jobs = []                                              # (name, rgb, depth, valid, title, record)
+    photos, problems = find_photos(items, args.data, None if args.rgb else args.depth)
     if args.rgb:
-        depth, valid = load_depth(args.depth)
-        name = args.name or Path(args.rgb).stem
-        jobs.append((name, load_rgb(args.rgb), depth, valid, Path(args.rgb).name, None))
-    else:
-        records = {t.tree_id: t for d in args.data for t in index_dataset(d).trees}
-        missing = [t for t in args.tree if t not in records]
-        if missing:
-            print(f"Not found in {', '.join(args.data)}: {', '.join(missing)}")
-            return 1
-        for t in args.tree:
-            s = load_tree(records[t], "summer")
-            jobs.append((t, s["rgb"], s["depth"], s["valid"], f"Tree {t}, summer", records[t]))
+        photos.append(Photo(args.name or Path(args.rgb).stem, rgb=Path(args.rgb), depth=Path(args.depth)))
+    for msg in problems:
+        print(msg)
+    if not photos:
+        return 1
 
-    saved = overlays = None
-    trained = trained_trees(network[2], args.split) if network is not None and args.tree else set()
-    if args.mask == "saved":
-        from treeskel.segment import load_masks
-        saved = load_masks(Path(args.saved))
+    # Each photo's masks, and the network only if one needs it (no PyTorch, GPU or training otherwise).
+    test_rows: set[int] = set()
+    if args.mask == "auto" and any(p.record is not None for p in photos):
+        if not Path(args.split).exists():
+            print(f"No {args.split} here: run from the repository's folder (or model3d.bat)")
+            return 1
+        test_rows = set(json.loads(Path(args.split).read_text())["test_rows"])
+    loaded: dict[Path, dict] = {}
+
+    def saved_masks(path: Path) -> dict:
+        """A saved run's masks, read once."""
+        if path not in loaded:
+            from treeskel.segment import load_masks
+            loaded[path] = load_masks(path) if path.exists() else {}
+        return loaded[path]
+
+    network: list = []                                     # [model, device, meta, trained trees] once loaded
+
+    def get_network():
+        """The trained network, loaded at its first use; None if it was never trained."""
+        if not network:
+            if not Path(args.weights).exists():
+                return None
+            network.extend(load_network(Path(args.weights), args.device))
+            meta = network[2]
+            network.append(trained_trees(meta, args.split) if any(p.record is not None for p in photos) else set())
+            print(f"Network: {args.weights} (trained on {meta['n_trees']} trees, {meta['epochs']} epochs)")
+        return network
+
+    overlays = None
     if args.mask == "hand":
         from treeskel.summer_gt import load_overlays
         overlays = load_overlays(args.mask_overlay)
@@ -989,29 +1192,61 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("Where summer does not see the wood, the branches stay near the plane (the typical winter shape "
                   + ("was not adopted by its rule)" if TYPICAL_REPORT.exists() else "is not learnt yet)"))
     status = 0
-    for name, rgb, depth, valid, title, rec in jobs:
-        if args.mask == "unet":
-            model, device, meta = network
+    told_to_train = False
+    for photo in photos:
+        name, rec = photo.name, photo.record
+        if rec is not None:
+            s = load_tree(rec, "summer")
+            rgb, depth, valid, title = s["rgb"], s["depth"], s["valid"], f"Tree {name}, summer"
+        else:
+            depth, valid = load_depth(photo.depth)
+            rgb, title = load_rgb(photo.rgb), photo.rgb.name
+        mask = None
+        use_network = args.mask == "unet" or (args.mask == "auto" and rec is None)
+        if args.mask == "auto" and rec is not None:
+            where = auto_masks(rec.row, test_rows)
+            if name in saved_masks(where):
+                mask, source = saved_masks(where)[name], saved_source(where)
+                print(f"{name}: " + ("a test-row tree: the final test's mask" if rec.row in test_rows
+                                     else "a development tree: its 5-fold mask, from a network that never saw its row"))
+            else:
+                # Row 4 (left out of the project) has none, nor has a tree from a folder of new photos.
+                from treeskel.io import EXCLUDED_ROWS
+                why = (f" (row {rec.row} is left out of the project)" if rec.row in EXCLUDED_ROWS else
+                       "" if where.exists() else f" ({where.as_posix()} not found: run from the repository's folder)")
+                print(f"{name}: no saved mask{why}, so the trained network predicts it")
+                use_network = True
+        if use_network:
+            net = get_network()
+            if net is None:
+                print(f"{name}: needs the trained network, and there is none at {args.weights}")
+                if not told_to_train:
+                    print("  Train it once: python -m treeskel.model3d train data/raw (GPU, about 2 min). The dataset's "
+                          "trees need no network: give their ids (they use the saved masks).")
+                    told_to_train = True
+                status = 1
+                continue
+            model, device, meta, trained = net
             mask = predict_mask(model, device, rgb, meta["params"], meta.get("join_gap"))
             source = f"Branches predicted by the U-Net trained on {meta['n_trees']} development trees"
-            if name in trained:
+            if rec is not None and name in trained:
                 # The network learned this tree's own hand mask, so its mask shows what it learned, not how well
                 # it predicts a tree it has not seen (session 14: R06N12 read 55 deg here, 39 deg out of fold).
                 source += " (this tree among them)"
                 print(f"  note: {name} was in the network's training set, so this shows what it learned, not how "
-                      "well it predicts; for a prediction from a network that never saw its row, use --mask saved")
+                      "well it predicts; for a prediction from a network that never saw its row, leave out --mask")
         elif args.mask == "saved":
+            saved = saved_masks(Path(args.saved))
             if name not in saved:
-                hint = (f"test rows have none: use --saved {FINAL_TEST_MASKS.as_posix()} or --mask unet"
+                hint = (f"test rows have none: use --saved {FINAL_TEST_MASKS.as_posix()}, or leave out --mask"
                         if Path(args.saved).resolve() == SAVED_MASKS.resolve() else "not among them")
                 print(f"{name}: no mask in {Path(args.saved).as_posix()} ({hint})")
                 status = 1
                 continue
-            mask = saved[name]
-            source = saved_source(args.saved)
-        else:
+            mask, source = saved[name], saved_source(args.saved)
+        elif args.mask == "hand":
             from treeskel.segment import hand_mask
-            mask = hand_mask(rec, overlays)
+            mask = hand_mask(rec, overlays) if rec is not None else None
             if mask is None:
                 print(f"{name}: no lined-up hand mask")
                 status = 1
@@ -1032,8 +1267,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  bent: V opening {b['v_opening']:.1f}°, trunk {b['trunk_out']:.1f}° out of the V's plane; depth "
                   f"seen on {b['trunk_anchors']:.0%} of the trunk, {(b['left_anchors'] + b['right_anchors']) / 2:.0%} "
                   f"of the leaders (the rest follows {m.get('prior', 'the plane')}, drawn pale)")
-        print(f"  open {res['files']['html']} in a browser (or the .ply files in Blender, MeshLab or 3D Viewer)")
-    return status
+        html = res["files"]["html"]
+        print(f"  {html} (and the .ply files, for Blender, MeshLab or 3D Viewer)")
+        if args.open:
+            opened = webbrowser.open(html.resolve().as_uri())
+            print("  opened in the browser" if opened else "  open it in a browser")
+    return 1 if problems else status
 
 
 if __name__ == "__main__":

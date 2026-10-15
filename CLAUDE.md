@@ -126,9 +126,12 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                tree3d.py (the tree's plane, V in the plane, lean, sizes; summer against winter),
                bend3d.py (trunk and leaders as smooth 3D curves that may leave the plane: robust
                Gaussian-process fit joined at the fork, block cross-validation, summer ridge readings),
-               model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `train` saves the
-               named U-Net to the git-ignored models/; bends by default, `--flat` for the plane;
-               the typical winter shape as the prior if adopted, `--plane-prior`; bend exaggeration slider),
+               model3d.py (a summer photo as a 3D model: HTML viewer and .ply; `build R12N02` in one step
+               (session 17): the tree found in data/raw|sample|tuning, its saved out-of-sample mask (5-fold for
+               development rows, the final test's for test rows; no network), opened in the browser; photos from
+               elsewhere and row 4 need `train`, which saves the named U-Net to the git-ignored models/; bends by
+               default, `--flat` for the plane; the typical winter shape as the prior if adopted, `--plane-prior`;
+               bend exaggeration slider),
                seg_compare.py (session 16: the centre-line loss and three-training ensembles against the
                named U-Net on the development rows; ensembles from saved runs, the masks' structure, the
                rule), label_audit.py (a fixed random sample of lined-up hand masks, judged by eye
@@ -145,6 +148,8 @@ docs/progress/ session summaries (the project's memory)
 docs/figures/, docs/results/  evidence for the report
 docs/html/     HTML documentation (pdoc -d google -o docs/html src/treeskel), committed
 docs/test_report.html  pytest-html test report, committed
+model3d.bat    Windows: drop photos on it, or double-click and type a tree id (runs model3d build; CRLF,
+               kept by .gitattributes)
 ```
 
 The assistant's environment has only `data/sample` and `data/tuning`. Runs on
@@ -177,7 +182,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 16:
+See the latest file in `docs/progress/`. As of session 17:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -234,28 +239,33 @@ See the latest file in `docs/progress/`. As of session 16:
   check that it is not merged.
 - **Next (the report is due about 19 October 2026):**
   1. ~~Train and build on the student's PC~~ (done, session 14). `train`
-     makes a second sample of the recipe (GPU), not the final test's network:
-     use `--mask saved` for development trees (out of fold) and
-     `--saved docs/results/final_test/predicted_masks.npz` for figures that
-     match the final test; `--mask unet` on a development tree is in-sample
-     (`build` warns). A short predicted leader can tip the 3D plane (R01N04,
-     R03N10). See `docs/results/model3d/README.md`.
+     makes a second sample of the recipe (GPU), not the final test's network.
+     Since session 17 `build <tree id>` picks the out-of-sample masks by itself
+     (5-fold for development trees, the final test's for test rows), so figures
+     match the reported results; `--mask unet` on a development tree is
+     in-sample (`build` warns). A short predicted leader can tip the 3D plane
+     (R01N04, R03N10). See `docs/results/model3d/README.md`.
   2. The report.
-  3. **Before submission: the repository requirements.** All met as of
-     session 16. If any code changes after that, rebuild the last two before
+  3. **Before submission: the repository requirements** (the brief, as the student quoted it in session 17:
+     ReadMe; HTML documentation; licence; source code, functional `main`, with inline comments and docstrings;
+     test functions and a test report; an accessible link; a zipped clone on Moodle). All met as of
+     session 17. **The repository was private in session 17**: the link is accessible only once it is public
+     or the markers are given access (the student's choice; making it public also publishes the 9-tree sample
+     of the teaching team's data). The zip should be of a fresh `git clone` (no data/raw, .venv, models or
+     outputs). If any code changes after that, rebuild the last two before
      submitting: `pdoc -d google -o docs/html src/treeskel` and
      `pytest --html=docs/test_report.html --self-contained-html` (on the
      student's PC: `pip install pytest-html` first if missing).
 
-     | Requirement | Status (session 16) |
+     | Requirement | Status (session 17) |
      |---|---|
      | ReadMe | results at a glance (session 16's mask experiments added), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named and both uses of them stated; the AI-use section in the student's first person (session 14; updated in session 16) |
-     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work; rebuilt after session 17's change |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 555 passed, 0 skipped (session 16, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
-     | Docstrings and inline comments | 532 of 532 public functions, classes and methods, and 70 of 70 nested helpers (session 16); comments on intent in the longest functions |
-     | Test functions | 31 test files, 485 test functions in `tests/` (session 16) |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 16's last code change: 555 passed, 0 skipped |
+     | Source code, functional `main` | 567 passed, 0 skipped (session 17, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
+     | Docstrings and inline comments | 537 of 537 public functions, classes and methods, and 73 of 73 nested helpers (session 17: session 16's count plus 5 and 3); comments on intent in the longest functions |
+     | Test functions | 31 test files, 496 test functions in `tests/` (session 17) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 17's last code change: 567 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -317,6 +327,11 @@ See the latest file in `docs/progress/`. As of session 16:
     judged leaders off (3% [1%, 9%]), every trunk on, 5 leaders hidden** (R02N27, R05N29 left leaders off):
     under the 10% fixed beforehand, so label position is a minor, measured limitation. The second pass revised
     the first sheet (every part started as on), noted as a possible anchoring.
+- **Session 17: the 3D model in one step** (the student's request): `python -m treeskel.model3d build R12N02`
+  (or `model3d.bat`, drop a photo or type an id) builds any of the 541 trees from its saved out-of-sample mask,
+  with no network, GPU or PyTorch, and opens it; the old explicit forms give byte-identical files on the 8
+  sample trees with saved masks. Photos from elsewhere (depth found beside them by name) and row 4 use the
+  trained network. `model3d.bat` was not run in the assistant's environment (no Windows).
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
