@@ -60,3 +60,74 @@ The ground truths, per winter tree (CPU):
 - Prediction at batch 1 is what a robot taking one photo at a time does; batched prediction is faster
   per photo.
 - The CPU memory of the networks (weights plus activations) is not measured; their weights take 45–57 MB.
+
+## FLOPs, memory traffic and the profiler (session 18)
+
+`python -m treeskel.benchmark --flops` explains the times above: `flops.json` (all numbers) and
+`flops_output.txt`. It leaves `report.json` alone and reads its prediction times.
+
+**The files here come from the assistant's environment** (no GPU, 4 CPU threads, PyTorch 2.14.1). The
+FLOP counts, the traffic and the roofline do not depend on the machine. The speeds on the GTX 1080 Ti and
+the student's CPU come from `report.json`. Only the GPU profile is missing: kernels launched and the time
+the GPU spends running them. To add it, run the same command on the student's PC, which overwrites both
+files with that machine's run.
+
+### How it was measured
+
+- **FLOPs:** PyTorch's FLOP counter (`torch.utils.flop_counter.FlopCounterMode`) on one forward pass at
+  batch 1, random weights. It counts convolutions and matrix products, 2 FLOPs per multiply-add, from the
+  tensor shapes. Batch norm, ReLU, additions, pooling and interpolation are not counted: about 0.5% of
+  the convolutions' count in the named U-Net (a few FLOPs per element they write). A prediction is twice
+  this, because the mirror image is predicted too.
+- **Memory traffic:** every operation PyTorch dispatches is taken to read all its input tensors from
+  memory, weights included, and to write all its outputs back. Views move nothing and are left out.
+  Real kernels may fuse steps or find data still in cache. Caching can only help a little here: the
+  GTX 1080 Ti's L2 cache holds 2.75 MB, and the U-Net's largest activation is 8.4 MB (the decoder's
+  joined features at half size, 128 channels). So this is an upper bound on the traffic, and the
+  intensity is a lower bound. It is a model, not a hardware measurement; NVIDIA's Nsight Compute would
+  measure the bytes.
+- **Roofline:** the GTX 1080 Ti's rated peaks, from NVIDIA's specifications: 11.34 TFLOP/s in 32-bit
+  (3584 cores x 2 x 1582 MHz boost) and 484 GB/s (11 Gbit/s x 352 bits). Its ridge point is
+  23.4 FLOP/byte. Work above the ridge is limited by arithmetic, not by memory. At the peak rates, a
+  prediction needs at least FLOPs / peak seconds of compute and bytes / bandwidth seconds of memory
+  traffic.
+- **Profiler:** `torch.profiler` over one prediction after two warm-up predictions. It counts the
+  PyTorch operators called (the outermost `aten::` calls). On a GPU it also counts the kernels and sums
+  their durations, through NVIDIA's CUPTI. "GPU busy" is that sum divided by the timed prediction.
+
+### Results
+
+| Network | GFLOP per pass | MB moved per pass | FLOP/byte | Operators per photo | GPU (report.json): ms per photo, share of peak | CPU (report.json): GFLOP/s |
+|---|---|---|---|---|---|---|
+| ResNet-18 features (ridge) | 5.64 | 152 | 37.0 | 133 | 5.9 ms, 17% | 220 |
+| Angle CNN 240x320 | 5.64 | 152 | 37.0 | 139 | 6.1 ms, 16% | 214 |
+| Angle CNN 480x640 | 22.21 | 474 | 46.8 | 139 | 7.7 ms, 51% | 245 |
+| **U-Net 256x256 (named)** | **10.78** | **313** | **34.4** | **215** | **9.7 ms, 20%** | **186** |
+| U-Net 480x640 | 50.53 | 1256 | 40.2 | 215 | 18.7 ms, 48% | 218 |
+
+At the peak rates, a prediction of the named U-Net (21.56 GFLOP, 628 MB) needs 1.90 ms of arithmetic and
+1.30 ms of memory traffic. It takes 9.7 ms.
+
+### What it shows
+
+- **Memory bandwidth limits none of the networks.** All are above the ridge point (34–47 FLOP/byte against
+  23.4), even with the traffic overcounted.
+- **At batch 1, the GPU is mostly not doing arithmetic.** The 256x256 U-Net reaches 20% of the peak and the
+  240x320 angle CNN 16%. The 480x640 networks reach 48–51%: the U-Net does 4.7x the work in 1.9x the time.
+  Neither the arithmetic (1.90 ms) nor the memory (1.30 ms) accounts for the named U-Net's 9.7 ms. Most of
+  the rest should be fixed costs per operation: 215 operators per photo, each launching at least one
+  kernel, whose cost does not shrink with the input. The GPU profile from the student's PC will measure
+  how much of the 9.7 ms the GPU spends running kernels.
+- **On the CPU, time follows the work.** Every network runs at about the same speed (186–245 GFLOP/s), so a
+  robot without a GPU gains almost fully from the smaller input.
+- **These are the report's figures** (Section 7.0, Appendix A): 10.8 GFLOP per pass, 313 MB, about
+  34 FLOP/byte, 20% of the peak, 1.9 ms and 1.3 ms at the peak rates, about 190 and 220 GFLOP/s on the CPU.
+  `tests/test_benchmark.py` checks them. The report's "more than 200 kernel launches per photo" is the
+  operator count (215). It is not a profiler's count of kernels; the GPU profile will give that count.
+
+### Limits
+
+- Batch 1 only, as in the timings.
+- The FLOP counter leaves out the element-wise operations (about 0.5%).
+- The traffic is a model with no fusion or caching, not a hardware measurement.
+- The peak rates are rated values at the boost clock; the clock a card actually runs at varies.

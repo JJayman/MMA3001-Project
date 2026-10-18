@@ -121,7 +121,8 @@ src/treeskel/  io.py (data), splits.py, winter_gt.py (baseline), guided_gt.py
                segment.py (U-Net on the hand masks, scored against winter; the student's GPU;
                joining broken masks, session 12), final_test.py (the one test-row evaluation),
                score_baseline.py (the automatic winter baseline against the guided ground truth),
-               benchmark.py (run time and memory of every method),
+               benchmark.py (run time and memory of every method; `--flops`, session 18: FLOPs, memory traffic,
+               roofline, torch.profiler),
                depth3d.py (the depth map's zero from the ground; the camera),
                tree3d.py (the tree's plane, V in the plane, lean, sizes; summer against winter),
                bend3d.py (trunk and leaders as smooth 3D curves that may leave the plane: robust
@@ -250,7 +251,7 @@ See the latest file in `docs/progress/`. As of session 17:
   3. **Before submission: the repository requirements** (the brief, as the student quoted it in session 17:
      ReadMe; HTML documentation; licence; source code, functional `main`, with inline comments and docstrings;
      test functions and a test report; an accessible link; a zipped clone on Moodle). All met as of
-     session 17. **The repository was private in session 17**: the link is accessible only once it is public
+     session 18. **The repository was private in session 17**: the link is accessible only once it is public
      or the markers are given access (the student's choice; making it public also publishes the 26 trees of
      the teaching team's data in `data/sample` and `data/tuning`, 135 images with the history, and the
      student's university email on their commits). The zip should be of a fresh `git clone` (no data/raw, .venv, models or
@@ -259,15 +260,15 @@ See the latest file in `docs/progress/`. As of session 17:
      `pytest --html=docs/test_report.html --self-contained-html` (on the
      student's PC: `pip install pytest-html` first if missing).
 
-     | Requirement | Status (session 17) |
+     | Requirement | Status (session 18) |
      |---|---|
      | ReadMe | results at a glance (session 16's mask experiments added), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named and both uses of them stated; the AI-use section in the student's first person (session 14; updated in session 16) |
-     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work; rebuilt after session 17's change |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work; rebuilt after session 18's change |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 567 passed, 0 skipped (session 17, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
-     | Docstrings and inline comments | 537 of 537 public functions, classes and methods, and 73 of 73 nested helpers (session 17: session 16's count plus 5 and 3); comments on intent in the longest functions |
-     | Test functions | 31 test files, 496 test functions in `tests/` (session 17) |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 17's last code change: 567 passed, 0 skipped |
+     | Source code, functional `main` | 575 passed, 0 skipped (session 18, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
+     | Docstrings and inline comments | 546 of 546 public functions, classes and methods, and every nested helper (session 18: session 17's count plus 9 public and 7 nested; session 17 reported 73 of 73 nested by a narrower count, 86 of 86 counting every function and class defined inside a function); comments on intent in the longest functions |
+     | Test functions | 31 test files, 503 test functions in `tests/` (session 18) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 18's code change: 575 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -338,6 +339,18 @@ See the latest file in `docs/progress/`. As of session 17:
   tidy-up (PR #66): `docs/results/README.md` indexes all 57 results folders; the 64 run figures no README
   refers to moved to `docs/figures/runs/`; two draft figures deleted; no evidence deleted. Open before
   submission: the repository's visibility, and Moodle's upload limit against the ~259 MB zip of a fresh clone.
+- **Session 18: the report checked against the brief** (the student's request; the report is a .docx
+  outside the repository). The repository was public by then. The report's FLOP figures (Section 7.0,
+  Appendix A: 10.8 GFLOP, 313 MB, 34 FLOP/byte, 20% of the GPU's peak, 1.9 / 1.3 ms at the peak rates,
+  190 / 220 GFLOP/s on the CPU) had not been saved anywhere. `python -m treeskel.benchmark --flops` now
+  computes and saves them (`docs/results/benchmark/flops.json`, README section). The FLOP counter, a
+  no-fusion traffic model and the GTX 1080 Ti's roofline reproduce every figure, and
+  `tests/test_benchmark.py` checks them. It also adds `torch.profiler`. The files are from the assistant's
+  environment (no GPU) until the student runs the command on the PC; that run adds the GPU profile
+  (kernels launched, GPU busy). The report's "more than 200 kernel launches" was the operator count (215 per
+  photo), not a profiler count. Other gaps found: the link to mechanical engineering is not stated; the AI
+  reflection does not say directly how AI changed the student's understanding or workflow; the body ends
+  exactly at the foot of page 10.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season
