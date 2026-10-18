@@ -345,10 +345,13 @@ See the latest file in `docs/progress/`. As of session 17:
   190 / 220 GFLOP/s on the CPU) had not been saved anywhere. `python -m treeskel.benchmark --flops` now
   computes and saves them (`docs/results/benchmark/flops.json`, README section). The FLOP counter, a
   no-fusion traffic model and the GTX 1080 Ti's roofline reproduce every figure, and
-  `tests/test_benchmark.py` checks them. It also adds `torch.profiler`. The files are from the assistant's
-  environment (no GPU) until the student runs the command on the PC; that run adds the GPU profile
-  (kernels launched, GPU busy). The report's "more than 200 kernel launches" was the operator count (215 per
-  photo), not a profiler count. Other gaps found: the link to mechanical engineering is not stated; the AI
+  `tests/test_benchmark.py` checks them. It also adds `torch.profiler`. The student ran it on the PC
+  (18 October, pushed to `main`; data files only, so the HTML docs and the test report still match). The
+  named U-Net launches 271 kernels per photo, which run for 6.1 ms of a 10.3 ms prediction (GPU busy 60%,
+  idle about 15 µs per kernel); its kernels compute at 31% of the peak. At 480x640 the GPU is busy 97% and
+  its kernels reach 50%. So the report's "more than 200 kernel launches" was the operator count (215 per
+  photo), and its "fixed overheads" explanation is half the story: idle time between launches, plus kernels
+  too small to fill the GPU at batch 1. Other gaps found: the link to mechanical engineering is not stated; the AI
   reflection does not say directly how AI changed the student's understanding or workflow; the body ends
   exactly at the foot of page 10.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
