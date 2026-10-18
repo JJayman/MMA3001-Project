@@ -1,0 +1,350 @@
+{
+  "machine": {
+    "cpu": "x86_64",
+    "system": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39",
+    "threads": 4,
+    "cpu_count": 4,
+    "gpu": null,
+    "torch": "2.14.1+cu130",
+    "python": "3.13.16"
+  },
+  "repeats": 10,
+  "gpu": "NVIDIA GeForce GTX 1080 Ti",
+  "peak": [
+    11340000000000.0,
+    484400000000.0
+  ],
+  "networks": {
+    "ResNet-18 features (ridge)": {
+      "size": [
+        240,
+        320
+      ],
+      "flops_pass": 5635604480,
+      "traffic_pass": {
+        "read_bytes": 101740288,
+        "written_bytes": 50544640,
+        "operations": 66,
+        "by_operation": {
+          "conv2d.default": 20,
+          "batch_norm.default": 20,
+          "relu_.default": 17,
+          "add_.Tensor": 8,
+          "max_pool2d.default": 1
+        }
+      },
+      "flops_photo": 11271208960,
+      "traffic_photo": {
+        "read_bytes": 204402176,
+        "written_bytes": 102010880,
+        "operations": 133,
+        "by_operation": {
+          "conv2d.default": 40,
+          "batch_norm.default": 40,
+          "relu_.default": 34,
+          "add_.Tensor": 16,
+          "max_pool2d.default": 2,
+          "flip.default": 1
+        }
+      },
+      "roofline": {
+        "intensity": 36.784362608883086,
+        "ridge": 23.410404624277458,
+        "compute_s": 0.000993933770723104,
+        "memory_s": 0.0006325620478943023,
+        "bound": "compute"
+      },
+      "devices": {
+        "cpu": {
+          "predict_s": 0.04765208149990485,
+          "flop_per_s": 236531303675.00327,
+          "profile": {
+            "operators": 133,
+            "kernels": 0,
+            "kernel_s": 0.0,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        }
+      },
+      "recorded": {
+        "cuda": {
+          "predict_s": 0.005943049967754632,
+          "flop_per_s": 1896536125584.4229
+        },
+        "cpu": {
+          "predict_s": 0.05116234999150038,
+          "flop_per_s": 220302800044.80817
+        }
+      }
+    },
+    "angle CNN 240x320": {
+      "size": [
+        240,
+        320
+      ],
+      "flops_pass": 5635614720,
+      "traffic_pass": {
+        "read_bytes": 101926696,
+        "written_bytes": 50546728,
+        "operations": 68,
+        "by_operation": {
+          "conv2d.default": 20,
+          "batch_norm.default": 20,
+          "relu_.default": 17,
+          "add_.Tensor": 8,
+          "max_pool2d.default": 1,
+          "adaptive_avg_pool2d.default": 1,
+          "linear.default": 1
+        }
+      },
+      "flops_photo": 11271229440,
+      "traffic_photo": {
+        "read_bytes": 204774992,
+        "written_bytes": 102015056,
+        "operations": 137,
+        "by_operation": {
+          "conv2d.default": 40,
+          "batch_norm.default": 40,
+          "relu_.default": 34,
+          "add_.Tensor": 16,
+          "max_pool2d.default": 2,
+          "adaptive_avg_pool2d.default": 2,
+          "linear.default": 2,
+          "flip.default": 1
+        }
+      },
+      "roofline": {
+        "intensity": 36.73922773401046,
+        "ridge": 23.410404624277458,
+        "compute_s": 0.0009939355767195767,
+        "memory_s": 0.000633340313790256,
+        "bound": "compute"
+      },
+      "devices": {
+        "cpu": {
+          "predict_s": 0.06446014450000348,
+          "flop_per_s": 174855789223.361,
+          "profile": {
+            "operators": 139,
+            "kernels": 0,
+            "kernel_s": 0.0,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        }
+      },
+      "recorded": {
+        "cuda": {
+          "predict_s": 0.006132500013336539,
+          "flop_per_s": 1837950169667.8525
+        },
+        "cpu": {
+          "predict_s": 0.05257224995875731,
+          "flop_per_s": 214395036332.70837
+        }
+      }
+    },
+    "angle CNN 480x640": {
+      "size": [
+        480,
+        640
+      ],
+      "flops_pass": 22206883840,
+      "traffic_pass": {
+        "read_bytes": 272709416,
+        "written_bytes": 201525288,
+        "operations": 68,
+        "by_operation": {
+          "conv2d.default": 20,
+          "batch_norm.default": 20,
+          "relu_.default": 17,
+          "add_.Tensor": 8,
+          "max_pool2d.default": 1,
+          "adaptive_avg_pool2d.default": 1,
+          "linear.default": 1
+        }
+      },
+      "flops_photo": 44413767680,
+      "traffic_photo": {
+        "read_bytes": 549105232,
+        "written_bytes": 406736976,
+        "operations": 137,
+        "by_operation": {
+          "conv2d.default": 40,
+          "batch_norm.default": 40,
+          "relu_.default": 34,
+          "add_.Tensor": 16,
+          "max_pool2d.default": 2,
+          "adaptive_avg_pool2d.default": 2,
+          "linear.default": 2,
+          "flip.default": 1
+        }
+      },
+      "roofline": {
+        "intensity": 46.4655853322602,
+        "ridge": 23.410404624277458,
+        "compute_s": 0.003916557996472663,
+        "memory_s": 0.0019732498100743187,
+        "bound": "compute"
+      },
+      "devices": {
+        "cpu": {
+          "predict_s": 0.16585721750004723,
+          "flop_per_s": 267783147151.78043,
+          "profile": {
+            "operators": 139,
+            "kernels": 0,
+            "kernel_s": 0.0,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        }
+      },
+      "recorded": {
+        "cuda": {
+          "predict_s": 0.007685550022870302,
+          "flop_per_s": 5778866515452.45
+        },
+        "cpu": {
+          "predict_s": 0.18138604995328933,
+          "flop_per_s": 244857681676.38837
+        }
+      }
+    },
+    "U-Net 256x256 (named)": {
+      "size": [
+        256,
+        256
+      ],
+      "flops_pass": 10779361280,
+      "traffic_pass": {
+        "read_bytes": 190921028,
+        "written_bytes": 122159104,
+        "operations": 106,
+        "by_operation": {
+          "conv2d.default": 31,
+          "batch_norm.default": 30,
+          "relu_.default": 27,
+          "add_.Tensor": 8,
+          "upsample_bilinear2d.vec": 5,
+          "cat.default": 4,
+          "max_pool2d.default": 1
+        }
+      },
+      "flops_photo": 21558722560,
+      "traffic_photo": {
+        "read_bytes": 382628488,
+        "written_bytes": 245104640,
+        "operations": 213,
+        "by_operation": {
+          "conv2d.default": 62,
+          "batch_norm.default": 60,
+          "relu_.default": 54,
+          "add_.Tensor": 16,
+          "upsample_bilinear2d.vec": 10,
+          "cat.default": 8,
+          "max_pool2d.default": 2,
+          "flip.default": 1
+        }
+      },
+      "roofline": {
+        "intensity": 34.34377062221894,
+        "ridge": 23.410404624277458,
+        "compute_s": 0.0019011219188712523,
+        "memory_s": 0.0012958982824112304,
+        "bound": "compute"
+      },
+      "devices": {
+        "cpu": {
+          "predict_s": 0.09788116550009818,
+          "flop_per_s": 220254044277.58246,
+          "profile": {
+            "operators": 215,
+            "kernels": 0,
+            "kernel_s": 0.0,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        }
+      },
+      "recorded": {
+        "cuda": {
+          "predict_s": 0.009700599999632686,
+          "flop_per_s": 2222411248872.886
+        },
+        "cpu": {
+          "predict_s": 0.116058100014925,
+          "flop_per_s": 185758017382.91046
+        }
+      }
+    },
+    "U-Net 480x640": {
+      "size": [
+        480,
+        640
+      ],
+      "flops_pass": 50528256000,
+      "traffic_pass": {
+        "read_bytes": 683432260,
+        "written_bytes": 572620800,
+        "operations": 106,
+        "by_operation": {
+          "conv2d.default": 31,
+          "batch_norm.default": 30,
+          "relu_.default": 27,
+          "add_.Tensor": 8,
+          "upsample_bilinear2d.vec": 5,
+          "cat.default": 4,
+          "max_pool2d.default": 1
+        }
+      },
+      "flops_photo": 101056512000,
+      "traffic_photo": {
+        "read_bytes": 1370550920,
+        "written_bytes": 1148928000,
+        "operations": 213,
+        "by_operation": {
+          "conv2d.default": 62,
+          "batch_norm.default": 60,
+          "relu_.default": 54,
+          "add_.Tensor": 16,
+          "upsample_bilinear2d.vec": 10,
+          "cat.default": 8,
+          "max_pool2d.default": 2,
+          "flip.default": 1
+        }
+      },
+      "roofline": {
+        "intensity": 40.11008435029891,
+        "ridge": 23.410404624277458,
+        "compute_s": 0.008911508994708994,
+        "memory_s": 0.005201236416184971,
+        "bound": "compute"
+      },
+      "devices": {
+        "cpu": {
+          "predict_s": 0.43941378950000853,
+          "flop_per_s": 229980292869.25244,
+          "profile": {
+            "operators": 215,
+            "kernels": 0,
+            "kernel_s": 0.0,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        }
+      },
+      "recorded": {
+        "cuda": {
+          "predict_s": 0.01868280000053346,
+          "flop_per_s": 5409066735024.433
+        },
+        "cpu": {
+          "predict_s": 0.4632312500034459,
+          "flop_per_s": 218155644722.2597
+        }
+      }
+    }
+  }
+}

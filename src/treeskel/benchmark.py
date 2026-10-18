@@ -36,10 +36,22 @@ The training times of the real runs (5 folds with their inner folds, and the
 final test's one network) are read from their ``report.json``, beside an
 estimate from the measured step time: steps per epoch times epochs.
 
-Usage (on the PC with the GPU)::
+``--flops`` explains the times instead of measuring the methods (session 18):
+each network's floating-point operations (PyTorch's FLOP counter), the bytes
+it moves if nothing were fused or cached, hence its arithmetic intensity, and
+where that puts it on the roofline of the GPU the times came from; then
+PyTorch's profiler over one prediction counts the operators and, on a GPU,
+the kernels it launches and how long the GPU is busy with them. It writes
+``flops.json`` and ``flops_output.txt`` beside ``report.json``, which it
+leaves alone.
 
-    python -m treeskel.benchmark                 # -> docs/results/benchmark/
-    python -m treeskel.benchmark data/raw --trees 8
+Usage (on the PC with the GPU):
+
+```
+python -m treeskel.benchmark                 # -> docs/results/benchmark/
+python -m treeskel.benchmark data/raw --trees 8
+python -m treeskel.benchmark --flops         # -> docs/results/benchmark/flops.json, flops_output.txt
+```
 """
 
 from __future__ import annotations
@@ -69,6 +81,10 @@ RECORDED = {
 
 N_DEV = 449
 """Development trees (the final network trains on all of them; a fold on about four fifths)."""
+
+GPU_PEAKS = {"NVIDIA GeForce GTX 1080 Ti": (11.34e12, 484.4e9)}
+"""Rated 32-bit peak (FLOP/s) and memory bandwidth (bytes/s) of known GPUs, from NVIDIA's specifications.
+The GTX 1080 Ti: 3584 cores x 2 FLOP (a multiply-add) x 1582 MHz boost clock; 11 Gbit/s x 352-bit memory."""
 
 
 def timed(fn: Callable[[], object], repeats: int = 5, warmup: int = 1, sync: Callable[[], None] | None = None) -> dict:
@@ -217,6 +233,19 @@ def network_specs() -> list[dict]:
     ]
 
 
+def prediction(model, x) -> Callable[[], None]:
+    """One prediction, as every model here makes it: ``model`` on the photo ``x`` and on its mirror image."""
+    import torch
+
+    def predict():
+        """The photo, then its mirror image, without gradients."""
+        with torch.inference_mode():
+            model(x)
+            model(x.flip(-1))                                   # every model averages in the mirror image
+
+    return predict
+
+
 def _loss(kind: str, out, torch):
     """A loss of the right form for a training step (its value does not matter for the timing)."""
     if kind == "segmentation":
@@ -244,13 +273,7 @@ def measure_network(spec: dict, device: str, repeats: int = 5, train: bool = Tru
 
     x = torch.randn(1, 3, h, w, device=device)
     model.eval()
-
-    def predict():
-        """One prediction, as the models make it: the photo and its mirror image."""
-        with torch.inference_mode():
-            model(x)
-            model(x.flip(-1))                                   # every model averages in the mirror image
-
+    predict = prediction(model, x)
     if cuda:
         torch.cuda.reset_peak_memory_stats()
     out["predict_s"] = timed(predict, repeats, warmup=2, sync=sync)["median_s"]
@@ -313,6 +336,223 @@ def estimated_minutes(step_s: float | None, batch: int | None, epochs: float | N
     if step_s is None or not batch or not epochs:
         return None
     return round(step_s * math.ceil(n_trees / batch) * epochs / 60, 3)
+
+
+# --------------------------------------------------------------------------
+# FLOPs, memory traffic and the profiler (--flops)
+# --------------------------------------------------------------------------
+
+def count_flops(fn: Callable[[], object]) -> int:
+    """Floating-point operations ``fn`` performs, by PyTorch's FLOP counter.
+
+    The counter (``torch.utils.flop_counter.FlopCounterMode``) counts convolutions and matrix products,
+    two operations per multiply-add, from the tensors' shapes, so the count is the same on every device.
+    Batch norm, ReLU, additions, pooling and interpolation are not counted: a few operations per element
+    they write, about 0.5% of the convolutions' count in the named U-Net.
+
+    For example, a 3x3 convolution from 3 to 8 channels on a 16x16 image counts
+    2 x (8 x 16 x 16 outputs) x (3 x 3 x 3 weights each) = 110,592 (tested in ``tests/test_benchmark.py``).
+
+    Args:
+        fn: The work, e.g. one forward pass or :func:`prediction`.
+    """
+    from torch.utils.flop_counter import FlopCounterMode
+
+    counter = FlopCounterMode(display=False)
+    with counter:
+        fn()
+    return int(counter.get_total_flops())
+
+
+def memory_traffic(fn: Callable[[], object]) -> dict:
+    """Bytes ``fn`` reads and writes if nothing were fused or cached.
+
+    Every operation PyTorch dispatches (convolution, batch norm, ReLU, addition, interpolation,
+    concatenation, pooling) is taken to read all its input tensors, weights included, from memory and to
+    write all its outputs back. Views (``select``, ``view``, ...) move nothing and are left out. Real kernels
+    can fuse steps or find data still in cache, so this is an upper bound on the traffic, and the arithmetic
+    intensity from it (:func:`roofline`) a lower bound. It is the same on every device.
+
+    For example, that convolution of :func:`count_flops` in 32-bit floats reads its image and weights,
+    4 x (3 x 16 x 16 + 8 x 3 x 3 x 3) bytes, and writes 4 x 8 x 16 x 16; an in-place ReLU after it reads and
+    writes those 8,192 bytes again (tested in ``tests/test_benchmark.py``).
+
+    Returns:
+        ``{"read_bytes", "written_bytes", "operations", "by_operation"}``: the totals, the number of
+        operations counted, and how many of each.
+    """
+    import collections
+
+    import torch
+    from torch.utils._python_dispatch import TorchDispatchMode
+    from torch.utils._pytree import tree_flatten
+
+    def nbytes(tree) -> int:
+        """Bytes of all the tensors in a nest of arguments or results."""
+        return sum(t.numel() * t.element_size() for t in tree_flatten(tree)[0] if isinstance(t, torch.Tensor))
+
+    class Traffic(TorchDispatchMode):
+        """Adds up the bytes each dispatched operation reads and writes."""
+
+        def __init__(self):
+            """Start from zero."""
+            super().__init__()
+            self.read = self.written = 0
+            self.ops = collections.Counter()
+
+        def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+            """Run the operation, then count its inputs and outputs unless its result is a view."""
+            out = func(*args, **(kwargs or {}))
+            # A view returns an alias of its input that it does not write; in-place operations (relu_, add_)
+            # return an alias they write, and read and write that memory, so they are counted.
+            if any(r.alias_info is not None and not r.alias_info.is_write for r in func._schema.returns):
+                return out
+            self.read += nbytes((args, kwargs))
+            self.written += nbytes(out)
+            self.ops[func.__name__] += 1
+            return out
+
+    mode = Traffic()
+    with mode:
+        fn()
+    return {"read_bytes": mode.read, "written_bytes": mode.written, "operations": sum(mode.ops.values()),
+            "by_operation": dict(mode.ops.most_common())}
+
+
+def roofline(flops: float, traffic_bytes: float, peak_flops: float, bandwidth: float) -> dict:
+    """Where work of ``flops`` operations moving ``traffic_bytes`` sits on a device's roofline.
+
+    A device can do at most ``peak_flops`` operations and move at most ``bandwidth`` bytes per second, so
+    the work takes at least ``flops / peak_flops`` (compute) and ``traffic_bytes / bandwidth`` (memory)
+    seconds. Its arithmetic intensity (operations per byte) above the device's ridge point
+    (``peak_flops / bandwidth``) means the arithmetic, not the memory, sets that lower limit.
+
+    Returns:
+        ``{"intensity", "ridge", "compute_s", "memory_s", "bound"}``, ``bound`` "compute" or "memory".
+
+    Example:
+        >>> r = roofline(21.6e9, 626e6, 11.3e12, 484e9)       # a photo of the named U-Net on a GTX 1080 Ti
+        >>> round(r["intensity"], 1), round(r["ridge"], 1), r["bound"], round(r["compute_s"] * 1e3, 2)
+        (34.5, 23.3, 'compute', 1.91)
+    """
+    intensity, ridge = flops / traffic_bytes, peak_flops / bandwidth
+    return {"intensity": intensity, "ridge": ridge, "compute_s": flops / peak_flops,
+            "memory_s": traffic_bytes / bandwidth, "bound": "compute" if intensity >= ridge else "memory"}
+
+
+def summarise_events(events: Sequence) -> dict:
+    """Operators and GPU work in the profiler's events of one prediction.
+
+    Args:
+        events: ``torch.profiler.profile(...).events()``, or objects with the same ``name``,
+            ``device_type``, ``cpu_parent`` and ``time_range.elapsed_us()``.
+
+    Returns:
+        ``{"operators", "kernels", "kernel_s", "copies", "copy_s"}``: the PyTorch operators called (the
+        outermost ``aten::`` calls, not the ones they call in turn), and the GPU's kernels and memory
+        copies or fills with their summed durations (zero without a GPU). Kernels on one stream run one
+        after another, so ``kernel_s`` is the time the GPU was busy computing.
+    """
+    from torch.autograd import DeviceType
+
+    def outermost(e) -> bool:
+        """An ``aten::`` operator not called by another one."""
+        return e.name.startswith("aten::") and not (e.cpu_parent is not None
+                                                    and e.cpu_parent.name.startswith("aten::"))
+
+    gpu = [e for e in events if e.device_type == DeviceType.CUDA]
+    copies = [e for e in gpu if e.name.startswith(("Memcpy", "Memset"))]
+    kernels = [e for e in gpu if not e.name.startswith(("Memcpy", "Memset"))]
+    return {"operators": sum(1 for e in events if e.device_type == DeviceType.CPU and outermost(e)),
+            "kernels": len(kernels), "kernel_s": sum(e.time_range.elapsed_us() for e in kernels) / 1e6,
+            "copies": len(copies), "copy_s": sum(e.time_range.elapsed_us() for e in copies) / 1e6}
+
+
+def profile_prediction(predict: Callable[[], None], device: str, warmup: int = 2) -> dict:
+    """PyTorch's profiler over one prediction, after warm-up calls: :func:`summarise_events` of its events.
+
+    On a GPU it records the kernels too (through NVIDIA's CUPTI); if the profiler fails, or sees no kernels
+    on a GPU, the result says so in ``"error"`` instead of stopping the benchmark.
+    """
+    import torch
+    from torch.profiler import ProfilerActivity, profile
+
+    cuda = device.startswith("cuda")
+    for _ in range(warmup):
+        predict()
+    if cuda:
+        torch.cuda.synchronize()
+    try:
+        with profile(activities=[ProfilerActivity.CPU] + ([ProfilerActivity.CUDA] if cuda else [])) as prof:
+            predict()
+            if cuda:
+                torch.cuda.synchronize()
+        out = summarise_events(prof.events())
+    except Exception as e:                                       # e.g. CUPTI missing: keep the other numbers
+        return {"error": f"profiler failed: {e}"}
+    if cuda and out["kernels"] == 0:
+        out["error"] = "the profiler saw no GPU kernels (is CUPTI available?)"
+    return out
+
+
+def flop_report(specs: Sequence[dict], devices: Sequence[str], repeats: int = 10, recorded: dict | None = None,
+                gpu: str | None = None, peak: tuple[float, float] | None = None) -> dict:
+    """FLOPs, memory traffic, roofline and profile of each network, and the speed its times imply.
+
+    Args:
+        specs: :func:`network_specs` (random weights, as the timings).
+        devices: Where to time and profile one prediction (photo and mirror image, batch 1).
+        repeats: Timed predictions per network and device (median).
+        recorded: The benchmark's ``report.json`` (Table 5's times), whose prediction times are turned into
+            FLOP/s too; None to skip.
+        gpu: The GPU whose roofline to draw: by default the one present, else the one ``recorded`` ran on.
+        peak: ``(FLOP/s, bytes/s)`` of that GPU, when :data:`GPU_PEAKS` does not know it.
+
+    Returns:
+        ``{"gpu", "peak", "networks"}``; per network ``flops_pass`` and ``traffic_pass`` (one forward pass,
+        counted on the CPU), ``flops_photo`` and ``traffic_photo`` (a prediction, with the mirror image),
+        ``roofline`` (per photo, on ``gpu``; None if its peak is unknown), and per device ``predict_s``,
+        ``flop_per_s`` and ``profile``; and ``recorded`` with the FLOP/s of ``report.json``'s times.
+    """
+    import torch
+
+    gpu = gpu or (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None) \
+        or (recorded or {}).get("machine", {}).get("gpu")
+    peak = peak or GPU_PEAKS.get(gpu)
+    out = {"gpu": gpu, "peak": list(peak) if peak else None, "networks": {}}
+    for spec in specs:
+        torch.manual_seed(0)
+        model = spec["build"]().eval()
+        h, w = spec["size"]
+        x = torch.randn(1, 3, h, w)
+
+        def one_pass():
+            """One forward pass, without gradients."""
+            with torch.inference_mode():
+                model(x)
+
+        n = {"size": [h, w], "flops_pass": count_flops(one_pass), "traffic_pass": memory_traffic(one_pass),
+             "flops_photo": count_flops(prediction(model, x))}
+        n["traffic_photo"] = memory_traffic(prediction(model, x))
+        moved = n["traffic_photo"]["read_bytes"] + n["traffic_photo"]["written_bytes"]
+        n["roofline"] = roofline(n["flops_photo"], moved, *peak) if peak else None
+        n["devices"] = {}
+        for dev in devices:
+            model.to(dev)
+            xd = x.to(dev)
+            predict = prediction(model, xd)
+            sync = torch.cuda.synchronize if dev.startswith("cuda") else None
+            secs = timed(predict, repeats, warmup=2, sync=sync)["median_s"]
+            n["devices"][dev] = {"predict_s": secs, "flop_per_s": n["flops_photo"] / secs,
+                                 "profile": profile_prediction(predict, dev)}
+        rec = {dev: nets[spec["name"]]["predict_s"] for dev, nets in (recorded or {}).get("networks", {}).items()
+               if nets.get(spec["name"], {}).get("predict_s")}
+        n["recorded"] = {dev: {"predict_s": s, "flop_per_s": n["flops_photo"] / s} for dev, s in rec.items()}
+        out["networks"][spec["name"]] = n
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -384,6 +624,65 @@ def report_lines(report: dict) -> list[str]:
     return out
 
 
+def flops_lines(report: dict) -> list[str]:
+    """The ``--flops`` report as text, for the console and ``flops_output.txt``."""
+    m = report["machine"]
+    nets = report["networks"]
+    out = [f"Machine: {m['cpu']}; {m['gpu'] or 'no GPU'}; PyTorch {m['torch']}; {m['threads']} CPU threads.", "",
+           "One forward pass, batch 1 (PyTorch's FLOP counter; bytes read and written if nothing were fused or "
+           "cached, so FLOP/byte is a lower bound):",
+           f"  {'network':28s} {'GFLOP':>7s} {'read MB':>8s} {'written MB':>10s} {'FLOP/byte':>9s} {'operations':>10s}"]
+    for name, n in nets.items():
+        t = n["traffic_pass"]
+        moved = t["read_bytes"] + t["written_bytes"]
+        out.append(f"  {name:28s} {n['flops_pass'] / 1e9:7.2f} {t['read_bytes'] / 1e6:8.1f} "
+                   f"{t['written_bytes'] / 1e6:10.1f} {n['flops_pass'] / moved:9.1f} {t['operations']:10d}")
+    peak = report.get("peak")
+    out.append("")
+    if peak:
+        out.append(f"A prediction (photo + mirror image) on the roofline of the {report['gpu']} "
+                   f"({peak[0] / 1e12:.2f} TFLOP/s, {peak[1] / 1e9:.0f} GB/s; ridge {peak[0] / peak[1]:.1f} FLOP/byte):")
+        out.append(f"  {'network':28s} {'GFLOP':>7s} {'MB moved':>9s} {'FLOP/byte':>9s} {'bound':>8s} "
+                   f"{'compute ms':>10s} {'memory ms':>9s}  (at the peak rates)")
+        for name, n in nets.items():
+            r, t = n["roofline"], n["traffic_photo"]
+            out.append(f"  {name:28s} {n['flops_photo'] / 1e9:7.2f} {(t['read_bytes'] + t['written_bytes']) / 1e6:9.1f} "
+                       f"{r['intensity']:9.1f} {r['bound']:>8s} {r['compute_s'] * 1e3:10.2f} {r['memory_s'] * 1e3:9.2f}")
+    else:
+        out.append(f"No roofline: the peak rates of {report['gpu'] or 'the GPU'} are unknown "
+                   "(give --peak-tflops and --bandwidth-gbs).")
+
+    def speed(d: dict, gpu: bool) -> str:
+        """Milliseconds, GFLOP/s and, on the GPU, the share of its peak."""
+        share = f" {d['flop_per_s'] / peak[0]:6.1%}" if gpu and peak else ""
+        return f"{d['predict_s'] * 1e3:8.1f} ms {d['flop_per_s'] / 1e9:7.0f} GFLOP/s{share}"
+
+    for key, title in (("devices", f"timed in this run (median of {report['repeats']})"),
+                       ("recorded", "as timed by the benchmark (report.json)")):
+        rows = [(name, n[key]) for name, n in nets.items() if n.get(key)]
+        if not rows:
+            continue
+        out += ["", f"Speed of a prediction, {title}:"]
+        for name, by_dev in rows:
+            out.append(f"  {name:28s} " + " | ".join(f"{dev}: {speed(d, dev.startswith('cuda'))}"
+                                                      for dev, d in by_dev.items()))
+    out += ["", "Profile of one prediction (torch.profiler; GPU busy = summed kernel time / timed prediction):"]
+    for name, n in nets.items():
+        parts = []
+        for dev, d in n["devices"].items():
+            p = d["profile"]
+            if "operators" not in p:
+                parts.append(f"{dev}: {p['error']}")
+            elif dev.startswith("cuda"):
+                parts.append(f"{dev}: {p['operators']} operators, {p['kernels']} kernels taking "
+                             f"{p['kernel_s'] * 1e3:.2f} ms, {p['copies']} copies; GPU busy "
+                             f"{p['kernel_s'] / d['predict_s']:.0%}" + (f" ({p['error']})" if "error" in p else ""))
+            else:
+                parts.append(f"{dev}: {p['operators']} operators")
+        out.append(f"  {name:28s} " + " | ".join(parts))
+    return out
+
+
 def machine() -> dict:
     """The machine the benchmark ran on."""
     import os
@@ -412,11 +711,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--repeats", type=int, default=10, help="timed runs per network measurement")
     ap.add_argument("--no-cpu-training", action="store_true", help="skip the (slow) training steps on the CPU")
     ap.add_argument("--quick", action="store_true", help="few repeats and small parts only (for tests)")
+    ap.add_argument("--flops", action="store_true",
+                    help="only FLOPs, memory traffic, roofline and profiler: flops.json and flops_output.txt")
+    ap.add_argument("--peak-tflops", type=float, help="the GPU's rated 32-bit peak, if not in GPU_PEAKS")
+    ap.add_argument("--bandwidth-gbs", type=float, help="the GPU's memory bandwidth, if not in GPU_PEAKS")
     args = ap.parse_args(argv)
 
     import torch
 
     repeats = 2 if args.quick else args.repeats
+    if args.flops:
+        return flops_main(args, repeats)
     split = json.loads(Path(args.split).read_text())
     report: dict = {"machine": machine(), "repeats": repeats}
     print(f"Benchmark on {report['machine']['gpu'] or 'the CPU only'} ...", flush=True)
@@ -487,6 +792,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OSError as e:
         failed.append(f"{out / 'output.txt'}: {e.strerror or e}")
     print(f"\nSaved {out / 'report.json'} and output.txt")
+    for f in failed:
+        print(f"Could not write {f}")
+    return 1 if failed else 0
+
+
+def flops_main(args: argparse.Namespace, repeats: int) -> int:
+    """``--flops``: measure :func:`flop_report` and save ``flops.json`` and ``flops_output.txt`` in ``--out``."""
+    import torch
+
+    out = Path(args.out)
+    recorded_path = out / "report.json"
+    recorded = json.loads(recorded_path.read_text()) if recorded_path.exists() else None
+    if (args.peak_tflops is None) != (args.bandwidth_gbs is None):
+        print("Give both --peak-tflops and --bandwidth-gbs, or neither.")
+        return 2
+    peak = (args.peak_tflops * 1e12, args.bandwidth_gbs * 1e9) if args.peak_tflops else None
+    devices = (["cuda"] if torch.cuda.is_available() else []) + ["cpu"]
+    specs = network_specs()
+    if args.quick:
+        specs = [s for s in specs if "480x640" not in s["name"]]
+    print(f"FLOPs, traffic and profile on {', '.join(d.upper() for d in devices)} ...", flush=True)
+    report = {"machine": machine(), "repeats": repeats,
+              **flop_report(specs, devices, repeats, recorded, peak=peak)}
+    out.mkdir(parents=True, exist_ok=True)
+    lines = flops_lines(report)
+    print("\n" + "\n".join(lines))
+    failed = []
+    for name, text in (("flops.json", json.dumps(report, indent=2)), ("flops_output.txt", "\n".join(lines) + "\n")):
+        try:
+            (out / name).write_text(text)
+        except OSError as e:                                    # e.g. the file is open in a viewer on Windows
+            failed.append(f"{out / name}: {e.strerror or e}")
+    print(f"\nSaved {out / 'flops.json'} and flops_output.txt")
     for f in failed:
         print(f"Could not write {f}")
     return 1 if failed else 0

@@ -81,7 +81,8 @@ src/treeskel/    Python package
                  masks broken by a gap of up to a trunk's width before measuring
   final_test.py  the one final evaluation on the test rows: the named U-Net, trained on all development
                  trees, scored against the test trees' winter traces (GPU; runs once)
-  benchmark.py   run time and memory of every method (ground truths, mean shape, ridge, angle CNN, U-Net)
+  benchmark.py   run time and memory of every method (ground truths, mean shape, ridge, angle CNN, U-Net);
+                 with --flops, the networks' FLOPs, memory traffic, roofline and profile
   depth3d.py     how the 8-bit depth maps to distance (its zero, from the ground) and the camera
   tree3d.py      the tree in 3D: its plane, the V in that plane, its lean and sizes; summer against winter
   bend3d.py      the trunk and leaders as smooth 3D curves that may leave the plane where the depth sees the
@@ -160,6 +161,7 @@ python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json
 python -m treeskel.final_test data/raw                     # once, after naming the model in docs/results/final_test/model.json
 python -m treeskel.final_test data/raw --out docs/results/final_test_ensemble   # session 16's ensemble, once (secondary)
 python -m treeskel.benchmark                               # run time and memory of every method (GPU and CPU)
+python -m treeskel.benchmark --flops                       # FLOPs, memory traffic, roofline, profiler (GPU and CPU)
 python -m treeskel.depth3d data/raw --calibrate            # the depth map's zero from the ground (development rows)
 python -m treeskel.tree3d data/raw                         # the trees in 3D, winter and summer (development rows)
 python -m treeskel.bend3d data/raw                         # bends out of the plane: winter, then summer (development rows)
@@ -245,7 +247,7 @@ out exactly the trees where a model failed. They were caught by my looking at th
 tests with known answers, by checks on samples that should not differ, and by running each check on all
 449 development trees instead of a few. When I was unsure what a task asked, as with the label audit, I
 said so and it was redone. Every rule for choosing a model was fixed before its result was seen; the test
-rows were used for the final test and once more for one declared secondary result. 567 automated tests
+rows were used for the final test and once more for one declared secondary result. 575 automated tests
 cover the code ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.

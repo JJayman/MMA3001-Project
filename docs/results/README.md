@@ -41,7 +41,7 @@ so they are kept as they were made.
 | [`segment_lined_up_480x640/`](segment_lined_up_480x640/) | The whole photo at full size (session 12; with `_joined`). Not adopted, by the naming rule. |
 | [`segment_lined_up_rerun/`](segment_lined_up_rerun/) | Completing short predicted leaders: a re-run of the named recipe, then growing, continuing and shape completion (session 12). Covers `segment_lined_up_rerun_grown/`, `_continued/` and `segment_lined_up_completed/`; `segment_lined_up_rerun_joined/` and `_rerun_completed/` are in `final_test/naming_rule.md`. None adopted; the completed masks were reported beside the final test as a secondary line. |
 | [`leaf_prior/`](leaf_prior/) | Whether the leaves locate a hidden leader (session 12): a description, not a method. They show which side the V is on, too gently to place a leader. |
-| [`benchmark/`](benchmark/) | Run time and memory of every method (session 13). |
+| [`benchmark/`](benchmark/) | Run time and memory of every method (session 13); the networks' FLOPs, memory traffic, roofline and profile (`--flops`, session 18: `flops.json`). |
 
 ## Improving the mask model (session 16)
 

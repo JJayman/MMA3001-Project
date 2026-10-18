@@ -1,0 +1,38 @@
+Machine: x86_64; no GPU; PyTorch 2.14.1+cu130; 4 CPU threads.
+
+One forward pass, batch 1 (PyTorch's FLOP counter; bytes read and written if nothing were fused or cached, so FLOP/byte is a lower bound):
+  network                        GFLOP  read MB written MB FLOP/byte operations
+  ResNet-18 features (ridge)      5.64    101.7       50.5      37.0         66
+  angle CNN 240x320               5.64    101.9       50.5      37.0         68
+  angle CNN 480x640              22.21    272.7      201.5      46.8         68
+  U-Net 256x256 (named)          10.78    190.9      122.2      34.4        106
+  U-Net 480x640                  50.53    683.4      572.6      40.2        106
+
+A prediction (photo + mirror image) on the roofline of the NVIDIA GeForce GTX 1080 Ti (11.34 TFLOP/s, 484 GB/s; ridge 23.4 FLOP/byte):
+  network                        GFLOP  MB moved FLOP/byte    bound compute ms memory ms  (at the peak rates)
+  ResNet-18 features (ridge)     11.27     306.4      36.8  compute       0.99      0.63
+  angle CNN 240x320              11.27     306.8      36.7  compute       0.99      0.63
+  angle CNN 480x640              44.41     955.8      46.5  compute       3.92      1.97
+  U-Net 256x256 (named)          21.56     627.7      34.3  compute       1.90      1.30
+  U-Net 480x640                 101.06    2519.5      40.1  compute       8.91      5.20
+
+Speed of a prediction, timed in this run (median of 10):
+  ResNet-18 features (ridge)   cpu:     47.7 ms     237 GFLOP/s
+  angle CNN 240x320            cpu:     64.5 ms     175 GFLOP/s
+  angle CNN 480x640            cpu:    165.9 ms     268 GFLOP/s
+  U-Net 256x256 (named)        cpu:     97.9 ms     220 GFLOP/s
+  U-Net 480x640                cpu:    439.4 ms     230 GFLOP/s
+
+Speed of a prediction, as timed by the benchmark (report.json):
+  ResNet-18 features (ridge)   cuda:      5.9 ms    1897 GFLOP/s  16.7% | cpu:     51.2 ms     220 GFLOP/s
+  angle CNN 240x320            cuda:      6.1 ms    1838 GFLOP/s  16.2% | cpu:     52.6 ms     214 GFLOP/s
+  angle CNN 480x640            cuda:      7.7 ms    5779 GFLOP/s  51.0% | cpu:    181.4 ms     245 GFLOP/s
+  U-Net 256x256 (named)        cuda:      9.7 ms    2222 GFLOP/s  19.6% | cpu:    116.1 ms     186 GFLOP/s
+  U-Net 480x640                cuda:     18.7 ms    5409 GFLOP/s  47.7% | cpu:    463.2 ms     218 GFLOP/s
+
+Profile of one prediction (torch.profiler; GPU busy = summed kernel time / timed prediction):
+  ResNet-18 features (ridge)   cpu: 133 operators
+  angle CNN 240x320            cpu: 139 operators
+  angle CNN 480x640            cpu: 139 operators
+  U-Net 256x256 (named)        cpu: 215 operators
+  U-Net 480x640                cpu: 215 operators
