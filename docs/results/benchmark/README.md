@@ -66,11 +66,11 @@ The ground truths, per winter tree (CPU):
 `python -m treeskel.benchmark --flops` explains the times above: `flops.json` (all numbers) and
 `flops_output.txt`. It leaves `report.json` alone and reads its prediction times.
 
-**The files here come from the assistant's environment** (no GPU, 4 CPU threads, PyTorch 2.14.1). The
-FLOP counts, the traffic and the roofline do not depend on the machine. The speeds on the GTX 1080 Ti and
-the student's CPU come from `report.json`. Only the GPU profile is missing: kernels launched and the time
-the GPU spends running them. To add it, run the same command on the student's PC, which overwrites both
-files with that machine's run.
+**The files come from the student's PC** (18 October): the GTX 1080 Ti and 8-thread Intel CPU that
+`report.json` was measured on, PyTorch 2.14 (CUDA 12.6). The FLOP counts, traffic and roofline match the
+assistant's earlier run without a GPU exactly, since they do not depend on the machine. This run's own
+times differ from `report.json`'s, as repeated timings do: by a few percent on the GPU (the named U-Net
+10.3 ms against 9.7 ms) and more on the CPU (75 ms against 116 ms). The report quotes `report.json`'s.
 
 ### How it was measured
 
@@ -108,22 +108,48 @@ files with that machine's run.
 At the peak rates, a prediction of the named U-Net (21.56 GFLOP, 628 MB) needs 1.90 ms of arithmetic and
 1.30 ms of memory traffic. It takes 9.7 ms.
 
+The GPU profile of one prediction (photo and mirror image), against this run's timed prediction:
+
+| Network | Kernels per photo | Kernel time | Timed prediction | GPU busy | Kernels' speed (share of peak) | GPU idle per kernel |
+|---|---|---|---|---|---|---|
+| ResNet-18 features (ridge) | 169 | 3.51 ms | 6.08 ms | 58% | 3.21 TFLOP/s (28%) | 15 µs |
+| Angle CNN 240x320 | 173 | 3.52 ms | 6.76 ms | 52% | 3.20 TFLOP/s (28%) | 19 µs |
+| Angle CNN 480x640 | 175 | 7.44 ms | 7.80 ms | 95% | 5.97 TFLOP/s (53%) | 2 µs |
+| **U-Net 256x256 (named)** | **271** | **6.14 ms** | **10.26 ms** | **60%** | **3.51 TFLOP/s (31%)** | **15 µs** |
+| U-Net 480x640 | 273 | 17.91 ms | 18.43 ms | 97% | 5.64 TFLOP/s (50%) | 2 µs |
+
+"Kernels' speed" is a prediction's FLOPs divided by the kernel time: how fast the GPU computes while it is
+busy. "Idle per kernel" is the timed prediction minus the kernel time, per kernel. No memory copies were
+recorded, since the photo is already on the GPU. Against `report.json`'s 9.7 ms, the named U-Net's GPU is
+busy 63% of the time.
+
 ### What it shows
 
 - **Memory bandwidth limits none of the networks.** All are above the ridge point (34–47 FLOP/byte against
   23.4), even with the traffic overcounted.
 - **At batch 1, the GPU is mostly not doing arithmetic.** The 256x256 U-Net reaches 20% of the peak and the
   240x320 angle CNN 16%. The 480x640 networks reach 48–51%: the U-Net does 4.7x the work in 1.9x the time.
-  Neither the arithmetic (1.90 ms) nor the memory (1.30 ms) accounts for the named U-Net's 9.7 ms. Most of
-  the rest should be fixed costs per operation: 215 operators per photo, each launching at least one
-  kernel, whose cost does not shrink with the input. The GPU profile from the student's PC will measure
-  how much of the 9.7 ms the GPU spends running kernels.
-- **On the CPU, time follows the work.** Every network runs at about the same speed (186–245 GFLOP/s), so a
-  robot without a GPU gains almost fully from the smaller input.
+  Neither the arithmetic (1.90 ms) nor the memory (1.30 ms) accounts for the named U-Net's 9.7 ms.
+- **The profile shows two causes, in about equal measure.**
+  - *The GPU waits between kernels.* The named U-Net launches 271 kernels per photo, and they run for only
+    6.1 of its 10.3 ms. For the other 40% the GPU is idle, about 15 µs per kernel. That is most likely the
+    time Python and PyTorch take to prepare and launch the next kernel. At 480x640 each kernel runs long
+    enough for the next ones to be queued in time: the GPU is idle only 2 µs per kernel and busy 95–97%.
+  - *Its kernels are too small to fill the GPU.* Even while busy, the named U-Net's kernels compute at
+    only 31% of the peak (3.5 TFLOP/s), against 50% at 480x640. At batch 1, a 256x256 photo gives the
+    deeper layers little work (the encoder's deepest features are 8x8), too little to keep the
+    GTX 1080 Ti's 28 multiprocessors busy.
+
+  So 4.7x the work takes under twice the time. Batching several photos, or a compiled network that
+  launches fewer, larger kernels, would address both causes. Neither is needed for one photo at a time.
+- **On the CPU, time follows the work.** Every network runs at about the same speed (186–245 GFLOP/s in
+  `report.json`; 219–351 in this run), so a robot without a GPU gains almost fully from the smaller input.
 - **These are the report's figures** (Section 7.0, Appendix A): 10.8 GFLOP per pass, 313 MB, about
   34 FLOP/byte, 20% of the peak, 1.9 ms and 1.3 ms at the peak rates, about 190 and 220 GFLOP/s on the CPU.
-  `tests/test_benchmark.py` checks them. The report's "more than 200 kernel launches per photo" is the
-  operator count (215). It is not a profiler's count of kernels; the GPU profile will give that count.
+  `tests/test_benchmark.py` checks them. The report's "more than 200 kernel launches per photo" was the
+  operator count (215). The profiler counts 271 kernels, because some operators launch more than one.
+  The report puts the rest of the time down to fixed overheads, which the profile shows is half the
+  story: the GPU is idle 40% of the time, and its kernels run at 31% of the peak while it is busy.
 
 ### Limits
 
@@ -131,3 +157,7 @@ At the peak rates, a prediction of the named U-Net (21.56 GFLOP, 628 MB) needs 1
 - The FLOP counter leaves out the element-wise operations (about 0.5%).
 - The traffic is a model with no fusion or caching, not a hardware measurement.
 - The peak rates are rated values at the boost clock; the clock a card actually runs at varies.
+- The profile is one prediction after two warm-ups. "GPU busy" divides its kernel time by a separately
+  timed prediction (the median of 10), since the profiler slows the CPU side down.
+- The cause of the idle time (launch and Python overhead) is inferred from its size and from its
+  vanishing behind long kernels, not measured directly.
