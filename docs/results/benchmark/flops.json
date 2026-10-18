@@ -1,12 +1,12 @@
 {
   "machine": {
-    "cpu": "x86_64",
-    "system": "Linux-6.18.44-fc-v139-x86_64-with-glibc2.39",
-    "threads": 4,
-    "cpu_count": 4,
-    "gpu": null,
-    "torch": "2.14.1+cu130",
-    "python": "3.13.16"
+    "cpu": "Intel64 Family 6 Model 158 Stepping 12, GenuineIntel",
+    "system": "Windows-11-10.0.26200-SP0",
+    "threads": 8,
+    "cpu_count": 8,
+    "gpu": "NVIDIA GeForce GTX 1080 Ti",
+    "torch": "2.14.0+cu126",
+    "python": "3.12.4"
   },
   "repeats": 10,
   "gpu": "NVIDIA GeForce GTX 1080 Ti",
@@ -55,9 +55,20 @@
         "bound": "compute"
       },
       "devices": {
+        "cuda": {
+          "predict_s": 0.006083899992518127,
+          "flop_per_s": 1852628901504.156,
+          "profile": {
+            "operators": 133,
+            "kernels": 169,
+            "kernel_s": 0.003507696000000009,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        },
         "cpu": {
-          "predict_s": 0.04765208149990485,
-          "flop_per_s": 236531303675.00327,
+          "predict_s": 0.051487349992385134,
+          "flop_per_s": 218912198077.1391,
           "profile": {
             "operators": 133,
             "kernels": 0,
@@ -122,9 +133,20 @@
         "bound": "compute"
       },
       "devices": {
+        "cuda": {
+          "predict_s": 0.006755600014002994,
+          "flop_per_s": 1668427588465.424,
+          "profile": {
+            "operators": 139,
+            "kernels": 173,
+            "kernel_s": 0.003518023000000002,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        },
         "cpu": {
-          "predict_s": 0.06446014450000348,
-          "flop_per_s": 174855789223.361,
+          "predict_s": 0.0494524999812711,
+          "flop_per_s": 227920316349.39984,
           "profile": {
             "operators": 139,
             "kernels": 0,
@@ -189,9 +211,20 @@
         "bound": "compute"
       },
       "devices": {
+        "cuda": {
+          "predict_s": 0.007795699988491833,
+          "flop_per_s": 5697213559470.539,
+          "profile": {
+            "operators": 139,
+            "kernels": 175,
+            "kernel_s": 0.007439701000000003,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        },
         "cpu": {
-          "predict_s": 0.16585721750004723,
-          "flop_per_s": 267783147151.78043,
+          "predict_s": 0.1264145499735605,
+          "flop_per_s": 351334302018.9456,
           "profile": {
             "operators": 139,
             "kernels": 0,
@@ -256,9 +289,20 @@
         "bound": "compute"
       },
       "devices": {
+        "cuda": {
+          "predict_s": 0.010262499999953434,
+          "flop_per_s": 2100728142275.062,
+          "profile": {
+            "operators": 215,
+            "kernels": 271,
+            "kernel_s": 0.0061433780000000335,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        },
         "cpu": {
-          "predict_s": 0.09788116550009818,
-          "flop_per_s": 220254044277.58246,
+          "predict_s": 0.0747906000178773,
+          "flop_per_s": 288254440462.3949,
           "profile": {
             "operators": 215,
             "kernels": 0,
@@ -323,9 +367,20 @@
         "bound": "compute"
       },
       "devices": {
+        "cuda": {
+          "predict_s": 0.01843475000350736,
+          "flop_per_s": 5481848789963.15,
+          "profile": {
+            "operators": 215,
+            "kernels": 273,
+            "kernel_s": 0.017905033000000018,
+            "copies": 0,
+            "copy_s": 0.0
+          }
+        },
         "cpu": {
-          "predict_s": 0.43941378950000853,
-          "flop_per_s": 229980292869.25244,
+          "predict_s": 0.3901489000127185,
+          "flop_per_s": 259020368881.4851,
           "profile": {
             "operators": 215,
             "kernels": 0,

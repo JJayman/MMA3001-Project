@@ -1,4 +1,4 @@
-Machine: x86_64; no GPU; PyTorch 2.14.1+cu130; 4 CPU threads.
+Machine: Intel64 Family 6 Model 158 Stepping 12, GenuineIntel; NVIDIA GeForce GTX 1080 Ti; PyTorch 2.14.0+cu126; 8 CPU threads.
 
 One forward pass, batch 1 (PyTorch's FLOP counter; bytes read and written if nothing were fused or cached, so FLOP/byte is a lower bound):
   network                        GFLOP  read MB written MB FLOP/byte operations
@@ -17,11 +17,11 @@ A prediction (photo + mirror image) on the roofline of the NVIDIA GeForce GTX 10
   U-Net 480x640                 101.06    2519.5      40.1  compute       8.91      5.20
 
 Speed of a prediction, timed in this run (median of 10):
-  ResNet-18 features (ridge)   cpu:     47.7 ms     237 GFLOP/s
-  angle CNN 240x320            cpu:     64.5 ms     175 GFLOP/s
-  angle CNN 480x640            cpu:    165.9 ms     268 GFLOP/s
-  U-Net 256x256 (named)        cpu:     97.9 ms     220 GFLOP/s
-  U-Net 480x640                cpu:    439.4 ms     230 GFLOP/s
+  ResNet-18 features (ridge)   cuda:      6.1 ms    1853 GFLOP/s  16.3% | cpu:     51.5 ms     219 GFLOP/s
+  angle CNN 240x320            cuda:      6.8 ms    1668 GFLOP/s  14.7% | cpu:     49.5 ms     228 GFLOP/s
+  angle CNN 480x640            cuda:      7.8 ms    5697 GFLOP/s  50.2% | cpu:    126.4 ms     351 GFLOP/s
+  U-Net 256x256 (named)        cuda:     10.3 ms    2101 GFLOP/s  18.5% | cpu:     74.8 ms     288 GFLOP/s
+  U-Net 480x640                cuda:     18.4 ms    5482 GFLOP/s  48.3% | cpu:    390.1 ms     259 GFLOP/s
 
 Speed of a prediction, as timed by the benchmark (report.json):
   ResNet-18 features (ridge)   cuda:      5.9 ms    1897 GFLOP/s  16.7% | cpu:     51.2 ms     220 GFLOP/s
@@ -31,8 +31,8 @@ Speed of a prediction, as timed by the benchmark (report.json):
   U-Net 480x640                cuda:     18.7 ms    5409 GFLOP/s  47.7% | cpu:    463.2 ms     218 GFLOP/s
 
 Profile of one prediction (torch.profiler; GPU busy = summed kernel time / timed prediction):
-  ResNet-18 features (ridge)   cpu: 133 operators
-  angle CNN 240x320            cpu: 139 operators
-  angle CNN 480x640            cpu: 139 operators
-  U-Net 256x256 (named)        cpu: 215 operators
-  U-Net 480x640                cpu: 215 operators
+  ResNet-18 features (ridge)   cuda: 133 operators, 169 kernels taking 3.51 ms, 0 copies; GPU busy 58% | cpu: 133 operators
+  angle CNN 240x320            cuda: 139 operators, 173 kernels taking 3.52 ms, 0 copies; GPU busy 52% | cpu: 139 operators
+  angle CNN 480x640            cuda: 139 operators, 175 kernels taking 7.44 ms, 0 copies; GPU busy 95% | cpu: 139 operators
+  U-Net 256x256 (named)        cuda: 215 operators, 271 kernels taking 6.14 ms, 0 copies; GPU busy 60% | cpu: 215 operators
+  U-Net 480x640                cuda: 215 operators, 273 kernels taking 17.91 ms, 0 copies; GPU busy 97% | cpu: 215 operators
