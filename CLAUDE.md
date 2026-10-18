@@ -184,7 +184,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 17:
+See the latest file in `docs/progress/`. As of session 18:
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -247,7 +247,9 @@ See the latest file in `docs/progress/`. As of session 17:
      match the reported results; `--mask unet` on a development tree is
      in-sample (`build` warns). A short predicted leader can tip the 3D plane
      (R01N04, R03N10). See `docs/results/model3d/README.md`.
-  2. The report.
+  2. The report: session 18's to-do list (`docs/progress/2026-10-18-session-18.md`, Next steps): the
+     profiled kernel sentence, the mechanical-engineering link, the AI reflection's effect on workflow, the
+     test count (575), reference [7]'s commit after the last merge, and the 10-page limit.
   3. **Before submission: the repository requirements** (the brief, as the student quoted it in session 17:
      ReadMe; HTML documentation; licence; source code, functional `main`, with inline comments and docstrings;
      test functions and a test report; an accessible link; a zipped clone on Moodle). All met as of
