@@ -13,7 +13,9 @@ tests and demos run without the full dataset:
 | R20N06 | Short row (6 trees) |
 
 The full dataset is provided by the MMA3001 teaching team and is **not**
-stored in this repository. Place it in `data/raw/` (git-ignored).
+stored in this repository. Place it in `data/raw/` (git-ignored). These nine
+trees' images remain the teaching team's and are not covered by the
+repository's licence, which applies to the code and documentation.
 
 ## Dataset (With Summer GT)
 
@@ -37,12 +39,20 @@ Five files per tree, all in one folder:
   visible trunk, and the shift varies by tree
   ([example](../../docs/figures/mask_alignment_R12N02.jpg)). Stretching the
   mask to the full width fits worse. Pixel-level comparison therefore needs
-  a per-tree alignment first.
+  a per-tree alignment first: the student lined up every development
+  tree's mask by hand in session 11 (`treeskel.annotate_mask`,
+  `annotations/mask_overlay.json`).
 - Masks were for **validation only** until session 11. Since then the development rows' masks also
   train the segmentation (`treeskel.segment`), which is scored against the winter traces; the test
   rows' masks (rows 3 and 12 here) stay unused until the final evaluation.
 - Depth images are 8-bit greyscale (three identical channels): a scaled
   visualisation, not metric distance. Brighter = closer; 0 = no reading.
+  Session 13 calibrated it: the depth along the camera's axis is about
+  0.01197 m × (300 − value) (`treeskel.depth3d`,
+  [`docs/results/depth3d/`](../../docs/results/depth3d/)).
+- The winter depth sits about 5 px below its colour image, so it is moved
+  5 rows up and 1 column right on loading
+  ([`docs/results/depth_registration/`](../../docs/results/depth_registration/)).
 - Row 4's 21 winter depth images are all copies of R03N34's winter depth
   image (R03N34 was photographed just before row 4). R03N34's image was
   checked against its own RGB image and is genuine, so R03N34 is kept and
@@ -58,9 +68,12 @@ the same orchard, taken in a different (autumn) capture:
   2D open-V (Tatura trellis). Rows 4.125 m apart centre to centre, trees 0.6 m
   apart in a row, rows planted east to west.
 - Camera to canopy distance: 1.8–2.2 m.
-- Chen et al. analysed depth below a 4 m maximum. The 8-bit values in this
-  dataset are consistent with value ≈ 255·(1 − d / 4 m), but this is a hypothesis
-  still to be tested, not a documented mapping.
+- Chen et al. analysed depth below a 4 m maximum. Session 2's guess at this
+  dataset's mapping, value ≈ 255·(1 − d / 4 m), was replaced in session 13 by a
+  calibration: the zero (value 300) from fits to the ground on all 449
+  development trees, the focal length 616 px, and the scale that puts the
+  median fork at 2.0 m (Chen et al.'s 1.8–2.2 m). Angles need only the zero
+  and the focal length; sizes rest on the 2.0 m.
 
 Our summer/winter captures are **not** the autumn images used in the paper:
 our summer images contain apples, and the capture times (about 11:00–14:00)
