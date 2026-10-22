@@ -105,13 +105,21 @@ class SeasonPairs:
         return len(self.winter)
 
     def xy(self) -> tuple[np.ndarray, np.ndarray]:
-        """``(winter, summer)`` as ``(N, 2)`` ``(x, y)`` arrays, the order :mod:`treeskel.align` uses."""
+        """``(winter, summer)`` as ``(N, 2)`` ``(x, y)`` arrays, the order :mod:`treeskel.align` uses.
+
+        Returns:
+            ``(winter, summer)``, each ``(N, 2)`` float.
+        """
         w = np.asarray(self.winter, float).reshape(-1, 2)[:, ::-1]
         s = np.asarray(self.summer, float).reshape(-1, 2)[:, ::-1]
         return w, s
 
     def to_json(self) -> dict:
-        """Plain-data form for the JSON file (coordinates to 0.1 px)."""
+        """Plain-data form for the JSON file (coordinates to 0.1 px).
+
+        Returns:
+            ``{"winter", "summer", "skip", "note"}`` with the points as lists.
+        """
         d = asdict(self)
         for k in ("winter", "summer"):
             d[k] = [[round(float(r), 1), round(float(c), 1)] for r, c in d[k]]
@@ -119,13 +127,27 @@ class SeasonPairs:
 
     @classmethod
     def from_json(cls, d: dict) -> "SeasonPairs":
-        """Inverse of :meth:`to_json`."""
+        """Inverse of :meth:`to_json`.
+
+        Args:
+            d: A dict as written by :meth:`to_json` (missing keys default to empty).
+
+        Returns:
+            The :class:`SeasonPairs`.
+        """
         return cls(winter=[tuple(p) for p in d.get("winter", [])], summer=[tuple(p) for p in d.get("summer", [])],
                    skip=bool(d.get("skip", False)), note=str(d.get("note", "")))
 
 
 def load_pairs(path: str | Path) -> dict[str, SeasonPairs]:
-    """Read a pairs file; a missing file gives an empty dict."""
+    """Read a pairs file; a missing file gives an empty dict.
+
+    Args:
+        path: The JSON file (``annotations/season_pairs.json``).
+
+    Returns:
+        The pairs per tree id.
+    """
     path = Path(path)
     if not path.exists():
         return {}
@@ -133,7 +155,12 @@ def load_pairs(path: str | Path) -> dict[str, SeasonPairs]:
 
 
 def save_pairs(path: str | Path, pairs: dict[str, SeasonPairs]) -> None:
-    """Write a pairs file atomically (a crash never leaves it half-written)."""
+    """Write a pairs file atomically (a crash never leaves it half-written).
+
+    Args:
+        path: The JSON file to write.
+        pairs: The pairs per tree id.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {k: pairs[k].to_json() for k in sorted(pairs)}
@@ -149,6 +176,14 @@ def pair_transform(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray 
     Returns ``None`` if there are too few pairs for the model, they are
     degenerate (see :func:`treeskel.align.fit_transform`), or the fitted
     homography would turn part of the image inside out (:func:`_fit`).
+
+    Args:
+        pairs: The tree's clicked pairs.
+        model: One of :data:`treeskel.align.MODELS` (``"translation"``, ``"similarity"``, ``"affine"``,
+            ``"homography"``).
+
+    Returns:
+        The 3x3 transform, or None.
 
     Example:
         >>> p = SeasonPairs(winter=[(100, 200), (300, 250)], summer=[(90, 215), (290, 265)])
@@ -180,6 +215,11 @@ def loo_errors(pairs: SeasonPairs, model: str = "similarity") -> np.ndarray:
     error is the distance between the transformed winter point ``i`` and the
     summer point ``i``. A wrong click shows up as a large error on its own
     pair (and smaller rises on the others, whose fits it takes part in).
+
+    Args:
+        pairs: The tree's clicked pairs.
+        model: One of :data:`treeskel.align.MODELS` (``"translation"``, ``"similarity"``, ``"affine"``,
+            ``"homography"``).
 
     Returns:
         ``(N,)`` errors; ``nan`` for a pair whose fit without it is impossible
@@ -223,6 +263,15 @@ def check_pairs(pairs: SeasonPairs, model: str = "similarity", limits: PairLimit
     Flags too few pairs, a pair far from the fit of the others (probably a
     wrong click, or a point off the tree's plane) and an implausible scale or
     rotation.
+
+    Args:
+        pairs: The tree's clicked pairs.
+        model: One of :data:`treeskel.align.MODELS` (``"translation"``, ``"similarity"``, ``"affine"``,
+            ``"homography"``).
+        limits: The thresholds of the checks.
+
+    Returns:
+        Human-readable reasons; empty if the pairs pass or the tree is skipped.
     """
     if pairs.skip:
         return []
@@ -250,6 +299,10 @@ def loo_table(pairs: dict[str, SeasonPairs], models: Sequence[str] = PAIR_MODELS
     Only trees with enough pairs for every model's leave-one-out check are
     used (``max(MIN_SAMPLES) + 1`` pairs), so all models are compared on the
     same points.
+
+    Args:
+        pairs: The pairs per tree id.
+        models: The models compared.
 
     Returns:
         One dict per model: ``model``, ``trees``, ``pairs``, and the median,
@@ -291,11 +344,12 @@ class Overlay:
     6 of its 8 degrees of freedom.
 
     Attributes:
-        dx, dy: Shift (px) of the image centre, winter to summer.
+        dx: Rightward shift (px) of the image centre, winter to summer.
+        dy: Downward shift (px) of the image centre, winter to summer.
         scale: Size of the tree in summer relative to winter.
         roll: Rotation about the image centre (degrees; positive is clockwise).
-        pitch, yaw: Perspective tilts (degrees) about the image's horizontal
-            and vertical axes.
+        pitch: Perspective tilt (degrees) about the image's horizontal axis.
+        yaw: Perspective tilt (degrees) about the image's vertical axis.
         skip: The tree could not be aligned (it then gets no summer mask).
         mask_flag: The winter mask looked wrong while aligning, to fix later.
         note: Free-text comment.
@@ -318,6 +372,13 @@ class Overlay:
     def matrix(self, focal: float = FOCAL_PX, centre: tuple[float, float] = (320.0, 240.0)) -> np.ndarray:
         """The 3x3 winter-to-summer ``(x, y)`` transform.
 
+        Args:
+            focal: Focal length (px) of the pinhole camera for the tilts.
+            centre: The image centre ``(x, y)``, held in place.
+
+        Returns:
+            The 3x3 transform, scaled so its last entry is 1.
+
         Example:
             >>> m = Overlay(dx=12, dy=-30).matrix()
             >>> [round(float(v), 6) for v in apply_transform(m, [(100, 200)])[0]]
@@ -338,11 +399,19 @@ class Overlay:
         return m / m[2, 2]
 
     def params(self) -> dict[str, float]:
-        """The six transform parameters."""
+        """The six transform parameters.
+
+        Returns:
+            ``{"dx", "dy", "scale", "roll", "pitch", "yaw"}``.
+        """
         return {k: float(getattr(self, k)) for k in self.PARAMS}
 
     def to_json(self) -> dict:
-        """Plain-data form for the JSON file."""
+        """Plain-data form for the JSON file.
+
+        Returns:
+            The fields as plain data.
+        """
         d = asdict(self)
         for k in (*self.PARAMS, "seconds"):
             d[k] = round(float(d[k]), 4)
@@ -350,13 +419,27 @@ class Overlay:
 
     @classmethod
     def from_json(cls, d: dict) -> "Overlay":
-        """Inverse of :meth:`to_json` (missing fields take their defaults)."""
+        """Inverse of :meth:`to_json` (missing fields take their defaults).
+
+        Args:
+            d: A dict as written by :meth:`to_json`; unknown keys are ignored.
+
+        Returns:
+            The :class:`Overlay`.
+        """
         known = {f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in d.items() if k in known})
 
 
 def load_overlays(path: str | Path) -> dict[str, Overlay]:
-    """Read an overlay file; a missing file gives an empty dict."""
+    """Read an overlay file; a missing file gives an empty dict.
+
+    Args:
+        path: The JSON file (e.g. ``annotations/season_overlay.json``).
+
+    Returns:
+        The transforms per tree id.
+    """
     path = Path(path)
     if not path.exists():
         return {}
@@ -364,7 +447,12 @@ def load_overlays(path: str | Path) -> dict[str, Overlay]:
 
 
 def save_overlays(path: str | Path, overlays: dict[str, Overlay]) -> None:
-    """Write an overlay file atomically."""
+    """Write an overlay file atomically.
+
+    Args:
+        path: The JSON file to write.
+        overlays: The transforms per tree id.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {k: overlays[k].to_json() for k in sorted(overlays)}
@@ -380,6 +468,13 @@ def interior_pairs(pairs: SeasonPairs, margin: float = 15.0) -> SeasonPairs:
     Where a branch leaves the edge of the photo is not the same physical
     point in the two seasons, because they frame the tree differently (the
     student's finding in session 7), so such pairs cannot check an alignment.
+
+    Args:
+        pairs: A tree's clicked pairs.
+        margin: Distance from the top and bottom edges (px).
+
+    Returns:
+        The pairs kept.
     """
     keep = [i for i in range(len(pairs))
             if all(margin <= r <= 479 - margin for r in (pairs.winter[i][0], pairs.summer[i][0]))]
@@ -387,7 +482,15 @@ def interior_pairs(pairs: SeasonPairs, margin: float = 15.0) -> SeasonPairs:
 
 
 def pair_distances(matrix: np.ndarray, pairs: SeasonPairs) -> np.ndarray:
-    """Distance (px) between each clicked summer point and where ``matrix`` puts its winter point."""
+    """Distance (px) between each clicked summer point and where ``matrix`` puts its winter point.
+
+    Args:
+        matrix: 3x3 winter-to-summer transform.
+        pairs: A tree's clicked pairs.
+
+    Returns:
+        ``(N,)`` distances (px).
+    """
     w, s = pairs.xy()
     return np.hypot(*(apply_transform(matrix, w) - s).T) if len(w) else np.zeros(0)
 
@@ -397,6 +500,15 @@ def mask_displacement(m1: np.ndarray, m2: np.ndarray, mask: np.ndarray, step: in
 
     Measures how much two alignments of a tree differ where it matters, on
     the branches (every ``step``-th mask pixel is used, for speed).
+
+    Args:
+        m1: One 3x3 transform.
+        m2: The other.
+        mask: The winter branch mask.
+        step: Use every ``step``-th mask pixel.
+
+    Returns:
+        The mean distance (px); NaN for an empty mask.
     """
     ys, xs = np.nonzero(mask)
     pts = np.c_[xs, ys][::step].astype(float)
@@ -410,6 +522,16 @@ def draw_summer_gt(rgb_summer: np.ndarray, warped: np.ndarray, pairs: SeasonPair
     """The summer image with the warped mask outlined (magenta) and the clicked summer points.
 
     Each point is numbered with its leave-one-out error; red if above 10 px.
+
+    Args:
+        rgb_summer: ``(480, 640, 3)`` uint8 summer photo.
+        warped: The winter mask in the summer view (boolean).
+        pairs: The tree's clicked pairs.
+        loo: Each pair's leave-one-out error (px).
+        label: Text written in the corner.
+
+    Returns:
+        The PIL image.
     """
     im = rgb_summer.copy()
     im[outline(warped, 3)] = (255, 0, 255)
@@ -488,6 +610,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     winter image covers the summer view), plus ``summary.csv`` (each tree's
     scale, rotation and shift at its fork click) and contact sheets;
     ``--overlays`` also saves a full-size picture per tree.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no aligned tree was selected or an output file could not be
+        written.
     """
     from treeskel.guided_gt import load_clicks
     from treeskel.io import index_dataset, load_tree

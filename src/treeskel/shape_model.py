@@ -87,6 +87,13 @@ photo and a 2x2 grid) is the model chosen before seeing any result; the others a
 def feature_matrix(arrays: dict[str, np.ndarray], name: str) -> np.ndarray:
     """The features of one set as ``(N, 2, D)``: axis 1 is the photo, then its mirror image.
 
+    Args:
+        arrays: Feature arrays by name, from :func:`treeskel.shape.load_features`.
+        name: A key of :data:`FEATURE_SETS` (e.g. ``"rgb"``: global and cell features).
+
+    Returns:
+        ``(N, 2, D)`` features.
+
     Example:
         >>> a = {"rgb_global": np.ones((3, 2, 4)), "rgb_cells": np.zeros((3, 2, 2, 4))}
         >>> feature_matrix(a, "rgb").shape
@@ -98,6 +105,12 @@ def feature_matrix(arrays: dict[str, np.ndarray], name: str) -> np.ndarray:
 
 def mirror_matrix(names: Sequence[str] = MEASURES) -> np.ndarray:
     """The matrix ``M`` with ``mirror(y) = y @ M`` for rows ``y`` of the measures ``names``.
+
+    Args:
+        names: The measures, in column order.
+
+    Returns:
+        The ``(k, k)`` matrix ``M``.
 
     Example:
         >>> m = mirror_matrix(("left_bend", "right_bend", "lean"))
@@ -114,7 +127,14 @@ def mirror_matrix(names: Sequence[str] = MEASURES) -> np.ndarray:
 
 
 def load_table(path: str | Path) -> list[dict]:
-    """Read ``shape_measures.csv`` (numbers as floats, empty or ``nan`` as NaN)."""
+    """Read ``shape_measures.csv`` (numbers as floats, empty or ``nan`` as NaN).
+
+    Args:
+        path: The CSV file.
+
+    Returns:
+        The rows as dicts.
+    """
     rows = []
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -156,7 +176,15 @@ class RidgePath:
         self.uty = self.u.T @ (y - self.y0)
 
     def predict(self, x: np.ndarray, alphas: Sequence[float]) -> np.ndarray:
-        """``(len(alphas), m, k)`` predictions for ``(m, D)`` features."""
+        """``(len(alphas), m, k)`` predictions for ``(m, D)`` features.
+
+        Args:
+            x: ``(m, D)`` features.
+            alphas: Penalties.
+
+        Returns:
+            The predictions.
+        """
         z = (x - self.mu) / self.sd
         zv = z @ self.vt.T                                  # (m, r)
         out = [(zv * (self.s / (self.s ** 2 + a))) @ self.uty + self.y0 for a in alphas]
@@ -181,8 +209,9 @@ def fit_predict(x2_train: np.ndarray, y_train: np.ndarray, x2_test: np.ndarray, 
     """Ridge predictions for every penalty, for measures with no missing values in ``y_train``.
 
     Args:
-        x2_train, x2_test: ``(n, 2, D)`` features (photo, mirror image).
+        x2_train: ``(n, 2, D)`` training features (photo, mirror image).
         y_train: ``(n, k)`` targets for the measures ``names``, no NaN.
+        x2_test: ``(m, 2, D)`` features to predict.
         alphas: Penalties.
         names: The measures' names (for the mirror matrix; all of a mirrored
             pair must be present if ``mirror``).
@@ -219,6 +248,14 @@ def predict_all(x2_train: np.ndarray, y_train: np.ndarray, x2_test: np.ndarray, 
                 names: Sequence[str] = MEASURES, mirror: bool = True) -> np.ndarray:
     """:func:`fit_predict` for every measure, each group on the training trees where it is known.
 
+    Args:
+        x2_train: ``(n, 2, D)`` training features (photo, mirror image).
+        y_train: ``(n, k)`` training targets (NaN = unknown).
+        x2_test: ``(m, 2, D)`` features to predict.
+        alphas: Penalties.
+        names: The measures, in column order.
+        mirror: Use the mirror images too.
+
     Returns:
         ``(len(alphas), m, len(names))`` predictions (NaN only if a group has
         fewer than 3 known training trees).
@@ -240,7 +277,9 @@ def choose_alpha(x2: np.ndarray, y: np.ndarray, rows: np.ndarray, alphas: Sequen
         x2: ``(n, 2, D)`` training features.
         y: ``(n, k)`` training targets (NaN = unknown).
         rows: ``(n,)`` orchard row of each tree (the groups).
-        alphas, names, mirror: As for :func:`predict_all`.
+        alphas: Penalties, as for :func:`predict_all`.
+        names: The measures, in column order.
+        mirror: Use the mirror images too, as for :func:`predict_all`.
         n_splits: Inner folds (fewer if there are fewer rows).
 
     Returns:
@@ -267,7 +306,9 @@ def cross_validate(x2: np.ndarray, y: np.ndarray, rows: np.ndarray, fold_rows: S
         y: ``(n, k)`` winter measures (NaN = unknown).
         rows: ``(n,)`` orchard rows.
         fold_rows: The held-out rows of each fold (``splits.json``'s ``fold_val_rows``).
-        alphas, names, mirror: As for :func:`predict_all`.
+        alphas: Penalties, as for :func:`predict_all`.
+        names: The measures, in column order.
+        mirror: Use the mirror images too, as for :func:`predict_all`.
 
     Returns:
         ``{"ridge": (n, k), "mean": (n, k), "fold": (n,), "alpha": (folds, k),
@@ -300,6 +341,12 @@ def evaluate(truth: np.ndarray, pred: np.ndarray, baseline: np.ndarray, fold: np
     """Scores of one measure's predictions against the truth and the mean-shape baseline.
 
     Only trees where the truth, the prediction and the baseline are all known count.
+
+    Args:
+        truth: Winter values per tree.
+        pred: Predicted values per tree.
+        baseline: The mean shape's values per tree.
+        fold: Each tree's fold, for the per-fold skill; None to leave it out.
 
     Returns:
         ``{"n", "mae", "rmse", "skill", "r", "baseline_mae", "improved", "wilcoxon_p",
@@ -336,7 +383,12 @@ def _fmt(x, spec: str) -> str:
 
 
 def print_scores(report: dict, names: Sequence[str]) -> None:
-    """Print the table of scores per measure and model."""
+    """Print the table of scores per measure and model.
+
+    Args:
+        report: From :func:`run`.
+        names: The measures shown.
+    """
     print(f"\n  {'measure':12s} {'model':19s} {'n':>4s} {'MAE':>6s} {'RMSE':>6s} {'skill':>6s} {'r':>5s} "
           f"{'bias':>6s} {'better':>6s} {'p':>8s}  per-fold skill")
     for k in names:
@@ -352,6 +404,15 @@ def run(table: Sequence[dict], ids: Sequence[str], arrays: dict, fold_rows: Sequ
         feature_sets: Sequence[str] = tuple(FEATURE_SETS), names: Sequence[str] = MEASURES,
         alphas: Sequence[float] = ALPHAS) -> tuple[dict, dict]:
     """Cross-validate every feature set (with and without mirroring for ``rgb``) and score all models.
+
+    Args:
+        table: The winter shape table's rows.
+        ids: Tree ids, in the order of the features.
+        arrays: Feature arrays by name.
+        fold_rows: The held-out rows of each fold.
+        feature_sets: The sets tried.
+        names: The measures.
+        alphas: Penalties.
 
     Returns:
         ``(report, predictions)``: the scores per measure and model, and the
@@ -391,7 +452,13 @@ def run(table: Sequence[dict], ids: Sequence[str], arrays: dict, fold_rows: Sequ
 
 
 def save_predictions(path: Path, preds: dict, names: Sequence[str] = MEASURES) -> None:
-    """One row per tree and measure: the truth, the fold, and every model's prediction."""
+    """One row per tree and measure: the truth, the fold, and every model's prediction.
+
+    Args:
+        path: The CSV file.
+        preds: The per-tree predictions from :func:`run`.
+        names: The measures.
+    """
     models = [k for k in preds if k not in ("tree", "row", "truth", "fold")]
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -439,6 +506,12 @@ def plot_skill(report: dict, path: Path, failed: list[str], models: Sequence[str
     Skill 0 is the mean shape (the axis line) and 1 a perfect prediction.
     The whiskers span the five folds' skills, so a model that only helps in
     some rows shows it.
+
+    Args:
+        report: From :func:`run`.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        models: The models drawn.
     """
     import matplotlib
 
@@ -506,6 +579,14 @@ def plot_scatter(preds: dict, report: dict, path: Path, failed: list[str],
     """Small multiples: each model's prediction against the winter truth, one panel per model and measure.
 
     The diagonal is a perfect prediction; the dashed line is the mean shape.
+
+    Args:
+        preds: The per-tree predictions from :func:`run`.
+        report: From :func:`run`.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        models: The models drawn.
+        names: The measures drawn.
     """
     import matplotlib
 
@@ -549,7 +630,15 @@ def plot_scatter(preds: dict, report: dict, path: Path, failed: list[str],
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Cross-validate the models on the development rows and save the scores."""
+    """Cross-validate the models on the development rows and save the scores.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the table holds test-row trees or an output file could not be
+        written.
+    """
     ap = argparse.ArgumentParser(prog="python -m treeskel.shape_model", description=__doc__.splitlines()[0])
     ap.add_argument("--table", default="data/shape/shape_measures.csv")
     ap.add_argument("--features", default="data/shape/summer_resnet18.npz")

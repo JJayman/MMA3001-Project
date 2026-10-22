@@ -76,7 +76,14 @@ _TO_MASK = np.array([[MASK_PER_PHOTO, 0, -CROP_COLS[0] * MASK_PER_PHOTO], [0, MA
 
 
 def mask_transform(ov: Overlay) -> np.ndarray:
-    """A photo-pixel shift and scale as a 3x3 ``(x, y)`` transform of the 256x256 mask frame."""
+    """A photo-pixel shift and scale as a 3x3 ``(x, y)`` transform of the 256x256 mask frame.
+
+    Args:
+        ov: The saved shift and scale, in photo pixels.
+
+    Returns:
+        The 3x3 ``(x, y)`` transform in mask pixels (256x256 frame).
+    """
     return _TO_MASK @ ov.matrix() @ np.linalg.inv(_TO_MASK)
 
 
@@ -85,6 +92,13 @@ def move_mask(mask: np.ndarray, ov: Overlay) -> np.ndarray:
 
     Pixels that come from beyond the mask's edge repeat the edge, so a trunk
     that reaches the bottom of the photo still does after a move up.
+
+    Args:
+        mask: A 256x256 boolean hand mask.
+        ov: The shift and scale to apply, in photo pixels.
+
+    Returns:
+        The moved 256x256 boolean mask (a copy if the overlay changes nothing).
 
     Example:
         >>> m = np.zeros((256, 256), bool); m[100:120, 50:60] = True
@@ -103,7 +117,15 @@ def move_mask(mask: np.ndarray, ov: Overlay) -> np.ndarray:
 
 
 def mask_fork(mask: np.ndarray) -> np.ndarray:
-    """The hand mask's fork as a photo ``(x, y)`` point (the pin for scaling), or its centre if none is found."""
+    """The hand mask's fork as a photo ``(x, y)`` point (the pin for scaling), or its centre if none is found.
+
+    Args:
+        mask: A 256x256 boolean hand mask.
+
+    Returns:
+        The fork as a photo ``(x, y)`` point; the centre of the mask's pixels if no fork is found, or the
+        photo's centre for an empty mask.
+    """
     from treeskel.shape import mask_branches, mask_to_image
 
     br = mask_branches(np.asarray(mask, bool))
@@ -118,7 +140,15 @@ def mask_fork(mask: np.ndarray) -> np.ndarray:
 
 
 def apply_mask_overlays(masks: dict[str, np.ndarray], overlays: dict[str, Overlay]) -> dict[str, np.ndarray | None]:
-    """Each tree's hand mask moved by its saved shift; None for a skipped tree, unchanged for one not lined up."""
+    """Each tree's hand mask moved by its saved shift; None for a skipped tree, unchanged for one not lined up.
+
+    Args:
+        masks: The 256x256 hand masks per tree id.
+        overlays: The saved line-ups per tree id.
+
+    Returns:
+        The masks per tree id: moved, unchanged (no line-up saved) or None (skipped).
+    """
     out = {}
     for t, m in masks.items():
         ov = overlays.get(t)
@@ -159,7 +189,11 @@ class MaskAnnotator:
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def start(self) -> Overlay:
-        """Starting shift: the saved one, else the median of the row's trees, else of all trees."""
+        """Starting shift: the saved one, else the median of the row's trees, else of all trees.
+
+        Returns:
+            The shift and scale to show first (not flagged as skipped).
+        """
         tid = self.tree.tree_id
         old = self.saved.get(tid)
         if old is not None and not old.skip:
@@ -186,11 +220,19 @@ class MaskAnnotator:
         self.t0 = self.clock()
 
     def moved(self) -> np.ndarray:
-        """The hand mask moved by the current shift, in the photo's frame ``(480, 640)``."""
+        """The hand mask moved by the current shift, in the photo's frame ``(480, 640)``.
+
+        Returns:
+            The moved mask as a boolean ``(480, 640)`` array.
+        """
         return mask_to_image_frame(move_mask(self.mask, self.ov))[0]
 
     def composite(self) -> np.ndarray:
-        """The summer photo with the moved mask outlined (or filled, half see-through) in magenta."""
+        """The summer photo with the moved mask outlined (or filled, half see-through) in magenta.
+
+        Returns:
+            The picture to show, a ``(480, 640, 3)`` uint8 array.
+        """
         out = self.summer.copy()
         if not self.show_mask:
             return out
@@ -213,16 +255,30 @@ class MaskAnnotator:
             self.ov.dy += before[1] - after[1]
 
     def shift(self, ddx: float, ddy: float) -> None:
-        """Move the mask by ``(ddx, ddy)`` photo px."""
+        """Move the mask by ``(ddx, ddy)`` photo px.
+
+        Args:
+            ddx: Rightward move (photo px).
+            ddy: Downward move (photo px).
+        """
         self._change(dx=self.ov.dx + ddx, dy=self.ov.dy + ddy)
 
     def rescale(self, factor: float, about: tuple[float, float] | None = None) -> None:
-        """Scale by ``factor``, keeping the photo point ``about`` (``(x, y)``) fixed, or the mask's fork."""
+        """Scale by ``factor``, keeping the photo point ``about`` (``(x, y)``) fixed, or the mask's fork.
+
+        Args:
+            factor: Scale factor (above 1 enlarges the mask).
+            about: The photo ``(x, y)`` point kept fixed; the mask's fork by default.
+        """
         q = self.pin if about is None else apply_transform(np.linalg.inv(self.ov.matrix()), [about])[0]
         self._change(pin_xy=q, scale=self.ov.scale * factor)
 
     def prompt(self) -> str:
-        """Current tree, shift and help, for the window title."""
+        """Current tree, shift and help, for the window title.
+
+        Returns:
+            The window title, or a closing message once every tree is done.
+        """
         if self.done:
             return "All trees done - press q to save and quit"
         o = self.ov
@@ -231,7 +287,11 @@ class MaskAnnotator:
                 + f"  {spent:.0f} s\nshift {o.dx:+.1f}, {o.dy:+.1f} px   scale {o.scale:.3f}")
 
     def key(self, key: str) -> None:
-        """Handle a key press."""
+        """Handle a key press.
+
+        Args:
+            key: The key's name as matplotlib reports it (e.g. ``"enter"``, ``"left"``, ``"q"``).
+        """
         if key == "q":
             save_overlays(self.path, self.saved)
             self.done = True
@@ -280,7 +340,14 @@ HELP = ("drag: shift   arrows: 1 px (shift: 10)   scroll, - =: scale   space: fi
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs a display
-    """Start the mask line-up tool (see the module docstring for usage)."""
+    """Start the mask line-up tool (see the module docstring for usage).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0 (the shifts are saved as they are made).
+    """
     from treeskel.annotate_overlay import run_gui
     from treeskel.splits import load_split
 

@@ -134,6 +134,12 @@ def mirror_columns(names: Sequence[str] = MEASURES) -> tuple[np.ndarray, np.ndar
     Unlike multiplying by the mirror matrix, this keeps an unknown (NaN)
     measure in its own place instead of spreading it (NaN × 0 is NaN).
 
+    Args:
+        names: The measures, in column order.
+
+    Returns:
+        ``(src, sign)``: the column each mirrored column comes from, and its sign (±1).
+
     Example:
         >>> src, sign = mirror_columns(("left_bend", "right_bend", "lean"))
         >>> (np.array([[1.0, np.nan, 3.0]])[:, src] * sign).tolist()
@@ -145,7 +151,15 @@ def mirror_columns(names: Sequence[str] = MEASURES) -> tuple[np.ndarray, np.ndar
 
 
 def masked_mse(pred, target):
-    """Mean squared error over the known targets (NaN in ``target`` is skipped)."""
+    """Mean squared error over the known targets (NaN in ``target`` is skipped).
+
+    Args:
+        pred: ``(B, k)`` predictions (tensor).
+        target: ``(B, k)`` targets, NaN where unknown.
+
+    Returns:
+        The loss, a scalar tensor (0 if no target is known).
+    """
     import torch
 
     known = torch.isfinite(target)
@@ -155,7 +169,14 @@ def masked_mse(pred, target):
 
 def normalise(x):
     """``(B, 3, H, W)`` floats in [0, 1] to the ImageNet normalisation; a fourth (depth) channel uses
-    :data:`DEPTH_MEAN` and :data:`DEPTH_STD`."""
+    :data:`DEPTH_MEAN` and :data:`DEPTH_STD`.
+
+    Args:
+        x: ``(B, 3 or 4, H, W)`` tensor in [0, 1].
+
+    Returns:
+        The normalised tensor.
+    """
     import torch
 
     mean, std = list(IMAGENET_MEAN), list(IMAGENET_STD)
@@ -220,6 +241,17 @@ def make_model(n_out: int, pretrained: bool = True, channels: int = 3):
     predictions are near the training mean (0 in standardised units). With
     ``channels=4`` the first convolution takes a depth channel too; its
     weights for it start as the mean of its (pretrained) colour weights.
+
+    Args:
+        n_out: Outputs (one per measure).
+        pretrained: Load the ImageNet weights.
+        channels: Input channels: 3 (colour) or 4 (colour and depth).
+
+    Returns:
+        The model, a ``torch.nn.Module``.
+
+    Raises:
+        ValueError: If ``channels`` is not 3 or 4.
     """
     import torch
     from torchvision.models import ResNet18_Weights, resnet18
@@ -437,6 +469,13 @@ def load_photos(records: dict, ids: Sequence[str], size: tuple[int, int], progre
                 depth: bool = False) -> np.ndarray:
     """The summer photos of ``ids``, resized (bilinear) to ``size`` = ``(height, width)``.
 
+    Args:
+        records: Tree records by id.
+        ids: The trees to load.
+        size: ``(height, width)``.
+        progress: Prints a progress line.
+        depth: Add the summer depth as a fourth channel.
+
     Returns:
         ``(n, H, W, 3)`` uint8, or ``(n, H, W, 4)`` with the summer depth last if ``depth``.
     """
@@ -470,7 +509,14 @@ def _ridge_predictions(path: Path, trees: Sequence[str], names: Sequence[str]) -
 
 
 def variant(params: CNNParams) -> str:
-    """The run's name, which is also its results folder: ``shape_cnn``, ``shape_cnn_depth``, ``shape_cnn_480x640``, ..."""
+    """The run's name, which is also its results folder: ``shape_cnn``, ``shape_cnn_depth``, ``shape_cnn_480x640``, ...
+
+    Args:
+        params: The run's settings.
+
+    Returns:
+        The name.
+    """
     name = "shape_cnn" + ("_depth" if params.depth else "")
     return name if tuple(params.size) == CNNParams.size else f"{name}_{params.size[0]}x{params.size[1]}"
 
@@ -500,9 +546,10 @@ def plot_comparison(series: Sequence[tuple[str, dict]], path: Path, failed: list
             model (``{measure: evaluate(...)}``).
         path: Where to save the figure.
         failed: Collects paths that could not be written.
-        title, subtitle: The figure's title and the line under it.
-        names, styles: Legend names and ``(colour, marker)`` for keys beyond
-            :data:`SERIES_NAME` and :data:`SERIES_STYLE` (or to override them).
+        title: The figure's title.
+        subtitle: The line under it.
+        names: Legend names for keys beyond :data:`SERIES_NAME` (or to override them).
+        styles: ``(colour, marker)`` for keys beyond :data:`SERIES_STYLE` (or to override them).
     """
     import matplotlib
 
@@ -562,6 +609,14 @@ def plot_training(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
 
     A falling training loss with a flat held-out loss is the network learning its training photos
     rather than the trees; the dashed line marks the epochs chosen.
+
+    Args:
+        log: The run's training log: one row per fold, stage and epoch, with its losses.
+        chosen: The epochs each fold chose.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        title: The figure's title.
+        ylabel: The loss axis's label.
     """
     import matplotlib
 
@@ -653,7 +708,12 @@ def compare_runs(dirs: Sequence[Path], names: Sequence[str] = MEASURES) -> dict:
 
 
 def print_comparison(comparison: dict, reference: str) -> None:
-    """Print :func:`compare_runs`'s result."""
+    """Print :func:`compare_runs`'s result.
+
+    Args:
+        comparison: From :func:`compare_runs`.
+        reference: The run the others are compared with.
+    """
     for run, measures in comparison.items():
         print(f"\n{run} against {reference} (skill: reference -> run; trees predicted more closely; "
               "Wilcoxon p; folds whose skill rose):")
@@ -664,6 +724,10 @@ def print_comparison(comparison: dict, reference: str) -> None:
 
 def replot(dirs: Sequence[Path], figures: Path) -> list[str]:
     """The figures from saved results: a comparison of every run in ``dirs`` and each run's learning curves.
+
+    Args:
+        dirs: Saved runs' results folders.
+        figures: The folder for the figures.
 
     Returns:
         Paths that could not be written.
@@ -688,7 +752,15 @@ def replot(dirs: Sequence[Path], figures: Path) -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Fine-tune on the development rows, fold by fold, and save the scores (or, with ``--replot``, only redraw
-    the figures from saved results)."""
+    the figures from saved results).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the table holds test-row trees, too few trees were found, PyTorch
+        is missing, the GPU ran out of memory, or an output file could not be written.
+    """
     ap = argparse.ArgumentParser(prog="python -m treeskel.shape_cnn", description=__doc__.splitlines()[0])
     ap.add_argument("data_dirs", nargs="*", help="dataset folder(s) with the summer photos")
     ap.add_argument("--table", default="data/shape/shape_measures.csv", help="winter measures (treeskel.shape)")

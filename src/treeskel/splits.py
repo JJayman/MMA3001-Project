@@ -234,6 +234,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Usage: ``python -m treeskel.splits DATA_DIR [--save | --load splits.json]
     [--check-images]``.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0. Bad arguments stop with a usage message, and a split file that does not fit
+        the data raises ``ValueError`` (:func:`load_split`).
     """
     ap = argparse.ArgumentParser(prog="python -m treeskel.splits", description=__doc__.splitlines()[0])
     ap.add_argument("data_dir", help="folder containing the dataset PNG files")

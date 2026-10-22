@@ -284,6 +284,9 @@ class Clicks:
 
         "Left" always means the leader whose tip is further left in the image,
         whatever order the tips were clicked in.
+
+        Returns:
+            A new :class:`Clicks` with the leaders swapped, or these clicks if they are already in order.
         """
         if self.left and self.right and self.left[-1][1] > self.right[-1][1]:
             return Clicks(trunk=list(self.trunk), left=list(self.right), right=list(self.left),
@@ -291,7 +294,11 @@ class Clicks:
         return self
 
     def to_json(self) -> dict:
-        """Plain-data form for the JSON file."""
+        """Plain-data form for the JSON file.
+
+        Returns:
+            ``{"trunk", "left", "right", "skip", "note"}`` with the points as lists.
+        """
         d = asdict(self)
         for k in ("trunk", "left", "right"):
             d[k] = [list(map(int, p)) for p in d[k]]
@@ -299,7 +306,14 @@ class Clicks:
 
     @classmethod
     def from_json(cls, d: dict) -> "Clicks":
-        """Inverse of :meth:`to_json`."""
+        """Inverse of :meth:`to_json`.
+
+        Args:
+            d: A dict as written by :meth:`to_json` (missing keys default to empty).
+
+        Returns:
+            The :class:`Clicks`.
+        """
         return cls(
             trunk=[tuple(p) for p in d.get("trunk", [])],
             left=[tuple(p) for p in d.get("left", [])],
@@ -310,7 +324,14 @@ class Clicks:
 
 
 def load_clicks(path: str | Path) -> dict[str, Clicks]:
-    """Read a clicks file; a missing file gives an empty dict."""
+    """Read a clicks file; a missing file gives an empty dict.
+
+    Args:
+        path: The JSON file (``annotations/winter_clicks.json``).
+
+    Returns:
+        The clicks per tree id.
+    """
     path = Path(path)
     if not path.exists():
         return {}
@@ -318,7 +339,12 @@ def load_clicks(path: str | Path) -> dict[str, Clicks]:
 
 
 def save_clicks(path: str | Path, clicks: dict[str, Clicks]) -> None:
-    """Write a clicks file atomically (a crash never leaves it half-written)."""
+    """Write a clicks file atomically (a crash never leaves it half-written).
+
+    Args:
+        path: The JSON file to write.
+        clicks: The clicks per tree id.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {k: clicks[k].to_json() for k in sorted(clicks)}
@@ -347,7 +373,9 @@ def cost_cues(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray,
     (see :func:`combine_cues` and :mod:`treeskel.tune_cost`).
 
     Args:
-        rgb, depth, valid: The winter images.
+        rgb: The winter ``(480, 640, 3)`` uint8 photo.
+        depth: Its ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         params: Uses ``sigmas`` and ``centre_window``.
 
     Returns:
@@ -381,6 +409,10 @@ def combine_cues(cues: dict[str, np.ndarray],
     centring exceeds ``wood_threshold`` (``centre_source="wood"``). The
     latter uses colour and shape too, so ground pixels that merge into the
     trunk base in depth do not pull the centre line sideways.
+
+    Args:
+        cues: The cues from :func:`cost_cues`.
+        params: The weights and the centring settings.
 
     Returns:
         ``(cost, woodiness)``; cost is ``cost_floor + (1 − woodiness)^cost_power``.
@@ -485,7 +517,9 @@ def guided_gt(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, clicks: Cli
     """Trace the trunk and both leaders through the clicked points.
 
     Args:
-        rgb, depth, valid: The tree's winter images.
+        rgb: The tree's winter ``(480, 640, 3)`` uint8 photo.
+        depth: Its ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         clicks: Complete :class:`Clicks` (not skipped).
         params: Settings; the cost-map ones are ignored if ``cost`` is given.
         cost: Precomputed cost map, to avoid recomputing it while clicking.
@@ -579,6 +613,14 @@ def clear_of(path: np.ndarray, other: np.ndarray, distance: float) -> np.ndarray
     one then takes in the other as well. On a synthetic tree with leaders of
     constant width, such cross-sections measured the leaders 1.7–2.4 times too
     wide up to 3 trunk radii from the fork.
+
+    Args:
+        path: ``(N, 2)`` points.
+        other: ``(M, 2)`` points of the other branch.
+        distance: Clearance (px).
+
+    Returns:
+        ``(N,)`` boolean; all True if ``other`` is empty.
     """
     if len(path) == 0 or len(other) == 0:
         return np.ones(len(path), bool)
@@ -592,6 +634,12 @@ def huber_line(x: np.ndarray, y: np.ndarray, k: float = 1.345, iters: int = 30) 
     standard deviations (scale = 1.4826 × median absolute residual) get full
     weight, larger ones weight ``k·σ/|r|``, so outliers pull the line far less
     than in ordinary least squares.
+
+    Args:
+        x: Positions.
+        y: Values, one per position.
+        k: Huber's tuning constant (in robust SDs).
+        iters: Most reweighting rounds.
 
     Returns:
         ``(a, b)``; ``b = 0`` if ``x`` has no spread.
@@ -621,6 +669,14 @@ def huber_location(y: np.ndarray, k: float = 1.345, iters: int = 30) -> float:
     Starts from the median; values more than ``k`` robust standard
     deviations away are down-weighted, so a minority of outliers (e.g.
     cross-sections that also caught a branch behind) barely move it.
+
+    Args:
+        y: Values.
+        k: Huber's tuning constant (in robust SDs).
+        iters: Most reweighting rounds.
+
+    Returns:
+        The robust average (the last estimate if ``iters`` rounds do not settle it).
     """
     y = np.asarray(y, float)
     m = float(np.median(y))
@@ -778,6 +834,10 @@ def profile_edges(profiles: np.ndarray, min_background: int = 3, min_half: int =
         ``(first, last)``: ``(M,)`` int offsets from the centre (px) of the
         first and last branch samples. The half-width is
         ``(last − first + 1) / 2``.
+
+    Raises:
+        ValueError: If the profiles are too short for ``min_background`` background and ``min_half`` branch
+            samples on each side.
     """
     p = np.asarray(profiles, float)
     if p.ndim == 2:
@@ -870,6 +930,8 @@ def fit_leader_radius(path: np.ndarray, measured: np.ndarray, fork_radius: float
         start: Nearest distance from the fork used to fit ``c``, in trunk
             radii.
         part: ``"left"`` or ``"right"`` (for the limits and fallback).
+        min_valid: Measurements at or below this (px) are failed edges, not used.
+        min_points: Fewest usable measurements for a fit; with fewer, the fallback radius.
 
     Returns:
         ``(N,)`` radii to draw.
@@ -903,6 +965,8 @@ def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
         path: ``(N, 2)`` path points, in order.
         measured: ``(N,)`` measured half-widths at those points (px).
         part: ``"trunk"``, ``"left"`` or ``"right"``.
+        min_valid: Measurements at or below this (px) are gaps, not used.
+        min_points: Fewest usable measurements for a fit; with fewer, the fallback radius.
 
     Returns:
         ``(N,)`` radii to draw.
@@ -922,7 +986,14 @@ def fit_taper(path: np.ndarray, measured: np.ndarray, part: str,
 
 
 def arc_length(path: np.ndarray) -> np.ndarray:
-    """Distance (px) along ``path`` from its first point to each point."""
+    """Distance (px) along ``path`` from its first point to each point.
+
+    Args:
+        path: ``(N, 2)`` points, in order.
+
+    Returns:
+        ``(N,)`` distances (px); zeros for fewer than 2 points.
+    """
     if len(path) < 2:
         return np.zeros(len(path))
     return np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(path, axis=0).T))])
@@ -1194,6 +1265,11 @@ def check_clicks(c: Clicks, min_rise: int = 40, min_spread: int = 40) -> list[st
     almost on top of each other. It cannot catch an accepted trace that
     follows the wrong branch; that needs looking at the overlay.
 
+    Args:
+        c: The tree's clicks.
+        min_rise: Least height (px) of each tip above the fork.
+        min_spread: Least sideways distance (px) from the left tip to the right one.
+
     Returns:
         Human-readable problems (empty if none, or if skipped/incomplete).
     """
@@ -1247,6 +1323,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     Most of the time per tree (about 1 s) is the Frangi filter in the cost
     map, so trees are processed in parallel, one per CPU core by default,
     and progress is printed as they finish.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if an output file could not be written.
     """
     import os
     import time

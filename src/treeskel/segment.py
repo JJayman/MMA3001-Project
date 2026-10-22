@@ -232,18 +232,38 @@ class SegParams:
 
 
 def whole_photo(params: SegParams) -> bool:
-    """True if the network sees the whole photo (``size`` is ``(height, width)``), not the masks' square frame."""
+    """True if the network sees the whole photo (``size`` is ``(height, width)``), not the masks' square frame.
+
+    Args:
+        params: The settings, as :class:`SegParams`.
+
+    Returns:
+        True for a whole-photo network.
+    """
     return not isinstance(params.size, int)
 
 
 def input_shape(params: SegParams) -> tuple[int, int]:
-    """``(height, width)`` of the network's input."""
+    """``(height, width)`` of the network's input.
+
+    Args:
+        params: The settings, as :class:`SegParams`.
+
+    Returns:
+        ``(height, width)`` in pixels.
+    """
     return (params.size, params.size) if not whole_photo(params) else (int(params.size[0]), int(params.size[1]))
 
 
 def known_columns(width: int) -> tuple[int, int]:
     """The columns ``[start, stop)`` of a whole photo resized to ``width`` that the hand masks describe (the
     photo's columns 80-559, :data:`treeskel.io.CROP_COLS`); outside them a mask says nothing.
+
+    Args:
+        width: The resized photo's width (px).
+
+    Returns:
+        ``(start, stop)`` column indices.
 
     Example:
         >>> known_columns(640), known_columns(320)
@@ -256,7 +276,14 @@ def known_columns(width: int) -> tuple[int, int]:
 
 def known_map(params: SegParams) -> np.ndarray | None:
     """``(height, width)`` float32, 1 where the hand masks say something and 0 where they do not; None for the
-    masks' own square frame, where they describe every pixel."""
+    masks' own square frame, where they describe every pixel.
+
+    Args:
+        params: The settings, as :class:`SegParams`.
+
+    Returns:
+        The weight map, or None.
+    """
     if not whole_photo(params):
         return None
     h, w = input_shape(params)
@@ -269,7 +296,15 @@ def known_map(params: SegParams) -> np.ndarray | None:
 def mask_to_photo(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     """A 256x256 hand mask placed on the whole photo (:func:`treeskel.io.mask_to_image_frame`, but resized
     bilinearly, so soft at the edges as in the square frame) and resized to ``shape`` = ``(height, width)``:
-    uint8 0-255, zero outside the columns it describes."""
+    uint8 0-255, zero outside the columns it describes.
+
+    Args:
+        mask: A 256x256 boolean hand mask.
+        shape: The output's ``(height, width)``.
+
+    Returns:
+        The ``(height, width)`` uint8 mask.
+    """
     from PIL import Image
 
     from treeskel.io import CROP_COLS, IMAGE_SHAPE
@@ -299,7 +334,19 @@ def _block(cin: int, cout: int):
 def make_encoder(name: str = "resnet18", pretrained: bool = True, channels: int = 3):
     """A torchvision ResNet (18 or 34) for the encoder; with ``channels=4`` its first convolution takes a
     depth channel too, whose weights start as the mean of the colour weights (as
-    :func:`treeskel.shape_cnn.make_model`)."""
+    :func:`treeskel.shape_cnn.make_model`).
+
+    Args:
+        name: ``"resnet18"`` or ``"resnet34"``.
+        pretrained: Load the ImageNet weights.
+        channels: Input channels: 3 (colour) or 4 (colour and depth).
+
+    Returns:
+        The torchvision ResNet.
+
+    Raises:
+        ValueError: If ``channels`` is not 3 or 4, or ``name`` is not one of the two.
+    """
     import torch
     from torchvision import models
 
@@ -375,6 +422,14 @@ def UNet(encoder: str = "resnet18", pretrained: bool = True, channels: int = 3):
 
     The model maps ``(B, channels, H, W)`` normalised images (sides divisible
     by 32) to ``(B, H, W)`` logits.
+
+    Args:
+        encoder: ``"resnet18"`` or ``"resnet34"``.
+        pretrained: Load the encoder's ImageNet weights.
+        channels: Input channels: 3 (colour) or 4 (colour and depth).
+
+    Returns:
+        The model, a ``torch.nn.Module``.
     """
     return _unet_class()(encoder, pretrained, channels)
 
@@ -386,7 +441,14 @@ def UNet(encoder: str = "resnet18", pretrained: bool = True, channels: int = 3):
 def soft_erode(x):
     """Soft erosion of ``(B, 1, H, W)`` maps in [0, 1]: the minimum over each pixel and its four neighbours
     (Shit et al., 2021). Past the frame's edge counts as branch, so a trunk leaving the frame is not eaten
-    from its cut end."""
+    from its cut end.
+
+    Args:
+        x: ``(B, 1, H, W)`` tensor of maps in [0, 1].
+
+    Returns:
+        The eroded maps, the same shape.
+    """
     import torch
     import torch.nn.functional as F
 
@@ -394,7 +456,14 @@ def soft_erode(x):
 
 
 def soft_dilate(x):
-    """Soft dilation of ``(B, 1, H, W)`` maps: the maximum over each pixel's 3x3 neighbourhood."""
+    """Soft dilation of ``(B, 1, H, W)`` maps: the maximum over each pixel's 3x3 neighbourhood.
+
+    Args:
+        x: ``(B, 1, H, W)`` tensor of maps in [0, 1].
+
+    Returns:
+        The dilated maps, the same shape.
+    """
     import torch.nn.functional as F
 
     return F.max_pool2d(x, 3, 1, 1)
@@ -409,6 +478,13 @@ def soft_skeleton(x, iters: int = CL_ITERS):
     is a one- or two-pixel centre line; on probabilities it is soft, so the
     loss can push along it. A branch wider than ``iters`` erosions keeps no
     centre line (:data:`CL_ITERS`).
+
+    Args:
+        x: ``(B, 1, H, W)`` tensor of maps in [0, 1].
+        iters: Erosions.
+
+    Returns:
+        The soft centre lines, the same shape.
     """
     import torch.nn.functional as F
 
@@ -458,6 +534,9 @@ def seg_loss(logits, target, known=None, cldice: float = 0.0, iters: int = CL_IT
         cldice: Weight of :func:`soft_cldice_loss` (:data:`CLDICE_WEIGHT` when
             used); 0 returns exactly the loss of the named recipe.
         iters: The soft skeleton's erosions (:data:`CL_ITERS`).
+
+    Returns:
+        The loss, a scalar tensor.
     """
     import torch
     import torch.nn.functional as F
@@ -735,6 +814,9 @@ def prob_frame(prob: np.ndarray, whole: bool = False) -> np.ndarray:
             ``(H, W)`` over the whole photo, whose centre columns
             (:func:`known_columns`) are the masks' frame.
         whole: ``prob`` covers the whole photo.
+
+    Returns:
+        ``(256, 256)`` float32 probabilities.
     """
     from PIL import Image
 
@@ -756,12 +838,23 @@ def to_mask_size(prob: np.ndarray, threshold: float = 0.5, whole: bool = False) 
         prob: As :func:`prob_frame`.
         threshold: Probability above which a pixel is branch.
         whole: ``prob`` covers the whole photo.
+
+    Returns:
+        ``(256, 256)`` boolean mask.
     """
     return prob_frame(prob, whole) > threshold
 
 
 def mask_scores(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
-    """IoU, Dice, precision and recall of a predicted mask against a hand mask (NaN where undefined)."""
+    """IoU, Dice, precision and recall of a predicted mask against a hand mask (NaN where undefined).
+
+    Args:
+        pred: Predicted boolean mask.
+        truth: Hand boolean mask, the same shape.
+
+    Returns:
+        ``{"iou", "dice", "precision", "recall"}``.
+    """
     p, t = np.asarray(pred, bool), np.asarray(truth, bool)
     tp = float((p & t).sum())
     fp, fn = float((p & ~t).sum()), float((~p & t).sum())
@@ -776,6 +869,10 @@ def mask_scores(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
 
 def mask_shape(mask: np.ndarray, params: ShapeParams = ShapeParams()) -> tuple[dict[str, float], dict | None]:
     """The shape measures of a 256x256 mask, measured as the hand masks are.
+
+    Args:
+        mask: A 256x256 boolean mask.
+        params: The shape measures' settings.
 
     Returns:
         ``(measures, branches)``: :func:`treeskel.shape.shape_measures` (NaN
@@ -916,6 +1013,13 @@ def cl_dice(pred: np.ndarray, truth: np.ndarray) -> float:
     loses sensitivity; growth into leaves beside the branch loses precision.
     Unlike the pixel Dice, it is not dominated by the wide trunk. NaN if
     either mask is empty.
+
+    Args:
+        pred: Predicted boolean mask.
+        truth: Hand boolean mask, the same shape.
+
+    Returns:
+        The centre-line Dice in [0, 1], or NaN.
     """
     from skimage.morphology import skeletonize
 
@@ -939,6 +1043,7 @@ def choose_low(probs: dict[str, np.ndarray], seeds: dict[str, np.ndarray], hands
         hands: ``{tree: its (lined-up) hand mask}``.
         lows: The thresholds tried; on a tie the higher (less growth) wins.
         gap: The joining gap applied after growing, as in the scored masks.
+        progress: Prints a progress line.
 
     Returns:
         ``(chosen low, {str(low): mean clDice})``.
@@ -954,13 +1059,26 @@ def choose_low(probs: dict[str, np.ndarray], seeds: dict[str, np.ndarray], hands
 
 
 def save_probabilities(path: Path, ids: Sequence[str], probs: np.ndarray) -> None:
-    """Probability maps of many trees in the masks' frame, as uint8 (``round(255 p)``) in one ``.npz``."""
+    """Probability maps of many trees in the masks' frame, as uint8 (``round(255 p)``) in one ``.npz``.
+
+    Args:
+        path: The ``.npz`` file.
+        ids: Tree ids, one per map.
+        probs: ``(n, 256, 256)`` probabilities in [0, 1].
+    """
     q = np.round(np.clip(np.asarray(probs, np.float32), 0, 1) * 255).astype(np.uint8)
     np.savez_compressed(path, ids=np.array(ids), prob=q)
 
 
 def load_probabilities(path: Path) -> dict[str, np.ndarray]:
-    """Inverse of :func:`save_probabilities`: ``{tree: (256, 256) float32 in [0, 1]}``."""
+    """Inverse of :func:`save_probabilities`: ``{tree: (256, 256) float32 in [0, 1]}``.
+
+    Args:
+        path: A file from :func:`save_probabilities`.
+
+    Returns:
+        The maps per tree id.
+    """
     with np.load(path) as z:
         return {str(t): z["prob"][i].astype(np.float32) / 255 for i, t in enumerate(z["ids"])}
 
@@ -1081,7 +1199,15 @@ def continue_leaders(mask: np.ndarray, cone: float = CONTINUE_CONE, params: Shap
 
 def prune_to_branches(mask: np.ndarray, br: dict) -> np.ndarray:
     """The mask cut down to the trunk and the two leaders: its pixels within each path point's own half-width
-    (the distance to the mask's edge there) of the paths :func:`treeskel.shape.mask_branches` found."""
+    (the distance to the mask's edge there) of the paths :func:`treeskel.shape.mask_branches` found.
+
+    Args:
+        mask: A 256x256 boolean mask.
+        br: Its branches, from :func:`treeskel.shape.mask_branches`.
+
+    Returns:
+        The pruned boolean mask.
+    """
     from scipy import ndimage as ndi
 
     filled = ndi.binary_fill_holes(np.asarray(mask, bool))
@@ -1122,6 +1248,14 @@ def completion_samples(masks: dict[str, np.ndarray], params: ShapeParams = Shape
     cut leader, its bend, outward line of the whole)``, for :func:`fit_completion`.
 
     Every leader of ``masks`` that spans the whole fitted stretch is cut at each of ``fractions`` of it.
+
+    Args:
+        masks: 256x256 boolean masks per tree id.
+        params: The shape measures' settings.
+        fractions: The fractions of the stretch cut off.
+
+    Returns:
+        The samples.
     """
     from treeskel.guided_gt import arc_length
     from treeskel.shape import MASK_ZOOM, unit_px
@@ -1146,7 +1280,15 @@ def completion_samples(masks: dict[str, np.ndarray], params: ShapeParams = Shape
 
 def fit_completion(samples: np.ndarray) -> np.ndarray:
     """Least squares for the change of a leader's line over its missing part:
-    ``whole − cut = a·g + c·g·bend`` (``g`` the missing fraction; a missing bend counts as 0). Returns ``(a, c)``."""
+    ``whole − cut = a·g + c·g·bend`` (``g`` the missing fraction; a missing bend counts as 0).
+
+    Args:
+        samples: From :func:`completion_samples`.
+
+    Returns:
+        ``(a, c)``: the change (degrees) per unit of missing fraction, and per unit of missing fraction
+        and bend.
+    """
     g, cut, bend, whole = samples.T
     x = np.stack([g, g * np.nan_to_num(bend)], 1)
     coef, *_ = np.linalg.lstsq(x, whole - cut, rcond=None)
@@ -1161,6 +1303,11 @@ def complete_measures(mask: np.ndarray, coef: Sequence[float], params: ShapePara
     by :func:`fit_completion`'s model (``a·g + c·g·bend``, outwards); the
     measures built on the leader lines (the V opening, the angles from the
     trunk, the V's lean, the tilts) follow. The bends stay as measured.
+
+    Args:
+        mask: A 256x256 boolean mask.
+        coef: ``(a, c)`` from :func:`fit_completion`.
+        params: The shape measures' settings.
 
     Returns:
         ``(measures, leaders completed)``.
@@ -1208,6 +1355,11 @@ def draw_completion(mask: np.ndarray, coef: Sequence[float], params: ShapeParams
     For showing the prediction (a leader that goes on through the leaves, not a stub); the scores come
     from :func:`complete_measures`.
 
+    Args:
+        mask: A 256x256 boolean mask.
+        coef: ``(a, c)`` from :func:`fit_completion`.
+        params: The shape measures' settings.
+
     Returns:
         ``(mask with the continuations, the continuations alone)``.
     """
@@ -1254,6 +1406,13 @@ def fill_failures(pred: np.ndarray, mean: np.ndarray) -> np.ndarray:
 
     A tree whose predicted mask has a fork but, say, no trunk axis keeps NaN on
     the trunk measures, as the winter trace and the hand mask of such a tree do.
+
+    Args:
+        pred: ``(n, measures)`` predictions, NaN where a mask gave none.
+        mean: ``(n, measures)``: each tree's fold's mean shape.
+
+    Returns:
+        The filled ``(n, measures)`` predictions.
     """
     out = pred.copy()
     failed = ~np.isfinite(pred).any(axis=1)
@@ -1266,7 +1425,9 @@ def compare_with(seg: dict[tuple[str, str], tuple[float, float]], other: dict[tu
     """The segmentation against another model, tree by tree, on the trees both predict.
 
     Args:
-        seg, other: ``{(tree, measure): (winter, prediction)}``.
+        seg: The segmentation's ``{(tree, measure): (winter, prediction)}`` (:func:`read_predictions`).
+        other: The other model's, in the same form.
+        names: The measures compared.
 
     Returns:
         ``{measure: {"n", "closer", "wilcoxon_p", "mae_seg", "mae_other"}}``: the fraction of trees the
@@ -1290,7 +1451,15 @@ def compare_with(seg: dict[tuple[str, str], tuple[float, float]], other: dict[tu
 
 def read_predictions(path: Path, column: str) -> dict[tuple[str, str], tuple[float, float]]:
     """``{(tree, measure): (winter, prediction)}`` from a ``predictions.csv`` (this module's or
-    :mod:`treeskel.shape_cnn`'s), where both are known."""
+    :mod:`treeskel.shape_cnn`'s), where both are known.
+
+    Args:
+        path: A ``predictions.csv``.
+        column: The prediction's column (e.g. ``"segmentation"``).
+
+    Returns:
+        The pairs.
+    """
     got = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -1306,7 +1475,15 @@ def read_predictions(path: Path, column: str) -> dict[tuple[str, str], tuple[flo
 def hand_mask(rec, overlays: dict | None = None) -> np.ndarray | None:
     """A tree's 256x256 hand mask: as drawn, or, given the line-up file's ``overlays``
     (:mod:`treeskel.annotate_mask`), moved onto the summer photo. With ``overlays``, a tree that was
-    skipped or not lined up yet has none (None), so moved and unmoved masks are never mixed."""
+    skipped or not lined up yet has none (None), so moved and unmoved masks are never mixed.
+
+    Args:
+        rec: The tree's record.
+        overlays: The line-ups per tree id; None for the mask as drawn.
+
+    Returns:
+        The 256x256 boolean mask, or None (no mask, or not lined up).
+    """
     from treeskel.io import load_mask
 
     if not rec.has_mask:
@@ -1330,6 +1507,14 @@ def load_frames(records: dict, ids: Sequence[str], size: int | tuple[int, int], 
 
     With ``overlays`` (the mask line-up file), each mask is moved onto its photo
     (:func:`hand_mask`), and trees not lined up count as having none.
+
+    Args:
+        records: Tree records by id.
+        ids: The trees to load.
+        size: Square side (the masks' frame), or ``(height, width)`` (the whole photo).
+        depth: Add the summer depth as a fourth channel.
+        progress: Prints a progress line.
+        overlays: The mask line-ups; None for the masks as drawn.
 
     Returns:
         ``(images, masks, has_mask)``: ``(n, H, W, 3 or 4)`` uint8 (depth
@@ -1366,13 +1551,26 @@ def load_frames(records: dict, ids: Sequence[str], size: int | tuple[int, int], 
 
 
 def save_masks(path: Path, ids: Sequence[str], masks: np.ndarray) -> None:
-    """The predicted 256x256 masks of many trees, bit-packed, in one ``.npz``."""
+    """The predicted 256x256 masks of many trees, bit-packed, in one ``.npz``.
+
+    Args:
+        path: The ``.npz`` file.
+        ids: Tree ids, one per mask.
+        masks: ``(n, 256, 256)`` boolean masks.
+    """
     np.savez_compressed(path, ids=np.array(ids), bits=np.packbits(np.asarray(masks, bool), axis=-1),
                         shape=np.array(masks.shape[1:]))
 
 
 def load_masks(path: Path) -> dict[str, np.ndarray]:
-    """Inverse of :func:`save_masks`: ``{tree: (256, 256) bool}``."""
+    """Inverse of :func:`save_masks`: ``{tree: (256, 256) bool}``.
+
+    Args:
+        path: A file from :func:`save_masks`.
+
+    Returns:
+        The masks per tree id.
+    """
     with np.load(path) as z:
         w = int(z["shape"][1])
         bits = np.unpackbits(z["bits"], axis=-1)[..., :w].astype(bool)
@@ -1381,7 +1579,15 @@ def load_masks(path: Path) -> dict[str, np.ndarray]:
 
 def example_trees(dice: dict[str, float], k: int = 6) -> list[str]:
     """Trees at evenly spaced quantiles of the Dice score, worst to best, so the figure shows the range
-    rather than the best cases."""
+    rather than the best cases.
+
+    Args:
+        dice: Dice per tree id.
+        k: Trees wanted.
+
+    Returns:
+        Tree ids; empty if no tree has a finite score.
+    """
     ranked = sorted((v, t) for t, v in dice.items() if np.isfinite(v))
     if not ranked:
         return []
@@ -1394,7 +1600,20 @@ def draw_example(rec, pred: np.ndarray, trace: dict | None, label: str, scale: f
     """One tree as a row of three: the winter trace, the hand mask and the predicted mask, each with the
     lines :func:`treeskel.shape.shape_measures` fits (PIL image, resized by ``scale``, then labelled). With
     ``overlays``, the hand mask is shown lined up (:func:`hand_mask`); ``continuation`` (from
-    :func:`draw_completion`) is shown in orange on the predicted mask."""
+    :func:`draw_completion`) is shown in orange on the predicted mask.
+
+    Args:
+        rec: The tree's record.
+        pred: Its predicted 256x256 boolean mask.
+        trace: Its winter trace (``{"trunk", "left", "right"}``), or None.
+        label: Text written on the row.
+        scale: Size relative to the photos.
+        overlays: The mask line-ups; None for the mask as drawn.
+        continuation: Pixels drawn on by :func:`draw_completion`, or None.
+
+    Returns:
+        The row as a PIL image.
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     from treeskel.io import load_tree, mask_to_image_frame
@@ -1489,7 +1708,14 @@ itself. The full-size figures compare the U-Net variants only, so that no more t
 
 
 def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tuple[str, dict]] = ()) -> None:
-    """The comparison figure of :func:`treeskel.shape_cnn.plot_comparison`, with the segmentation added."""
+    """The comparison figure of :func:`treeskel.shape_cnn.plot_comparison`, with the segmentation added.
+
+    Args:
+        report: The run's report.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        others: ``(run name, skills per measure)`` of other runs to draw beside it.
+    """
     from treeskel.shape_cnn import plot_comparison
 
     scores = report["scores"]
@@ -1508,7 +1734,15 @@ def plot_skill(report: dict, path: Path, failed: list[str], others: Sequence[tup
 def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, failed: list[str],
                   cldice: float = 0.0) -> None:
     """Loss against epoch while choosing the epochs (:func:`treeskel.shape_cnn.plot_training`); ``cldice`` is
-    the recipe's centre-line weight, named on the axis."""
+    the recipe's centre-line weight, named on the axis.
+
+    Args:
+        log: The run's training log: one row per fold, stage and epoch, with its losses.
+        chosen: The epochs each fold chose.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        cldice: The centre-line weight.
+    """
     from treeskel.shape_cnn import plot_training
 
     loss = "cross-entropy + Dice" if not cldice else f"cross-entropy + {1 - cldice:g} Dice + {cldice:g} clDice"
@@ -1517,7 +1751,14 @@ def plot_learning(log: Sequence[dict], chosen: Sequence[dict], path: Path, faile
 
 
 def figure_runs(key: str) -> tuple[str, ...]:
-    """The runs drawn in ``key``'s skill figure, in order (:data:`FIGURE_RUNS`), ``key`` included."""
+    """The runs drawn in ``key``'s skill figure, in order (:data:`FIGURE_RUNS`), ``key`` included.
+
+    Args:
+        key: The run's name.
+
+    Returns:
+        The run names.
+    """
     if key in FIGURE_RUNS:
         return FIGURE_RUNS[key]
     if any(tag in key for tag in ("_seed", "_cldice", "_ensemble")):
@@ -1542,7 +1783,15 @@ def _other_runs(results: Path, key: str) -> list[tuple[str, dict]]:
 
 
 def replot(out: Path, figures: Path) -> list[str]:
-    """The skill and learning-curve figures from a saved run. Returns paths that could not be written."""
+    """The skill and learning-curve figures from a saved run. Returns paths that could not be written.
+
+    Args:
+        out: The run's results folder.
+        figures: The folder for the figures.
+
+    Returns:
+        Paths that could not be written.
+    """
     failed: list[str] = []
     figures.mkdir(parents=True, exist_ok=True)
     report = json.loads((out / "report.json").read_text())
@@ -1558,7 +1807,15 @@ def replot(out: Path, figures: Path) -> list[str]:
 def variant(params: SegParams, lined_up: bool = False) -> str:
     """The run's name, which is also its results folder: ``segment``, ``segment_depth``, ``segment_resnet34``,
     ``segment_lined_up`` (trained on the lined-up masks), ..., then ``_cldice`` for the centre-line loss
-    (``_cldice0.3`` at another weight than :data:`CLDICE_WEIGHT`) and ``_seed1`` for another seed than 0."""
+    (``_cldice0.3`` at another weight than :data:`CLDICE_WEIGHT`) and ``_seed1`` for another seed than 0.
+
+    Args:
+        params: The settings, as :class:`SegParams`.
+        lined_up: Trained on the lined-up masks.
+
+    Returns:
+        The name.
+    """
     name = "segment" + ("_lined_up" if lined_up else "") + ("_depth" if params.depth else "")
     if params.encoder != SegParams.encoder:
         name += f"_{params.encoder}"
@@ -1584,7 +1841,15 @@ OTHER_RUNS = (("shape_cnn", "cnn fine-tuned"), ("shape_cnn_480x640", "cnn fine-t
 
 def against_runs(out: Path, others: Sequence[tuple[str, str]] = OTHER_RUNS) -> dict:
     """A run's predictions (``out/predictions.csv``) against each other saved run beside it that exists,
-    tree by tree (:func:`compare_with`)."""
+    tree by tree (:func:`compare_with`).
+
+    Args:
+        out: The run's results folder.
+        others: ``(run name, prediction column)`` of the runs to compare with.
+
+    Returns:
+        ``{run name: compare_with(...)}`` for each run found.
+    """
     mine = read_predictions(out / "predictions.csv", "segmentation")
     got = {}
     for name, column in dict(others).items():
@@ -1595,7 +1860,11 @@ def against_runs(out: Path, others: Sequence[tuple[str, str]] = OTHER_RUNS) -> d
 
 
 def print_against(runs: dict) -> None:
-    """Print :func:`against_runs`."""
+    """Print :func:`against_runs`.
+
+    Args:
+        runs: From :func:`against_runs`.
+    """
     for name, measures in runs.items():
         print(f"\nAgainst {name}, tree by tree (MAE: {name} -> segmentation; trees predicted more closely; "
               "Wilcoxon p):")
@@ -1893,6 +2162,14 @@ def continued_run(src: Path, cone: float = CONTINUE_CONE, out: Path | None = Non
     compared tree by tree with ``src`` and the other saved runs. Pixel scores
     are the run's own, of the masks before the change.
 
+    Args:
+        src: A saved joined run's folder.
+        cone: Largest angle (degrees) between a short leader's direction at its tip and a piece it is
+            continued to.
+        out: The results folder; ``<run>_continued`` beside ``src`` by default.
+        figures: The folder for the figures; the run's default by default.
+        progress: Prints a progress line.
+
     Returns:
         ``(out, paths that could not be written)``.
     """
@@ -1944,6 +2221,12 @@ def completed_run(src: Path, out: Path | None = None, figures: Path | None = Non
     not changed. The result goes to ``<run>_completed`` (``_joined`` dropped)
     and is compared tree by tree with ``src`` and the other saved runs.
 
+    Args:
+        src: A saved joined run's folder.
+        out: The results folder; ``<run>_completed`` beside ``src`` by default.
+        figures: The folder for the figures; the run's default by default.
+        progress: Prints a progress line.
+
     Returns:
         ``(out, paths that could not be written)``.
     """
@@ -1982,7 +2265,17 @@ def completed_run(src: Path, out: Path | None = None, figures: Path | None = Non
 def draw_joins(before: dict[str, np.ndarray], after: dict[str, np.ndarray], columns: int = 8, scale: float = 0.5):
     """A contact sheet of joined masks: each tile the mask (grey), the pixels the join added (magenta) and the
     centre lines and fitted lines found after joining; masks whose V opening could be measured only after
-    joining come first, labelled. A PIL image; needs no photos."""
+    joining come first, labelled. A PIL image; needs no photos.
+
+    Args:
+        before: Masks per tree id before joining (every one is drawn).
+        after: The same trees' masks after joining.
+        columns: Tiles per row.
+        scale: Tile size relative to the masks' frame.
+
+    Returns:
+        The contact sheet (PIL image).
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     from treeskel.shape import draw_shape, fitted_lines
@@ -2054,7 +2347,16 @@ def _grow_command(args) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Train on the development rows' hand masks, fold by fold, and score the masks and their shape
-    (or, with ``--replot``, only redraw the figures from a saved run)."""
+    (or, with ``--replot``, only redraw the figures from a saved run).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the output folder already holds a run, the table holds test-row
+        trees, too few trees or no lined-up masks were found, PyTorch is missing, the GPU ran out of memory,
+        or an output file could not be written (each is reported).
+    """
     ap = argparse.ArgumentParser(prog="python -m treeskel.segment", description=__doc__.splitlines()[0])
     ap.add_argument("data_dirs", nargs="*", help="dataset folder(s) with the summer photos and hand masks")
     ap.add_argument("--table", default="data/shape/shape_measures.csv", help="winter measures (treeskel.shape)")

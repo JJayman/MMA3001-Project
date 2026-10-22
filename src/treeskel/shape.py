@@ -157,6 +157,12 @@ class ShapeParams:
 def to_xy(path: np.ndarray) -> np.ndarray:
     """``(row, col)`` image points as ``(x, y)`` with ``y`` pointing up.
 
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` points.
+
+    Returns:
+        ``(N, 2)`` float ``(x, y)`` points.
+
     Example:
         >>> to_xy(np.array([[10, 3]])).tolist()
         [[3.0, -10.0]]
@@ -173,6 +179,12 @@ def line_direction(points: np.ndarray) -> np.ndarray:
     vertical line is no harder than any other. It is oriented from the first
     point towards the last.
 
+    Args:
+        points: ``(N, 2)`` ``(x, y)`` points, in order.
+
+    Returns:
+        The ``(2,)`` unit direction.
+
     Example:
         >>> np.round(line_direction(np.array([[0.0, 0], [1, 1], [2, 2]])), 4).tolist()
         [0.7071, 0.7071]
@@ -187,6 +199,12 @@ def line_direction(points: np.ndarray) -> np.ndarray:
 def tilt(direction: np.ndarray) -> float:
     """Angle of an ``(x, y)`` direction from straight up, positive to the right (degrees).
 
+    Args:
+        direction: An ``(x, y)`` direction (``y`` up).
+
+    Returns:
+        The angle in degrees, in ``(-180, 180]``.
+
     Example:
         >>> round(tilt(np.array([1.0, 1.0])), 6), round(tilt(np.array([-1.0, np.sqrt(3)])), 6)
         (45.0, -30.0)
@@ -195,7 +213,14 @@ def tilt(direction: np.ndarray) -> float:
 
 
 def wrap(angle: float) -> float:
-    """An angle in degrees, wrapped to ``(-180, 180]``."""
+    """An angle in degrees, wrapped to ``(-180, 180]``.
+
+    Args:
+        angle: An angle in degrees.
+
+    Returns:
+        The same angle in ``(-180, 180]``.
+    """
     a = (angle + 180.0) % 360.0 - 180.0
     return 180.0 if a == -180.0 else float(a)
 
@@ -209,6 +234,9 @@ def unit_px(fork_radius: float, params: ShapeParams = ShapeParams(), zoom: float
         params: Its ``unit``.
         zoom: The path's pixels per pixel of the winter photo (1 for a winter
             trace; :data:`MASK_ZOOM` for a hand mask).
+
+    Returns:
+        The unit's length in the path's pixels.
 
     Example:
         >>> unit_px(20.0), unit_px(20.0, ShapeParams(unit=None)), round(unit_px(20.0, zoom=2.0), 1)
@@ -224,6 +252,9 @@ def trunk_top(trunk: np.ndarray, unit: float, params: ShapeParams = ShapeParams(
         trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
         unit: The length unit in the path's pixels (:func:`unit_px`).
         params: ``trunk_reach`` and ``min_trunk``.
+
+    Returns:
+        The points, or None if the trunk is shorter than ``min_trunk``.
     """
     p = np.asarray(trunk)[::-1]                          # from the fork down
     if len(p) < 2 or arc_length(p)[-1] < params.min_trunk:
@@ -232,20 +263,45 @@ def trunk_top(trunk: np.ndarray, unit: float, params: ShapeParams = ShapeParams(
 
 
 def trunk_axis(trunk: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray | None:
-    """Direction of the top of the trunk (:func:`trunk_top`), pointing up towards the fork, or None if too short."""
+    """Direction of the top of the trunk (:func:`trunk_top`), pointing up towards the fork, or None if too short.
+
+    Args:
+        trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
+        unit: The length unit in the path's pixels (:func:`unit_px`).
+        params: ``trunk_reach`` and ``min_trunk``.
+
+    Returns:
+        The ``(2,)`` unit ``(x, y)`` direction, or None.
+    """
     top = trunk_top(trunk, unit, params)
     return None if top is None else -line_direction(to_xy(top))     # fitted fork -> down; flip to point up
 
 
 def leader_part(leader: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray:
-    """The ``(row, col)`` points of a leader (fork to tip) used for its line: ``start`` to ``reach`` units."""
+    """The ``(row, col)`` points of a leader (fork to tip) used for its line: ``start`` to ``reach`` units.
+
+    Args:
+        leader: ``(N, 2)`` ``(row, col)`` path from the fork to the tip.
+        unit: The length unit in the path's pixels (:func:`unit_px`).
+        params: ``start`` and ``reach``.
+
+    Returns:
+        The points within the stretch (empty if the leader stops before it).
+    """
     p = np.asarray(leader)
     s = arc_length(p)
     return p[(s >= params.start * unit) & (s <= params.reach * unit)]
 
 
 def halves(points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Split a path into its lower and upper half by length (the middle point is in both)."""
+    """Split a path into its lower and upper half by length (the middle point is in both).
+
+    Args:
+        points: ``(N, 2)`` points along a path.
+
+    Returns:
+        ``(lower, upper)``.
+    """
     s = arc_length(points)
     mid = s[-1] / 2 if len(s) else 0.0
     return points[s <= mid], points[s >= mid]
@@ -257,8 +313,8 @@ def shape_measures(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
 
     Args:
         trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
-        left, right: Paths from the fork to each leader's tip; "left" is the
-            leader whose tip is further left.
+        left: ``(N, 2)`` path from the fork to the left leader's tip (the tip further left).
+        right: ``(N, 2)`` path from the fork to the right leader's tip.
         fork_radius: The trunk's radius at the fork (px of the path), the
             unit only if ``params.unit`` is None.
         params: Where the lines are fitted.
@@ -309,12 +365,27 @@ def shape_measures(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
 
 
 def gt_shape(gt, params: ShapeParams = ShapeParams()) -> dict[str, float]:
-    """:func:`shape_measures` of a traced tree (a :class:`treeskel.winter_gt.WinterGT` with radii)."""
+    """:func:`shape_measures` of a traced tree (a :class:`treeskel.winter_gt.WinterGT` with radii).
+
+    Args:
+        gt: The traced tree.
+        params: The shape measures' settings.
+
+    Returns:
+        ``{measure: degrees}``.
+    """
     return shape_measures(gt.trunk, gt.left, gt.right, float(gt.radii["trunk"][-1]), params)
 
 
 def mirror_measures(m: dict[str, float]) -> dict[str, float]:
-    """The measures of a tree's mirror image, from the tree's own (see :data:`MIRROR`)."""
+    """The measures of a tree's mirror image, from the tree's own (see :data:`MIRROR`).
+
+    Args:
+        m: ``{measure: degrees}`` of the tree.
+
+    Returns:
+        ``{measure: degrees}`` of its mirror image.
+    """
     return {k: (-m[v[1:]] if v.startswith("-") else m[v]) for k, v in MIRROR.items()}
 
 
@@ -323,7 +394,14 @@ def mirror_measures(m: dict[str, float]) -> dict[str, float]:
 # --------------------------------------------------------------------------
 
 def polyline(points: Sequence[Sequence[float]]) -> np.ndarray:
-    """A connected 8-connected ``(row, col)`` pixel path through the given points in order."""
+    """A connected 8-connected ``(row, col)`` pixel path through the given points in order.
+
+    Args:
+        points: ``(row, col)`` points to join, in order.
+
+    Returns:
+        ``(N, 2)`` int pixel path.
+    """
     pts = [tuple(int(round(v)) for v in p) for p in points]
     out = [pts[0]]
     for a, b in zip(pts[:-1], pts[1:]):
@@ -389,6 +467,13 @@ def crop_top(path: np.ndarray, top_row: float) -> np.ndarray:
     """A leader (fork to tip) as a photo whose top edge is at ``top_row`` would show it.
 
     The path is kept from its start until it first rises above ``top_row``.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` path from the fork to the tip.
+        top_row: The image row of the new top edge.
+
+    Returns:
+        The visible part of the path.
     """
     p = np.asarray(path)
     above = np.nonzero(p[:, 0] < top_row)[0]
@@ -405,6 +490,15 @@ def framing_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
     stretch (``reach``) nothing changes while the stretch stays in view; with
     ``reach = inf`` the lines follow the curved leaders' visible part.
 
+    Args:
+        trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
+        left: ``(N, 2)`` path from the fork to the left leader's tip.
+        right: ``(N, 2)`` path from the fork to the right leader's tip.
+        fork_radius: The trunk's radius at the fork (px).
+        keep: Share of the height from the fork to the top kept in view.
+        params: The shape measures' settings.
+        zoom: The paths' pixels per winter-photo pixel.
+
     Returns:
         ``{measure: cropped − full}`` in degrees.
     """
@@ -416,7 +510,15 @@ def framing_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_
 
 
 def transform_path(path: np.ndarray, matrix: np.ndarray) -> np.ndarray:
-    """Apply a 3x3 ``(x, y)`` image transform to a ``(row, col)`` path; returns float ``(row, col)``."""
+    """Apply a 3x3 ``(x, y)`` image transform to a ``(row, col)`` path; returns float ``(row, col)``.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` points.
+        matrix: 3x3 transform of ``(x, y)`` points.
+
+    Returns:
+        ``(N, 2)`` float ``(row, col)`` points.
+    """
     p = np.asarray(path, float).reshape(-1, 2)
     xy1 = np.concatenate([p[:, ::-1], np.ones((len(p), 1))], 1) @ np.asarray(matrix, float).T
     return (xy1[:, :2] / xy1[:, 2:3])[:, ::-1]
@@ -430,6 +532,17 @@ def perspective_change(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, f
     The paths are moved by the pinhole-camera rotation of
     :class:`treeskel.summer_gt.Overlay` (``K R K⁻¹``, with the D435-like focal
     length used there) and measured again.
+
+    Args:
+        trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
+        left: ``(N, 2)`` path from the fork to the left leader's tip.
+        right: ``(N, 2)`` path from the fork to the right leader's tip.
+        fork_radius: The trunk's radius at the fork (px).
+        pitch: Camera tilt about the horizontal axis (degrees).
+        yaw: Camera turn about the vertical axis (degrees).
+        roll: Camera roll (degrees, clockwise).
+        scale: Change of size.
+        params: The shape measures' settings.
 
     Returns:
         ``{measure: turned − original}`` in degrees.
@@ -456,9 +569,10 @@ def similarity_fit(src: np.ndarray, dst: np.ndarray, search: int = 120, step: in
     fork do not pin down the scale well, but they do pin down the rotation.
 
     Args:
-        src, dst: ``(N, 2)`` and ``(M, 2)`` ``(x, y)`` points; ``src`` should
-            be the set that shows less (every one of its points has a partner).
-        search, step: Shifts tried first (px), from ``-search`` to ``search``.
+        src: ``(N, 2)`` ``(x, y)`` points: the set that shows less (every one of its points has a partner).
+        dst: ``(M, 2)`` ``(x, y)`` points.
+        search: Largest shift tried first (px), from ``-search`` to ``search``.
+        step: Spacing of those shifts (px).
         iters: Rounds of pairing and fitting.
         trim: Fraction of the pairs used in each fit.
 
@@ -527,6 +641,14 @@ def fitted_lines(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_ra
                  params: ShapeParams = ShapeParams(), zoom: float = 1.0) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     """The lines :func:`shape_measures` fits, as ``(start, end)`` ``(row, col)`` points, for drawing.
 
+    Args:
+        trunk: ``(N, 2)`` ``(row, col)`` path from the root to the fork.
+        left: ``(N, 2)`` path from the fork to the left leader's tip.
+        right: ``(N, 2)`` path from the fork to the right leader's tip.
+        fork_radius: The trunk's radius at the fork (px).
+        params: The shape measures' settings.
+        zoom: The paths' pixels per winter-photo pixel.
+
     Returns:
         Some of ``"trunk"``, ``"left"``, ``"right"``, ``"left_lower"``, ``"left_upper"``,
         ``"right_lower"`` and ``"right_upper"`` (a part too short to fit is left out).
@@ -548,7 +670,14 @@ def fitted_lines(trunk: np.ndarray, left: np.ndarray, right: np.ndarray, fork_ra
 
 
 def mask_to_image(path: np.ndarray) -> np.ndarray:
-    """``(row, col)`` points of a 256x256 mask as points of the 640x480 photo (see :func:`treeskel.io.to_mask_frame`)."""
+    """``(row, col)`` points of a 256x256 mask as points of the 640x480 photo (see :func:`treeskel.io.to_mask_frame`).
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` points in the 256x256 mask.
+
+    Returns:
+        ``(N, 2)`` float ``(row, col)`` points in the photo.
+    """
     from treeskel.io import CROP_COLS, IMAGE_SHAPE, MASK_SHAPE
 
     p = np.asarray(path, float).reshape(-1, 2)
@@ -564,7 +693,18 @@ LINE_COLOURS = {"trunk": (255, 230, 0), "left": (255, 60, 60), "right": (255, 60
 
 def draw_shape(rgb: np.ndarray, paths: Sequence[np.ndarray], lines: dict, label: str = "",
                path_colour: tuple[int, int, int] = (0, 255, 255)):
-    """A photo with the traced paths (thin) and the fitted lines (thick) drawn on it, as a PIL image."""
+    """A photo with the traced paths (thin) and the fitted lines (thick) drawn on it, as a PIL image.
+
+    Args:
+        rgb: ``(H, W, 3)`` uint8 image.
+        paths: ``(N, 2)`` ``(row, col)`` paths to draw.
+        lines: From :func:`fitted_lines`.
+        label: Text written in the corner.
+        path_colour: RGB of the paths.
+
+    Returns:
+        The PIL image.
+    """
     from PIL import Image, ImageDraw
 
     im = Image.fromarray(np.asarray(rgb, np.uint8))
@@ -605,6 +745,11 @@ def network_input(image: np.ndarray, size: tuple[int, int] = FEATURE_SIZE, mirro
     A depth image (one channel) is repeated in all three channels. The image
     is flipped left to right first if ``mirror``, resized (bilinear), scaled
     to [0, 1] and normalised with the ImageNet mean and standard deviation.
+
+    Args:
+        image: ``(H, W, 3)`` or ``(H, W)`` uint8 image.
+        size: Output ``(height, width)``.
+        mirror: Flip left to right first.
 
     Returns:
         ``(3, h, w)`` float32 array.
@@ -675,7 +820,8 @@ def tree_features(body, device: str, summer: dict, size: tuple[int, int] = FEATU
     """Features of one tree's summer photo and depth, and of their mirror images.
 
     Args:
-        body, device: From :func:`make_resnet18`.
+        body: The network, from :func:`make_resnet18`.
+        device: Its device, from :func:`make_resnet18`.
         summer: ``load_tree(rec, "summer")``.
         size: Network input size.
 
@@ -691,13 +837,27 @@ def tree_features(body, device: str, summer: dict, size: tuple[int, int] = FEATU
 
 
 def save_features(path: str | Path, ids: Sequence[str], feats: Sequence[dict], meta: dict) -> None:
-    """Write the features of many trees to one ``.npz`` (float16, compressed)."""
+    """Write the features of many trees to one ``.npz`` (float16, compressed).
+
+    Args:
+        path: The ``.npz`` file.
+        ids: Tree ids, one per entry of ``feats``.
+        feats: Per tree, the arrays of :func:`tree_features`.
+        meta: Settings stored with them (JSON-serialisable).
+    """
     arrays = {k: np.stack([f[k] for f in feats]).astype(np.float16) for k in feats[0]}
     np.savez_compressed(path, ids=np.array(ids), meta=json.dumps(meta), **arrays)
 
 
 def load_features(path: str | Path) -> tuple[list[str], dict[str, np.ndarray], dict]:
-    """Inverse of :func:`save_features`: ``(ids, arrays as float32, meta)``."""
+    """Inverse of :func:`save_features`: ``(ids, arrays as float32, meta)``.
+
+    Args:
+        path: A file from :func:`save_features`.
+
+    Returns:
+        ``(ids, {name: (n, ...) float32}, meta)``.
+    """
     with np.load(path) as z:
         ids = [str(t) for t in z["ids"]]
         meta = json.loads(str(z["meta"]))
@@ -801,6 +961,11 @@ def save_traces(path: str | Path, ids: Sequence[str], traces: Sequence[dict]) ->
 
     The traces are the project's own ground truth (clicks traced on the winter photos), a few kB per
     tree; with them, other shape measures can be tried without the photos.
+
+    Args:
+        path: The ``.npz`` file.
+        ids: Tree ids, one per trace.
+        traces: Per tree, ``{"trunk", "left", "right", "fork_radius"}``.
     """
     arrays = {"ids": np.array(ids), "fork_radius": np.array([t["fork_radius"] for t in traces], np.float32)}
     for part in ("trunk", "left", "right"):
@@ -811,7 +976,14 @@ def save_traces(path: str | Path, ids: Sequence[str], traces: Sequence[dict]) ->
 
 
 def load_traces(path: str | Path) -> dict[str, dict]:
-    """Inverse of :func:`save_traces`: ``{tree: {"trunk", "left", "right", "fork_radius"}}``."""
+    """Inverse of :func:`save_traces`: ``{tree: {"trunk", "left", "right", "fork_radius"}}``.
+
+    Args:
+        path: A file from :func:`save_traces`.
+
+    Returns:
+        The traces per tree id.
+    """
     with np.load(path) as z:
         out = {}
         for i, t in enumerate(str(v) for v in z["ids"]):
@@ -828,6 +1000,10 @@ def _stats(v: np.ndarray) -> tuple[float, float, int]:
 
 def summarise(rows: Sequence[dict], params: ShapeParams = ShapeParams()) -> dict:
     """Per measure: the winter spread, the clicks' and the hand masks' agreement with the winter trace.
+
+    Args:
+        rows: One row per tree (the shape table).
+        params: The shape measures' settings.
 
     Returns:
         ``{"n_trees", "measures": {measure: {...}}, "short_leaders": {...},
@@ -919,7 +1095,12 @@ def _stretch(params: ShapeParams) -> str:
 
 
 def print_summary(s: dict, params: ShapeParams = ShapeParams()) -> None:
-    """Print :func:`summarise`'s result as a table."""
+    """Print :func:`summarise`'s result as a table.
+
+    Args:
+        s: From :func:`summarise`.
+        params: The shape measures' settings.
+    """
     print(f"\nShape measures on {s['n_trees']} development trees (degrees; {_stretch(params)}):")
     print(f"  {'measure':12s} {'winter mean':>11s} {'sd':>6s} {'n':>4s} | {'clicks-winter':>13s} | "
           f"{'hand-winter mean':>16s} {'median|d|':>9s} {'r':>5s} {'n':>4s}")
@@ -979,6 +1160,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Usage: ``python -m treeskel.shape DATA_DIR [--out data/shape] [--features resnet18|none]
     [--device cuda|cpu] [--figure docs/figures/shape_lines.jpg] [--jobs N]``.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no annotated development tree was found, the network could not be
+        loaded, or an output file could not be written.
     """
     import os
     import time

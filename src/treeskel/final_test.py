@@ -168,6 +168,11 @@ def recipe_mask(prob: np.ndarray, recipe: dict, params: SegParams) -> tuple[np.n
     Thresholded, then grown, joined and continued if the recipe does so, and
     measured (with short leaders' lines completed if the recipe does so).
 
+    Args:
+        prob: One photo's ``(256, 256)`` probabilities.
+        recipe: :func:`named_recipe`.
+        params: The recipe's training and mask parameters.
+
     Returns:
         ``(mask, measures, whether a piece was joined)``.
     """
@@ -191,6 +196,16 @@ def bootstrap_skill(truth: np.ndarray, pred: np.ndarray, base: np.ndarray, n: in
 
     Trees of one row share their light and background, so this interval is
     narrower than one over rows would be; the skill in each row is reported too.
+
+    Args:
+        truth: Winter values per tree.
+        pred: Predicted values per tree.
+        base: The baseline's values per tree (the development mean shape).
+        n: Bootstrap samples.
+        seed: Random seed.
+
+    Returns:
+        ``(low, high)``, NaN if no tree has all three values.
     """
     ok = np.isfinite(truth) & np.isfinite(pred) & np.isfinite(base)
     t, p, b = truth[ok], pred[ok], base[ok]
@@ -206,13 +221,28 @@ def bootstrap_skill(truth: np.ndarray, pred: np.ndarray, base: np.ndarray, n: in
 
 def best_shift_dice(pred: np.ndarray, truth: np.ndarray, across: int = 40, down: int = 20, step: int = 2) -> float:
     """The largest Dice of ``pred`` moved onto ``truth`` by up to ``across`` / ``down`` mask px (an upper
-    estimate: the best of many shifts), as ``docs/results/segment/diagnostics.py``."""
+    estimate: the best of many shifts), as ``docs/results/segment/diagnostics.py``.
+
+    Args:
+        pred: Predicted 256x256 boolean mask.
+        truth: Hand 256x256 boolean mask.
+        across: Largest sideways shift (mask px).
+        down: Largest vertical shift (mask px).
+        step: Shift step (mask px).
+
+    Returns:
+        The best Dice over the shifts.
+    """
     return max(mask_scores(np.roll(np.roll(pred, dy, 0), dx, 1), truth)["dice"]
                for dy in range(-down, down + 1, step) for dx in range(-across, across + 1, step))
 
 
 def git_head() -> str | None:
-    """The code's commit, if this is a git checkout."""
+    """The code's commit, if this is a git checkout.
+
+    Returns:
+        The commit's hash, or None outside a git checkout.
+    """
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True,
                               timeout=10).stdout.strip()
@@ -225,7 +255,15 @@ def plot_final(report: dict, path: Path, failed: list[str],
                name: str = "The named U-Net on the test rows") -> None:
     """Skill over the development mean shape per measure on the test rows: the named model and the hand masks
     with their 95% bootstrap intervals, and the model's development-fold skill as an open marker. ``title`` and
-    ``name`` (the model's legend entry) change for an ensemble's evaluation."""
+    ``name`` (the model's legend entry) change for an ensemble's evaluation.
+
+    Args:
+        report: The evaluation's report.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        title: The figure's title.
+        name: The model's legend entry.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -296,8 +334,16 @@ def secondary_from_saved(out: Path, figures: Path, progress: Callable[[str], Non
     ``secondary_output.txt`` and ``predicted_masks_completed.npz``, and redraws
     the skill figure with the secondary series.
 
+    Args:
+        out: The final test's folder (``model.json``, the saved masks).
+        figures: The folder for the skill figure.
+        progress: Prints a progress line.
+
     Returns:
         Paths that could not be written.
+
+    Raises:
+        ValueError: If ``model.json`` declares no secondary result.
     """
     from treeskel.segment import compare_with, load_masks, read_predictions
 
@@ -378,7 +424,9 @@ def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], te
         test: The test trees, in order.
         recipe: :func:`named_recipe`.
         params: The recipe's parameters.
-        y: ``(n, measures)`` winter truth; ``base`` the development mean shape; ``row_index`` each tree's row.
+        y: ``(n, measures)`` winter truth.
+        base: The development mean shape, per measure.
+        row_index: Each test tree's orchard row.
         ensemble_filled: The ensemble's measures, no-fork masks as the mean shape.
         compare_with: An earlier evaluation's folder (its ``predictions.csv`` column ``model``), or None.
 
@@ -433,7 +481,15 @@ def ensemble_scores(member_probs: Sequence[np.ndarray], seeds: Sequence[int], te
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Train the named model on all development trees and score it once on the test rows."""
+    """Train the named model on all development trees and score it once on the test rows.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the model is not named, the evaluation has already been run, the
+        trees, PyTorch or the GPU were missing, or an output file could not be written (each is reported).
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.guided_gt import load_clicks

@@ -109,6 +109,12 @@ def per_unit(camera: Camera) -> float:
 
     The same scale as :func:`treeskel.tree3d.scales` (to 0.2%), without needing every tree.
 
+    Args:
+        camera: The depth map's zero and the focal length.
+
+    Returns:
+        Metres per depth unit.
+
     Example:
         >>> round(per_unit(Camera()), 5)
         0.01197
@@ -154,6 +160,14 @@ def axis_distance(values: np.ndarray, radii_px: np.ndarray, camera: Camera) -> n
 
     The axis lies one radius behind the surface; a radius of ``r`` px at distance ``Z`` is ``r Z / f``.
 
+    Args:
+        values: Depth units ``zero − v`` of the near surface (distance in units).
+        radii_px: The branch's radius at each point (photo px).
+        camera: The camera's focal length.
+
+    Returns:
+        The distances to the axis, in the same units as ``values``.
+
     Example:
         >>> axis_distance(np.array([100.0]), np.array([10.0]), Camera(zero=300.0, focal=500.0)).tolist()
         [204.0]
@@ -168,6 +182,17 @@ def ridge_contrast(depth: np.ndarray, valid: np.ndarray, path: np.ndarray, radii
 
     Each side is read ``radius + gap`` px out along the path's normal (median within 2 px); a side with no
     reading counts as infinitely far. NaN where the branch itself has no reading.
+
+    Args:
+        depth: ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of its readings.
+        path: ``(N, 2)`` ``(row, col)`` points along the branch.
+        radii_px: The branch's radius at each point (px).
+        gap: How far beyond the radius each side is read (px).
+
+    Returns:
+        ``(N,)`` contrasts in depth units (``inf`` if neither side has a reading, NaN where the branch has
+        none).
     """
     p = np.asarray(path, float).reshape(-1, 2)
     normals = path_normals(np.rint(p).astype(int), 6)
@@ -233,11 +258,15 @@ def prepare(paths: dict, depth: np.ndarray, valid: np.ndarray, radii: dict, came
     Args:
         paths: ``{"trunk", "left", "right"}`` ``(N, 2)`` ``(row, col)`` photo points: the trunk from the root
             to the fork, each leader from the fork to its tip.
-        depth, valid: The photo's depth and where it has readings.
+        depth: The photo's ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         radii: Each part's radius at each point (photo px).
         camera: The depth map and camera.
         ridge: Count only the readings where the branch is a depth ridge (:func:`ridge_contrast`; summer).
         scale: Metres per unit (default :func:`per_unit` of ``camera``).
+
+    Returns:
+        The :class:`Prepared` tree.
 
     Raises:
         ValueError: If fewer than 20 points have depth (no plane).
@@ -296,6 +325,12 @@ def prior_terms(prep: Prepared) -> tuple[sparse.csc_matrix, sparse.csc_matrix]:
 
     ``hᵀ mass h ≈ ∫ h² ds`` and ``hᵀ curvature h ≈ ∫ (d²h/ds²)² ds``, summed over the three chains, with
     the second differences taken within each chain (each may kink at the fork).
+
+    Args:
+        prep: The prepared tree.
+
+    Returns:
+        ``(mass, curvature)``, sparse square matrices over the nodes.
     """
     n = len(prep.z_axis)
     mass = np.zeros(n)
@@ -324,6 +359,13 @@ def precision(terms: tuple, params: BendParams) -> sparse.csc_matrix:
     """The prior's precision matrix for ``spread`` τ and ``length`` L: ``(mass + L⁴ curvature) / (2√2 τ² L)``.
 
     The marginal standard deviation of a long chain under it is τ.
+
+    Args:
+        terms: ``(mass, curvature)`` from :func:`prior_terms`.
+        params: The prior's spread τ and length L (m).
+
+    Returns:
+        The sparse precision matrix.
     """
     mass, curv = terms
     c = 1.0 / (2 * np.sqrt(2) * params.spread ** 2 * params.length)
@@ -406,6 +448,12 @@ def posterior_sd(fit: dict) -> np.ndarray:
     """The posterior standard deviation of each node's bend (m), with the weights and noise as fitted.
 
     It treats the prior, the noise and the plane as known, so it is a lower bound; 0 for the plane.
+
+    Args:
+        fit: A fit from :func:`fit_bends`.
+
+    Returns:
+        The standard deviation per node (m); zeros for the plane.
     """
     a = fit["system"]
     n = len(fit["h"])
@@ -418,12 +466,28 @@ def posterior_sd(fit: dict) -> np.ndarray:
 
 
 def bent_points(prep: Prepared, h: np.ndarray) -> np.ndarray:
-    """The nodes in 3D (m, the camera's frame): each moved along its ray to ``Z_plane + h``."""
+    """The nodes in 3D (m, the camera's frame): each moved along its ray to ``Z_plane + h``.
+
+    Args:
+        prep: The prepared tree.
+        h: Each node's bend behind the plane (m).
+
+    Returns:
+        ``(N, 3)`` points in metres.
+    """
     return prep.rays * (prep.z_plane + h)[:, None]
 
 
 def behind_plane(prep: Prepared, points: np.ndarray) -> np.ndarray:
-    """Signed distance of 3D points behind the tree's plane (m; positive = farther from the camera)."""
+    """Signed distance of 3D points behind the tree's plane (m; positive = farther from the camera).
+
+    Args:
+        prep: The prepared tree (its plane).
+        points: ``(N, 3)`` points in the camera's frame (m).
+
+    Returns:
+        ``(N,)`` signed distances (m).
+    """
     n, c = prep.plane["normal"], prep.plane["centre"]
     return -(np.asarray(points) - c) @ n
 
@@ -444,6 +508,15 @@ MIN_TREES = 20
 def profile(prep: Prepared, h: np.ndarray, part: str, stations: np.ndarray | None = None) -> np.ndarray:
     """One part's bend (m behind the plane) at the stations, NaN beyond the part's end in view.
 
+    Args:
+        prep: The prepared tree.
+        h: Each node's bend behind the plane (m).
+        part: ``"trunk"``, ``"left"`` or ``"right"``.
+        stations: Distances from the fork along the part (m); the part's :data:`STATIONS` by default.
+
+    Returns:
+        The bend at each station (m), NaN beyond the part's end.
+
     Example:
         >>> class P: chains = {"left": np.array([0, 1, 2])}; s = {"left": np.array([0.0, 0.1, 0.2])}
         >>> profile(P, np.array([0.0, 0.01, 0.03]), "left", np.array([0.0, 0.15, 0.3])).round(3).tolist()
@@ -461,6 +534,7 @@ def typical_shape(profiles: Sequence[dict], min_trees: int = MIN_TREES) -> dict:
 
     Args:
         profiles: Per tree, ``{part: values at STATIONS[part]}``.
+        min_trees: Fewest trees a station must have.
 
     Returns:
         ``{part: {"stations": [...], "bend": [...], "q1": [...], "q3": [...], "n": [...]}}`` in metres.
@@ -486,7 +560,15 @@ def typical_shape(profiles: Sequence[dict], min_trees: int = MIN_TREES) -> dict:
 
 def prior_mean(prep: Prepared, shape: dict) -> np.ndarray:
     """The typical shape at each node of a tree (m behind its plane): each part's profile at the node's
-    distance from the fork, holding its last value beyond the stations it covers."""
+    distance from the fork, holding its last value beyond the stations it covers.
+
+    Args:
+        prep: The prepared tree.
+        shape: The typical shape, from :func:`typical_shape`.
+
+    Returns:
+        The prior's mean bend per node (m).
+    """
     m = np.zeros(len(prep.z_axis))
     for part in PARTS:
         st, b = shape[part]["stations"], shape[part]["bend"]
@@ -502,7 +584,14 @@ def prior_mean(prep: Prepared, shape: dict) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 def setting_key(params: BendParams) -> str:
-    """A prior's name in tables: ``plane`` or ``tau <cm> L <cm>``."""
+    """A prior's name in tables: ``plane`` or ``tau <cm> L <cm>``.
+
+    Args:
+        params: The prior.
+
+    Returns:
+        The name, e.g. ``"tau 2 L 20"``.
+    """
     return "plane" if params.spread <= 0 else f"tau {params.spread * 100:g} L {params.length * 100:g}"
 
 
@@ -512,6 +601,14 @@ def blocks(prep: Prepared, block_px: float = BLOCK_PX, buffer_px: float = BUFFER
     Each part is cut into blocks of ``block_px`` px from the fork outwards (the fork belongs to the trunk's
     first block). A block's readings and those within ``buffer_px`` px of it are removed from the fit; only
     the block's own are scored. Near the fork the buffer reaches into the other parts.
+
+    Args:
+        prep: The prepared tree.
+        block_px: Block length along the part (px).
+        buffer_px: Readings this close to a block are left out of its fit too (px).
+
+    Returns:
+        ``(part, scored, removed)`` per block: the part's name and two boolean node masks.
     """
     n = len(prep.z_axis)
     out = []
@@ -536,6 +633,13 @@ def block_cv(prep: Prepared, grid: Sequence[tuple[float, float]] = GRID, base: B
 
     For each block (:func:`blocks`) the plane is fitted again without the removed readings, and the block's
     readings are predicted by that plane (``h`` = 0) and by the bends fitted to the rest.
+
+    Args:
+        prep: The prepared tree.
+        grid: ``(τ, L)`` priors to try (m).
+        base: The other settings of the fit.
+        block_px: Block length (px).
+        buffer_px: Buffer around a block (px).
 
     Returns:
         ``{setting_key: {part: [sum of |error| (m), sum of error² (m²), readings]}}``, with ``"plane"`` first.
@@ -646,7 +750,14 @@ def bend_measures(prep: Prepared, h: np.ndarray, sd: np.ndarray | None = None, p
 # --------------------------------------------------------------------------
 
 def mask_skeleton(mask: np.ndarray) -> dict | None:
-    """A 256x256 summer mask's trunk and leaders in photo px, with each point's radius (photo px), or None."""
+    """A 256x256 summer mask's trunk and leaders in photo px, with each point's radius (photo px), or None.
+
+    Args:
+        mask: 256x256 boolean branch mask.
+
+    Returns:
+        ``{"paths", "radii"}`` per part, or None if no fork is found.
+    """
     from scipy import ndimage as ndi
 
     from treeskel.io import IMAGE_SHAPE, MASK_SHAPE
@@ -663,7 +774,16 @@ def mask_skeleton(mask: np.ndarray) -> dict | None:
 
 
 def winter_skeleton(rec, clicks) -> tuple[dict, dict]:
-    """A tree's winter images and its click-guided trace with each point's drawing radius (photo px)."""
+    """A tree's winter images and its click-guided trace with each point's drawing radius (photo px).
+
+    Args:
+        rec: The tree's record.
+        clicks: The tree's winter clicks.
+
+    Returns:
+        ``(images, skeleton)``: :func:`treeskel.io.load_tree`'s winter images, and ``{"paths", "radii"}`` per
+        part.
+    """
     from treeskel.guided_gt import guided_gt
     from treeskel.io import load_tree
 
@@ -701,6 +821,10 @@ def measure_tree(job: tuple) -> list[dict]:
 
     Args:
         job: ``(record, clicks, winter radii, hand mask or None, U-Net mask or None, BendParams)``.
+
+    Returns:
+        One row per source, camera setting and model (``plane`` or ``bent``): the tree's 3D measures, or the
+        ``error`` that stopped the fit.
     """
     from treeskel.guided_gt import guided_gt
     from treeskel.io import load_tree
@@ -749,7 +873,14 @@ def measure_tree(job: tuple) -> list[dict]:
 # --------------------------------------------------------------------------
 
 def cv_table(results: Sequence[dict]) -> list[dict]:
-    """Phase 1's results as rows: ``tree, row, setting, part, sum_abs, sum_sq, n`` (sums in m, m²)."""
+    """Phase 1's results as rows: ``tree, row, setting, part, sum_abs, sum_sq, n`` (sums in m, m²).
+
+    Args:
+        results: Per tree, ``{"tree", "row", "cv"}`` with :func:`block_cv`'s sums.
+
+    Returns:
+        One row per tree, setting and part.
+    """
     rows = []
     for r in results:
         for key, parts in (r["cv"] or {}).items():
@@ -760,7 +891,16 @@ def cv_table(results: Sequence[dict]) -> list[dict]:
 
 
 def pooled_mae(cv_rows: Sequence[dict], trees: set | None = None, parts: Sequence[str] = PARTS) -> dict[str, float]:
-    """Each setting's mean absolute error over all left-out readings of ``trees`` (all if None), in cm."""
+    """Each setting's mean absolute error over all left-out readings of ``trees`` (all if None), in cm.
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        trees: Tree ids to pool (all if None).
+        parts: Parts to pool.
+
+    Returns:
+        ``{setting: MAE in cm}``.
+    """
     tot: dict[str, list[float]] = {}
     for r in cv_rows:
         if (trees is None or r["tree"] in trees) and r["part"] in parts:
@@ -771,7 +911,15 @@ def pooled_mae(cv_rows: Sequence[dict], trees: set | None = None, parts: Sequenc
 
 
 def tree_mae(cv_rows: Sequence[dict], setting: str) -> dict[str, float]:
-    """Each tree's mean absolute error (cm) over its left-out readings, for one setting."""
+    """Each tree's mean absolute error (cm) over its left-out readings, for one setting.
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        setting: A :func:`setting_key`.
+
+    Returns:
+        ``{tree: MAE in cm}``.
+    """
     tot: dict[str, list[float]] = {}
     for r in cv_rows:
         if r["setting"] == setting:
@@ -783,13 +931,29 @@ def tree_mae(cv_rows: Sequence[dict], setting: str) -> dict[str, float]:
 
 def choose(cv_rows: Sequence[dict], trees: set | None = None) -> str:
     """The rule fixed before the 449-tree run: the prior on :data:`GRID` with the smallest pooled mean
-    absolute error over the left-out blocks of ``trees`` (all if None)."""
+    absolute error over the left-out blocks of ``trees`` (all if None).
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        trees: Tree ids to choose on (all if None).
+
+    Returns:
+        The chosen prior's :func:`setting_key`.
+    """
     pooled = pooled_mae(cv_rows, trees)
     return min((k for k in pooled if k != "plane"), key=pooled.get)
 
 
 def params_of(key: str, base: BendParams = BendParams()) -> BendParams:
-    """The :class:`BendParams` a :func:`setting_key` names."""
+    """The :class:`BendParams` a :func:`setting_key` names.
+
+    Args:
+        key: A :func:`setting_key`.
+        base: The other settings.
+
+    Returns:
+        The prior, ``spread`` 0 for ``"plane"``.
+    """
     if key == "plane":
         return replace(base, spread=0.0)
     _, tau, _, length = key.split()
@@ -798,6 +962,10 @@ def params_of(key: str, base: BendParams = BendParams()) -> BendParams:
 
 def out_of_fold(cv_rows: Sequence[dict], fold_rows: Sequence[Sequence[int]]) -> dict:
     """The bends against the plane with the prior chosen on the other folds' trees (row-grouped).
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        fold_rows: The rows of each cross-validation fold.
 
     Returns:
         ``{"chosen": [key per fold scored], "trees": {tree: (plane MAE, bent MAE)}}`` (cm); a fold with no
@@ -848,6 +1016,11 @@ SUMMER_MEASURES = ("trunk_out", "left_bow", "right_bow", "v_opening")
 def summer_against_winter(rows: Sequence[dict], source: str, measure: str) -> dict:
     """A summer source's bends and its plane against winter's bends, tree by tree, on one measure.
 
+    Args:
+        rows: Phase 2's rows (:func:`measure_tree`).
+        source: The summer source (``"hand masks"``, ``"U-Net"`` or ``"winter ridges"``).
+        measure: The measure compared.
+
     Returns:
         ``{"n", "median_bent", "median_plane", "bent_closer", "wilcoxon_p", "spearman"}``: the median
         ``|summer − winter|`` with the summer bends and with the summer plane, the share of trees where the
@@ -876,7 +1049,16 @@ def summer_against_winter(rows: Sequence[dict], source: str, measure: str) -> di
 
 
 def summarise(cv_rows: Sequence[dict], rows: Sequence[dict], fold_rows: Sequence[Sequence[int]]) -> dict:
-    """The report: the cross-validation, winter's bends, their sensitivity, and summer against winter."""
+    """The report: the cross-validation, winter's bends, their sensitivity, and summer against winter.
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        rows: Phase 2's rows (:func:`measure_tree`).
+        fold_rows: The rows of each cross-validation fold.
+
+    Returns:
+        The report (``report.json``).
+    """
     from treeskel.tree3d import SETTINGS
 
     chosen = choose(cv_rows)
@@ -940,7 +1122,14 @@ def _f(x, spec=".2f") -> str:
 
 
 def report_lines(report: dict) -> list[str]:
-    """The report as text."""
+    """The report as text.
+
+    Args:
+        report: The report from :func:`summarise`.
+
+    Returns:
+        The lines of text.
+    """
     q = report["winter"]
     out = [f"Block cross-validation on {report['n_trees_cv']} development trees' winter depth "
            f"({BLOCK_PX} px blocks left out, {BUFFER_PX} px either side), mean absolute error of the left-out "
@@ -1052,6 +1241,9 @@ def typical_summer(job: tuple) -> list[dict]:
     Args:
         job: ``(record, hand mask or None, U-Net mask or None, BendParams, typical shape)``; the shape learnt
             without the tree's own fold.
+
+    Returns:
+        One row per summer source and model: the tree's measures, or the ``error`` that stopped the fit.
     """
     from treeskel.io import load_tree
     from treeskel.shape import SUMMER_SCALE
@@ -1087,6 +1279,11 @@ def typical_summer(job: tuple) -> list[dict]:
 def fold_shapes(winter: Sequence[dict], fold_rows: Sequence[Sequence[int]], min_trees: int = MIN_TREES) -> dict:
     """The typical shape from every tree, and for each fold from the other folds' trees only.
 
+    Args:
+        winter: Pass 1's rows, with each tree's profiles.
+        fold_rows: The rows of each fold.
+        min_trees: As for :func:`typical_shape`.
+
     Returns:
         ``{"all": shape, "folds": [shape per fold]}`` (:func:`typical_shape`).
     """
@@ -1097,7 +1294,15 @@ def fold_shapes(winter: Sequence[dict], fold_rows: Sequence[Sequence[int]], min_
 
 
 def fold_of(row: int, fold_rows: Sequence[Sequence[int]]) -> int:
-    """The fold whose rows include ``row`` (-1 if none)."""
+    """The fold whose rows include ``row`` (-1 if none).
+
+    Args:
+        row: An orchard row.
+        fold_rows: The rows of each fold.
+
+    Returns:
+        The fold's index, or -1.
+    """
     return next((i for i, rows in enumerate(fold_rows) if row in rows), -1)
 
 
@@ -1105,6 +1310,11 @@ def typical_against(rows: Sequence[dict], source: str, measures: Sequence[str]) 
     """Each summer model against winter's bends, tree by tree, on measures pooled together (one row per tree
     and measure): the median ``|summer − winter|`` per model, and the bends with the typical shape against the
     bends with the plane as the prior's mean.
+
+    Args:
+        rows: Pass 2's rows (:func:`typical_summer`).
+        source: The summer source.
+        measures: The measures pooled.
 
     Returns:
         ``{"n", "median": {model: ...}, "closer", "wilcoxon_p"}``: ``closer`` is the share of pairs where
@@ -1135,7 +1345,15 @@ plane **and** on the leaders' tilts on their stretch (both leaders pooled)."""
 
 
 def summarise_typical(rows: Sequence[dict], shapes: dict) -> dict:
-    """The typical-shape run's report: the shape, each model against winter, and the rule's verdict."""
+    """The typical-shape run's report: the shape, each model against winter, and the rule's verdict.
+
+    Args:
+        rows: Pass 2's rows (:func:`typical_summer`).
+        shapes: From :func:`fold_shapes`.
+
+    Returns:
+        The report (``docs/results/bend3d_typical/report.json``), with the rule's verdict.
+    """
     report = {"shape": shapes["all"], "n_trees": len({r["tree"] for r in rows if r["source"] == "winter"}),
               "summer": {}}
     for source in ("U-Net", "hand masks"):
@@ -1153,7 +1371,14 @@ def summarise_typical(rows: Sequence[dict], shapes: dict) -> dict:
 
 
 def typical_lines(report: dict) -> list[str]:
-    """The typical-shape run's report as text."""
+    """The typical-shape run's report as text.
+
+    Args:
+        report: From :func:`summarise_typical`.
+
+    Returns:
+        The lines of text.
+    """
     out = [f"The typical winter shape ({report['n_trees']} development trees; median bend behind the tree's plane, cm):"]
     for part in PARTS:
         sh = report["shape"][part]
@@ -1183,7 +1408,13 @@ def typical_lines(report: dict) -> list[str]:
 
 def plot_typical(report: dict, path, failed: list[str]) -> None:
     """Two panels: the typical winter shape (median and quartiles), and each summer model's error against
-    winter on the angles (U-Net masks)."""
+    winter on the angles (U-Net masks).
+
+    Args:
+        report: From :func:`summarise_typical`.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1251,7 +1482,15 @@ PART_COLOURS = {"trunk": "#0b0b0b", "left": "#2a78d6", "right": "#e34948"}
 def plot_figure(cv_rows: Sequence[dict], rows: Sequence[dict], fold_rows: Sequence[Sequence[int]], path,
                 failed: list[str]) -> None:
     """Three panels: each tree's left-out error with the plane and with the bends (out of fold); winter's
-    trunk angle out of the V's plane; and summer's against winter's, tree by tree."""
+    trunk angle out of the V's plane; and summer's against winter's, tree by tree.
+
+    Args:
+        cv_rows: Phase 1's rows (:func:`cv_table`).
+        rows: Phase 2's rows.
+        fold_rows: The rows of each fold.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -1332,6 +1571,9 @@ def plot_profiles(trees: Sequence[tuple[str, Prepared, dict, np.ndarray]], path,
 
     Args:
         trees: ``(name, prepared, fit, sd)`` per panel.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        title: The figure's title.
     """
     import matplotlib
 
@@ -1378,7 +1620,12 @@ def plot_profiles(trees: Sequence[tuple[str, Prepared, dict, np.ndarray]], path,
 # --------------------------------------------------------------------------
 
 def save_csv(path, rows: Sequence[dict]) -> None:
-    """Write rows, floats to 6 significant digits."""
+    """Write rows, floats to 6 significant digits.
+
+    Args:
+        path: The CSV file.
+        rows: Rows with the same keys.
+    """
     import csv
 
     fields = list(dict.fromkeys(k for r in rows for k in r))
@@ -1392,7 +1639,14 @@ TEXT_FIELDS = ("tree", "source", "setting", "model", "part", "error")
 
 
 def load_csv(path) -> list[dict]:
-    """Read :func:`save_csv`'s file back (text fields as text, ``row`` and ``n`` as integers)."""
+    """Read :func:`save_csv`'s file back (text fields as text, ``row`` and ``n`` as integers).
+
+    Args:
+        path: The CSV file.
+
+    Returns:
+        The rows as dicts.
+    """
     import csv
 
     rows = []
@@ -1404,7 +1658,15 @@ def load_csv(path) -> list[dict]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Fit the development trees' bends; choose the prior; compare the seasons; print and save."""
+    """Fit the development trees' bends; choose the prior; compare the seasons; print and save.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no development tree with winter clicks was found or an output file
+        could not be written; with ``--typical``, that of :func:`typical_main`.
+    """
     import argparse
     import json
     import os
@@ -1531,7 +1793,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def run_parallel(fn, jobs: Sequence, what: str, workers: int) -> list:
-    """Map ``fn`` over ``jobs`` in worker processes, printing progress, in the jobs' order."""
+    """Map ``fn`` over ``jobs`` in worker processes, printing progress, in the jobs' order.
+
+    Args:
+        fn: A top-level function of one job.
+        jobs: The jobs.
+        what: What the progress lines call the step.
+        workers: Most worker processes.
+
+    Returns:
+        ``fn``'s results, in the order of ``jobs``.
+    """
     import time
     from concurrent.futures import ProcessPoolExecutor
 
@@ -1558,6 +1830,13 @@ def typical_main(args) -> int:
     other folds' trees. Pass 2 fits summer (the lined-up hand mask and the U-Net's mask) with the plane and with
     the out-of-fold typical shape as the prior's mean. The rule (:data:`TYPICAL_RULE`) decides whether
     :mod:`treeskel.model3d` uses the shape.
+
+    Args:
+        args: The parsed command line of :func:`main`.
+
+    Returns:
+        The exit status: 0 on success, 1 if no development tree with winter clicks was found or an output file
+        could not be written, 2 if neither the dataset folders nor ``--from-saved`` was given.
     """
     import json
     from pathlib import Path

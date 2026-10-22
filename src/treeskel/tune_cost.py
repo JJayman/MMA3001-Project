@@ -77,12 +77,27 @@ optimistic."""
 
 
 def base_clicks(c: Clicks) -> Clicks:
-    """Only the four main clicks: root, fork and the two tips."""
+    """Only the four main clicks: root, fork and the two tips.
+
+    Args:
+        c: A tree's clicks, with any correction clicks.
+
+    Returns:
+        New :class:`Clicks` without them.
+    """
     return Clicks(trunk=[c.trunk[0], c.trunk[-1]], left=[c.left[-1]], right=[c.right[-1]])
 
 
 def part_paths(cost: np.ndarray, c: Clicks) -> dict[str, np.ndarray]:
-    """Trace the trunk and both leaders for the given clicks."""
+    """Trace the trunk and both leaders for the given clicks.
+
+    Args:
+        cost: The tree's cost map.
+        c: The clicks to trace through.
+
+    Returns:
+        ``{"trunk", "left", "right"}`` ``(N, 2)`` ``(row, col)`` paths.
+    """
     return {
         "trunk": trace(cost, c.trunk),
         "left": trace(cost, [c.fork, *c.left]),
@@ -91,12 +106,28 @@ def part_paths(cost: np.ndarray, c: Clicks) -> dict[str, np.ndarray]:
 
 
 def waypoints(c: Clicks, part: str) -> list[tuple[int, int]]:
-    """The correction clicks for one part (excluding root, fork and tips)."""
+    """The correction clicks for one part (excluding root, fork and tips).
+
+    Args:
+        c: A tree's clicks.
+        part: ``"trunk"``, ``"left"`` or ``"right"``.
+
+    Returns:
+        The ``(row, col)`` correction clicks.
+    """
     return list(c.trunk[1:-1]) if part == "trunk" else list(getattr(c, part)[:-1])
 
 
 def waypoint_distances(path: np.ndarray, points: Sequence[tuple[int, int]]) -> list[float]:
-    """Distance (px) from each point to the nearest pixel of ``path``."""
+    """Distance (px) from each point to the nearest pixel of ``path``.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` path.
+        points: ``(row, col)`` points.
+
+    Returns:
+        One distance per point.
+    """
     return [float(np.hypot(*(path - np.asarray(q)).T).min()) for q in points]
 
 
@@ -104,6 +135,14 @@ def grid_sample(n: int, seed: int = 0, grid: dict | None = None) -> list[GuidedP
     """The default settings plus up to ``n`` distinct random points of ``grid``.
 
     With ``n`` at least the grid size, every point is included (exhaustive).
+
+    Args:
+        n: Random settings wanted.
+        seed: Random seed.
+        grid: Values per setting; :data:`GRID` by default.
+
+    Returns:
+        The settings, the defaults first.
     """
     grid = GRID if grid is None else grid
     combos = list(itertools.product(*grid.values()))
@@ -137,7 +176,15 @@ def evaluate(trees: dict, params: GuidedParams) -> dict[str, list[float]]:
 
 
 def summarise(dists: Sequence[float], tolerance: float) -> dict[str, float]:
-    """Mean, median and fraction beyond ``tolerance`` of waypoint distances."""
+    """Mean, median and fraction beyond ``tolerance`` of waypoint distances.
+
+    Args:
+        dists: Waypoint distances (px).
+        tolerance: Distance (px) above which a correction click is still needed.
+
+    Returns:
+        ``{"mean_px", "median_px", "still_needed", "n"}`` (zeros if empty).
+    """
     a = np.asarray(dists, float)
     if a.size == 0:
         return {"mean_px": 0.0, "median_px": 0.0, "still_needed": 0.0, "n": 0}
@@ -146,7 +193,15 @@ def summarise(dists: Sequence[float], tolerance: float) -> dict[str, float]:
 
 
 def pooled(res: dict[str, list[float]], exclude: str | None = None) -> list[float]:
-    """All waypoint distances, optionally leaving one tree out."""
+    """All waypoint distances, optionally leaving one tree out.
+
+    Args:
+        res: Waypoint distances per tree id.
+        exclude: A tree id to leave out.
+
+    Returns:
+        The distances.
+    """
     return [d for t, ds in res.items() if t != exclude for d in ds]
 
 
@@ -174,7 +229,14 @@ def leave_one_out(results: list[dict[str, list[float]]]) -> tuple[list[tuple[str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the random search and leave-one-out check; print and save results."""
+    """Run the random search and leave-one-out check; print and save results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no tree in the data folder has correction clicks.
+    """
     from treeskel.io import index_dataset, load_tree
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.tune_cost", description=__doc__.splitlines()[0])

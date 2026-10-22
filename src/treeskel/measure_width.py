@@ -136,8 +136,10 @@ def edge_overshoot(grey: np.ndarray, first: np.ndarray, last: np.ndarray, d_firs
 
     Args:
         grey: ``(N, 2X + 1)`` straightened grey levels (0–255).
-        first, last: Colour edges per cross-section (offsets, px).
-        d_first, d_last: Depth run ends per cross-section.
+        first: Colour edge offsets per cross-section (px).
+        last: The other colour edge's offsets (px).
+        d_first: The depth run's first offsets per cross-section (px).
+        d_last: Its last offsets (px).
         closed: Cross-sections whose depth run is closed (:func:`centre_runs`).
         contrast: Least change in mean grey level across a colour edge
             (3 samples each side) for it to count as clear.
@@ -168,6 +170,9 @@ def hand_mask_profiles(mask: np.ndarray) -> dict | None:
     and the half-width at each centre-line point is its distance to the
     mask's edge. Everything is divided by the trunk's half-width ``T`` (the
     median 3–40 mask px below the fork), so the mask's scale does not matter.
+
+    Args:
+        mask: A 256x256 boolean hand mask.
 
     Returns:
         ``{"left": (s/T, w/T), "right": (s/T, w/T)}`` with ``s`` measured
@@ -203,6 +208,10 @@ def widening_costs(s_over_r: np.ndarray, widths: np.ndarray, widenings: Sequence
     Args:
         s_over_r: ``(N,)`` distance from the fork, in trunk radii.
         widths: ``(N,)`` measured half-widths (px).
+        widenings: The shared widenings ``w`` tried.
+        lengths: The fade lengths ``L`` tried, in trunk radii.
+        start: Nearest distance from the fork used, in trunk radii.
+        min_valid: Widths at or below this (px) are failed edges, not used.
 
     Returns:
         ``(len(widenings), len(lengths))`` costs (nan if too few points).
@@ -222,7 +231,19 @@ def widening_costs(s_over_r: np.ndarray, widths: np.ndarray, widenings: Sequence
 
 
 def free_taper(s: np.ndarray, widths: np.ndarray, fork_radius: float, start: float = FIT_START) -> float:
-    """Relative change of a free straight taper from ``start`` trunk radii to the tip (nan if unfit)."""
+    """Relative change of a free straight taper from ``start`` trunk radii to the tip (nan if unfit).
+
+    Args:
+        s: ``(N,)`` distance from the fork (px).
+        widths: ``(N,)`` measured half-widths (px).
+        fork_radius: The trunk's radius at the fork (px).
+        start: Nearest distance used, in trunk radii.
+
+    Returns:
+        The fitted line's change from the start to the tip over its width at the start: negative for a branch
+        that narrows. NaN with fewer than 8 widths above 2.5 px, or a fitted width at the start that is not
+        positive.
+    """
     use = (s >= start * fork_radius) & (widths > 2.5)
     if use.sum() < 8:
         return float("nan")
@@ -380,6 +401,9 @@ def summarise(results: list[dict], folds: Sequence[Sequence[int]] | None = None)
         folds: Rows in each fold of row-grouped cross-validation (the
             ``fold_val_rows`` of ``splits.json``), to choose the widening with
             whole folds held out as well as single trees.
+
+    Returns:
+        The report (``report.json``).
     """
     leaders = [(r["tree"], r["fork_radius"], ld) for r in results for ld in r["leaders"]]
     over = np.concatenate([r["overshoot"] for r in results])
@@ -497,6 +521,11 @@ def plot_profiles(report: dict, path: Path, failed: list[str]) -> None:
     the fork; the masks before (orange) and after (blue) are the story, the
     hand masks and the overshoot-corrected depth (greys) are the context.
     Each line is labelled at its end as well as in the legend.
+
+    Args:
+        report: From :func:`summarise`.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
     """
     import matplotlib
 
@@ -559,7 +588,15 @@ def plot_profiles(report: dict, path: Path, failed: list[str]) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Measure development-row trees; print and save the results."""
+    """Measure development-row trees; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no annotated development tree was found or an output file could
+        not be written.
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import index_dataset

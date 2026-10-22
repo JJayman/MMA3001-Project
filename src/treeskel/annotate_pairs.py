@@ -157,7 +157,11 @@ class PairAnnotator:
 
     # --- events -------------------------------------------------------------
     def prompt(self) -> str:
-        """Instructions and the current fit, for the window title."""
+        """Instructions and the current fit, for the window title.
+
+        Returns:
+            The instructions and the current fit, or a closing message once every tree is done.
+        """
         if self.done:
             return "All trees done - press q to save and quit"
         head = f"{self.tree.tree_id} ({self.i + 1}/{len(self.trees)}), {len(self.pairs)} pair(s). "
@@ -181,6 +185,14 @@ class PairAnnotator:
 
         The first click of a pair waits (a second click in the same image moves
         it); a click in the other image completes the pair.
+
+        Args:
+            panel: The image clicked, ``"winter"`` or ``"summer"``.
+            row: Image row of the click (px).
+            col: Image column of the click (px).
+
+        Raises:
+            ValueError: If ``panel`` is neither.
         """
         if self.done:
             return
@@ -198,7 +210,11 @@ class PairAnnotator:
         self._refit()
 
     def key(self, key: str) -> None:
-        """Handle a key press."""
+        """Handle a key press.
+
+        Args:
+            key: The key's name as matplotlib reports it (e.g. ``"enter"``, ``"u"``, ``"q"``).
+        """
         if key == "q":
             save_pairs(self.pairs_path, self.saved)
             self.done = True
@@ -331,7 +347,14 @@ def run_gui(ann: PairAnnotator, show: bool = True):
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs a display
-    """Start the pair tool (see the module docstring for usage)."""
+    """Start the pair tool (see the module docstring for usage).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0 (the pairs are saved as they are made).
+    """
     from treeskel.splits import load_split
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.annotate_pairs", description=__doc__.splitlines()[0])

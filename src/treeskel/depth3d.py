@@ -112,11 +112,24 @@ class Camera:
     centre: tuple[float, float] = CENTRE
 
     def distance(self, values: np.ndarray) -> np.ndarray:
-        """Distance along the optical axis (units) of depth values (NaN stays NaN)."""
+        """Distance along the optical axis (units) of depth values (NaN stays NaN).
+
+        Args:
+            values: 8-bit depth values (float; NaN for none).
+
+        Returns:
+            ``zero − values``, in units of the scale.
+        """
         return self.zero - np.asarray(values, float)
 
     def rays(self, rc: np.ndarray) -> np.ndarray:
         """``(N, 3)`` ray directions ``(x, y, 1)`` through ``(N, 2)`` ``(row, col)`` pixels (``y`` down).
+
+        Args:
+            rc: ``(N, 2)`` ``(row, col)`` pixels.
+
+        Returns:
+            ``(N, 3)`` ray directions.
 
         Example:
             >>> Camera(focal=100.0).rays(np.array([[240.0, 420.0]])).tolist()
@@ -127,12 +140,27 @@ class Camera:
                          np.ones(len(p))], 1)
 
     def points(self, rc: np.ndarray, values: np.ndarray) -> np.ndarray:
-        """``(N, 3)`` points ``(X, Y, Z)`` (units; ``Y`` down) of pixels with depth values."""
+        """``(N, 3)`` points ``(X, Y, Z)`` (units; ``Y`` down) of pixels with depth values.
+
+        Args:
+            rc: ``(N, 2)`` ``(row, col)`` pixels.
+            values: ``(N,)`` depth values.
+
+        Returns:
+            ``(N, 3)`` points in units of the scale.
+        """
         return self.rays(rc) * self.distance(values)[:, None]
 
 
 def metres_per_unit(fork_distance_units: float, distance_m: float = DISTANCE_M) -> float:
     """The scale: metres per unit that put a fork ``fork_distance_units`` away at ``distance_m``.
+
+    Args:
+        fork_distance_units: The fork's distance ``zero − v`` (units).
+        distance_m: The distance the fork is taken to be at (m).
+
+    Returns:
+        Metres per unit.
 
     Example:
         >>> metres_per_unit(180.0)
@@ -167,6 +195,19 @@ def ground_blocks(depth: np.ndarray, valid: np.ndarray, block: tuple[int, int] =
     from it are dropped, repeating until none are. (A rule by rows, "nearer
     than the row's median", would also cut away ground: when the camera rolls,
     one image row spans several distances.)
+
+    Args:
+        depth: ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of its readings.
+        block: Block size ``(rows, cols)`` (px).
+        min_fill: Smallest share of a block with readings.
+        cut: Blocks this many robust standard deviations from the surface are dropped.
+        floor: Smallest distance from the surface (units) that drops a block.
+        iters: Most rounds of fitting and dropping.
+
+    Returns:
+        ``(n, 3)`` float rows ``(col, row, value)``; with fewer than 12 blocks, all of them, without the
+        surface fit.
     """
     ground_rows = valid.mean(axis=1) >= 0.5
     h, w = depth.shape
@@ -203,6 +244,13 @@ def zero_errors(blocks: np.ndarray, zeros: Sequence[float] = ZEROS) -> np.ndarra
     turned back into values (``v0 − 1 / fit``) and compared with the blocks' values. A zero at or below
     a block's value, or a fit that is not positive everywhere, gives ``inf``.
 
+    Args:
+        blocks: ``(n, 3)`` ground blocks ``(col, row, value)`` from :func:`ground_blocks`.
+        zeros: The zeros tried (depth units).
+
+    Returns:
+        RMS error per zero (``inf`` where it does not fit).
+
     Example:
         >>> u, r = np.meshgrid(np.arange(16.0, 640, 32), np.arange(250.0, 480, 16))
         >>> v = 300 - 1 / (0.002 + 0.00001 * u + 0.00004 * (r - 250))      # zero 300, tilted ground
@@ -226,7 +274,14 @@ def zero_errors(blocks: np.ndarray, zeros: Sequence[float] = ZEROS) -> np.ndarra
 
 
 def affine_error(blocks: np.ndarray) -> float:
-    """RMS error (depth units) of ``v`` itself affine in ``(u, r)``: a map linear in disparity."""
+    """RMS error (depth units) of ``v`` itself affine in ``(u, r)``: a map linear in disparity.
+
+    Args:
+        blocks: ``(n, 3)`` ground blocks ``(col, row, value)`` from :func:`ground_blocks`.
+
+    Returns:
+        The RMS error, ``inf`` with fewer than 4 blocks.
+    """
     if len(blocks) < 4:
         return float("inf")
     a = np.stack([np.ones(len(blocks)), blocks[:, 0], blocks[:, 1]], 1)
@@ -237,6 +292,10 @@ def affine_error(blocks: np.ndarray) -> float:
 def fit_zero(blocks: np.ndarray, zeros: Sequence[float] = ZEROS) -> dict:
     """One tree's zero: the grid value with the smallest :func:`zero_errors`, refined by a parabola through
     it and its neighbours.
+
+    Args:
+        blocks: ``(n, 3)`` ground blocks ``(col, row, value)`` from :func:`ground_blocks`.
+        zeros: The zeros tried (depth units).
 
     Returns:
         ``{"zero", "rms", "rms_session2", "rms_disparity", "n_blocks", "at_edge"}``; ``zero`` is NaN
@@ -262,6 +321,13 @@ def pooled_zero(errors: np.ndarray, zeros: Sequence[float] = ZEROS) -> float:
 
     One zero must suit every tree, so a zero that some tree rules out (infinite error: at or below its
     values) is not a candidate; trees that no zero fits are left out first.
+
+    Args:
+        errors: ``(trees, zeros)`` errors from :func:`zero_errors`.
+        zeros: The zeros tried (depth units).
+
+    Returns:
+        The pooled zero, NaN if none suits every tree left.
 
     Example:
         >>> pooled_zero(np.array([[3.0, 1.0, 2.0], [2.5, 1.5, 1.0], [np.inf, 1.0, 1.0]]), (250.0, 300.0, 350.0))
@@ -291,7 +357,16 @@ def _calibrate_one(job: tuple) -> dict:
 def calibrate(results: Sequence[dict], zeros: Sequence[float] = ZEROS) -> dict:
     """Summary of the per-tree zero fits: the per-tree estimates' median and quartiles, the pooled estimate
     (with and without the blocks below :data:`MIN_VALUE`), per orchard row, and how session 2's zero and
-    the disparity-like map compare."""
+    the disparity-like map compare.
+
+    Args:
+        results: Per tree, ``{"tree", "row", "fit", "fit_all", "errors", "errors_all"}``: :func:`fit_zero` and
+            :func:`zero_errors` on the blocks kept and on all blocks.
+        zeros: The zeros tried (depth units).
+
+    Returns:
+        The summary (``docs/results/depth3d/calibration.json``).
+    """
     def summary(key: str, err_key: str) -> dict:
         """The zero's median, quartiles, pooled estimate and fit quality for one block selection (``key``)."""
         z = np.array([r[key]["zero"] for r in results], float)
@@ -322,7 +397,14 @@ def calibrate(results: Sequence[dict], zeros: Sequence[float] = ZEROS) -> dict:
 
 
 def calibration_lines(s: dict) -> list[str]:
-    """The calibration summary as text."""
+    """The calibration summary as text.
+
+    Args:
+        s: The summary from :func:`calibrate`.
+
+    Returns:
+        The lines of text.
+    """
     def f(x, spec=".0f"):
         """A number as text, or ``-`` if missing."""
         return "-" if x is None or (isinstance(x, float) and not np.isfinite(x)) else format(x, spec)
@@ -343,7 +425,14 @@ def calibration_lines(s: dict) -> list[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the calibration on the development rows; print and save the results."""
+    """Run the calibration on the development rows; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0 (a missing ``--calibrate`` is a usage error, exit 2).
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import index_dataset
