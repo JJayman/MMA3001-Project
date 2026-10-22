@@ -26,7 +26,7 @@ average tree, negative worse). Every summer prediction is scored against the sam
 | Ground truth | 541 winter trees traced through 4 clicks each, plus about one correction (about 15 s a tree); the tuned tracer passes a mean 3.2 px from the correction clicks (4.8 px on trees left out) | `docs/results/tune_cost/` |
 | Automatic winter baseline | traces only 43% of trees well (F1 ≥ 0.9 against the guided traces); V opening skill −1.97 | `docs/results/winter_baseline/` |
 | Summer models (5 row-grouped folds, 449 development trees) | V opening skill: ridge on CNN features +0.10, fine-tuned angle CNN +0.18, **U-Net on the lined-up hand masks, pieces joined, +0.75**; the hand masks themselves +0.87 | `docs/results/shape/`, `segment_lined_up_joined/` |
-| **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
+| **Final test** (rows 3, 12, 16; 92 trees; run once) | **V opening skill +0.88** [95% interval +0.81, +0.92, trees resampled within the three rows; each row on its own +0.88, +0.86, +0.89], mean error 3.4° against 10.4° for the average tree; the hand masks +0.91 | `docs/results/final_test/` |
 | Run time | the U-Net predicts a photo in 9.7 ms on a GPU, 116 ms on a CPU, and trains in 2 minutes | `docs/results/benchmark/` |
 | Improving the masks (session 16, development rows) | seven trainings of the same recipe range 4.00–4.47° in V-opening error, which is more than any change moved it. A centre-line (clDice) loss covers more of the labelled branches, but its V-opening gain is not established. Three trainings averaged beat their own members by 0.06–0.14° and halve the disagreement between retrainings (0.67° → 0.36°). Reported once on the test rows: no gain (+0.81, against +0.81 to +0.88 for four single trainings, the final test's being the best), because on two short-leader trees two of the three networks failed. A label audit of 40 random lined-up hand masks found 2 of 75 judged leaders off (3%) | `docs/results/segment_variants/`, `final_test_ensemble/`, `label_audit/` |
 | 3D | the trees are flat to a median 1.7 cm (sizes assume 2 m from the camera to the fork); the V in the photo is about 2.3° wider than in the tree's own plane | `docs/results/depth3d/`, `tree3d/` |
@@ -177,9 +177,23 @@ the figures' pixels differ (fonts). `git checkout docs` restores the committed f
 8. `python -m treeskel.depth3d data/raw --calibrate`, `tree3d data/raw`, `bend3d data/raw` and
    `bend3d data/raw --typical`: the 3D steps.
 
-A new training is another sample of the same recipe, not the same network: seven trainings ranged 4.00–4.47°
-in V-opening error ([`docs/results/segment_variants/`](docs/results/segment_variants/)). Each step's
-README in `docs/results/` gives its command, its output and the numbers it produced.
+**What each path needs.** The repository alone runs the tests and re-scores the saved results: steps 2–4
+above need neither PyTorch nor a GPU (checked in session 19 with PyTorch blocked from importing). Running
+the work again needs:
+
+- the full dataset, which the MMA3001 teaching team provides and this repository does not redistribute;
+- PyTorch and torchvision (`.[shape]`; kornia too for the learned matchers, `.[match]`), installed as in
+  Setup;
+- a GPU for the networks: the named U-Net's 5-fold run took 20 minutes on a GTX 1080 Ti, and one training
+  on all development trees 2 minutes ([`docs/results/benchmark/`](docs/results/benchmark/)).
+
+**The trained networks are not committed.** The experiments never saved their weights, and `models/`, where
+`model3d train` saves one (about 57 MB), is git-ignored. What each network predicted is committed (each
+run's masks, probabilities and `predictions.csv`), so every reported score can be recomputed without the
+networks. But a network can only be retrained, and a new training is another sample of the same recipe,
+not the same network: seven trainings ranged 4.00–4.47° in V-opening error
+([`docs/results/segment_variants/`](docs/results/segment_variants/)). Each step's README in
+`docs/results/` gives its command, its output and the numbers it produced.
 
 ## Usage
 
@@ -309,6 +323,13 @@ It showed no gain and changed nothing; the final test stays the headline.
 
 ## Limitations
 
+- **What the validation supports:** held-out evidence for the tree's main structure in the photo: the
+  angles of the trunk and the two leaders, scored against the bare winter photos on rows the model never
+  saw. The 3D model is an estimate built on that, not a validated 3D reconstruction. Its angles rest on the
+  depth calibration and its sizes on an assumed 2.0 m to the fork. Where the summer depth does not see the
+  wood (most of the leaders), the bends follow the typical winter shape, not the tree. The winter depth
+  checks the bends (left-out depth 1.9 cm against the plane's 3.1 cm), but there is no independent 3D
+  measurement of the trees.
 - **Scope:** one orchard, one camera and its 8-bit depth export, one summer and one winter capture, and
   trees trained to a trunk with two leaders. Only the main branches are estimated, not side branches or
   shoots.
@@ -321,7 +342,10 @@ It showed no gain and changed nothing; the final test stays the headline.
 - **Training to training:** seven trainings of the same recipe range 4.00–4.47° in V-opening error on the
   development rows, and four score +0.81 to +0.88 on the test rows; the final test's network was the best
   of the four. So the headline is one sample of the recipe.
-- **The test rows** were used twice: the final test, and one secondary result declared before it ran.
+- **The test rows** were used twice: the final test, and one secondary result declared before it ran. They
+  are three rows (92 trees). Their 95% intervals resample trees within those rows, and trees in a row share
+  light and background, so the intervals understate the uncertainty for a new row or orchard. Each row's own
+  skill is reported beside them (+0.86 to +0.89 on the V opening).
 - **3D:** sizes rest on an assumed 2.0 m from the camera to the fork (angles need only the depth's zero and
   the focal length, whose ranges are reported); one depth step is about 1.2 cm. Summer depth sees the trunk
   but almost never the leaders (3% of their readings), so in summer the leaders' bends mostly follow the
@@ -355,6 +379,36 @@ was mine, what the AI did, and the mistakes it made and how they were caught.
 - proposed methods and checks, explained the ideas behind them and the related paper, and analysed the
   results I sent back;
 - drafted the session notes at the end of each session.
+
+By commits, the AI made about three quarters of those that are not merges (132 of 173 at commit d199ee0):
+all the code, tests and documentation. Mine are the sample data, the clicks, the line-ups, the label audit
+and the results of the runs on my computer.
+
+**Why I used AI for these tasks:**
+
+- *The code and tests:* the project grew to about 24,000 lines of Python in 27 modules, with 8,500 lines of
+  tests, in a month. With the AI writing them, my time went into what only I could do: looking at the
+  images, clicking the ground truth for 541 trees, lining up 449 masks, and making the decisions.
+- *Explanations when I needed them:* Git and pull requests, the terminal, virtual environments and PyTorch's
+  errors were new to me, and so were several of the methods (robust fitting, minimal-path tracing,
+  Gaussian-process priors, the roofline model). The AI explained them on my own data and results.
+- *Reading and proposing checks:* it read the related paper against our capture (same orchard and camera,
+  a different season), and proposed checks such as synthetic trees with known answers and the null check
+  between trainings.
+
+**How it changed my workflow and understanding:**
+
+- *The project's memory moved into the repository.* The AI forgets between chats, so from session 5 each
+  session started a new chat and ended with notes in `docs/progress/`, with the fixed decisions in
+  `CLAUDE.md`. Every number and decision can be traced, and those notes are what this section rests on.
+- *Every change went through a branch and a pull request that I merged* (more than 70), so nothing reached
+  `main` without my seeing it.
+- *Checking became most of the work.* Because the AI was confidently wrong often enough, I fixed each rule
+  for choosing a model before its result was seen, asked for checks on all 449 development trees instead of
+  a few, and looked at the images myself. Asking what a term or a result meant was a check as well: in
+  sessions 14 and 17 my questions exposed a wrong count and misleading wording.
+- *What I understand:* the methods through what they assume, what they were checked against and where they
+  fail, more than through every line of the code, which the AI wrote.
 
 **How the work was checked:** the AI was wrong often enough that nothing was taken on trust. Its mistakes
 included judging an image offset by eye, a tuning measure biased towards the old settings, branch widths

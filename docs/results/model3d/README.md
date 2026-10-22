@@ -138,11 +138,12 @@ python -m treeskel.model3d build R01N13 --plane-prior    # bends; unseen parts o
 ```
 
 Each skeleton point moves along its own ray to the bend that `treeskel.bend3d` fits to the summer depth
-(`docs/results/bend3d/`): a smooth curve per part, joined at the fork, with the plane as its prior (τ 2 cm,
+(`docs/results/bend3d/`): a smooth curve per part, joined at the fork, with a Gaussian-process prior (τ 2 cm,
 L 20 cm, chosen on the 449 development trees' winter depth). Only the summer readings where the branch is a
 depth ridge count (its sides at least about 5 cm farther), so the depth of leaves in front is not followed.
 **Sections whose depth was not seen are drawn pale** (`UNSURE`): there the bend's posterior standard
-deviation is more than half the prior's, and the branch stays near the plane. Seen from the front the model
+deviation is more than half the prior's, and the branch follows the prior's mean: the typical winter shape
+since session 15 (below; `--plane-prior` for the plane). Seen from the front the model
 still looks like the photo; turned side-on, the trunk can run back out of the V's plane. The viewer's panel
 adds the bent V opening, the trunk's angle out of the V's plane and how much of the trunk's and the leaders'
 depth was seen.
