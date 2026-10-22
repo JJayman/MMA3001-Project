@@ -27,8 +27,9 @@ says so, and stays on it where the depth says little. For each tree:
    preference: a Gaussian-process prior of standard deviation ``spread`` (τ)
    and length ``length`` (L), whose precision is
    ``(1 + L⁴ d⁴/ds⁴) / (2√2 τ² L)``. Well-observed sections follow the
-   readings; sections with few or no readings stay near the plane, with a
-   posterior standard deviation (:func:`posterior_sd`) that says so. The
+   readings; sections with few or no readings stay near the prior's mean (the
+   plane, or with ``--typical`` the typical winter shape, :func:`prior_mean`),
+   with a posterior standard deviation (:func:`posterior_sd`) that says so. The
    three parts share the fork's bend, so they stay connected, and each may
    kink there. Each reading counts as ``Δs / ℓ`` independent ones
    (:data:`CORR_PX`): neighbouring readings share most of their pixels. The

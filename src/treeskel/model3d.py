@@ -40,10 +40,14 @@ The project's pieces, end to end, for a single photo:
    By default (since session 15; ``--flat`` for the plane alone) each point
    then moves along its ray to the bend :mod:`treeskel.bend3d` fits to the
    summer depth where the wood is a depth ridge (the trunk below the canopy,
-   wood against a gap), joined at the fork, with the plane as the prior;
-   sections whose depth was not seen stay near the plane and are drawn pale
-   (:data:`UNSURE`). On the 449 development trees the summer trunk bends the
-   right way more often than not, but by about a third of winter's angle.
+   wood against a gap), joined at the fork. The fit's prior has the typical
+   winter shape as its mean (:func:`typical_prior`: adopted in session 15 by
+   the rule fixed before its 449-tree run; ``--plane-prior`` uses the plane),
+   so sections whose depth was not seen follow the typical winter tree, not
+   this one, and are drawn pale (:data:`UNSURE`). Summer sees almost none of
+   the leaders (3% of their readings), so their bends are mostly that shape.
+   On the 449 development trees the summer trunk bends the right way more
+   often than not, but by about a third of winter's angle.
 5. **Files:** ``<name>.html`` opens in any browser, with no internet and
    nothing to install (drag to turn, scroll to zoom, the leaves can be faded
    or hidden); ``<name>_branches.ply`` and ``<name>_leaves.ply`` open in
@@ -116,7 +120,8 @@ BARK = (0.56, 0.42, 0.30)
 """The branches' colour (RGB, 0–1)."""
 
 UNSURE = (0.80, 0.76, 0.70)
-"""The colour of branch sections whose depth was not seen (the bends): kept near the plane, uncertain."""
+"""The colour of branch sections whose depth was not seen (the bends): they follow the prior's mean (the typical
+winter shape, or the plane with ``--plane-prior``), so their shape is uncertain."""
 
 TYPICAL_REPORT = Path("docs/results/bend3d_typical/report.json")
 """The typical-shape run of :mod:`treeskel.bend3d` (``--typical``): ``build`` uses its shape as the prior's mean
@@ -1303,7 +1308,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     shape = bu.add_mutually_exclusive_group()
     shape.add_argument("--bends", dest="flat", action="store_false",
                        help="(the default) let the branches bend out of the tree's plane where the summer depth sees "
-                            "the wood (treeskel.bend3d); sections it does not see stay near the plane, drawn pale")
+                            "the wood (treeskel.bend3d); sections it does not see follow the typical winter shape "
+                            "(the plane with --plane-prior), drawn pale")
     shape.add_argument("--flat", dest="flat", action="store_true",
                        help="put every skeleton point on the tree's plane (the model before session 15)")
     bu.set_defaults(flat=False)                  # both options share ``flat``: --bends' own default would be True
