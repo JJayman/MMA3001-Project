@@ -153,6 +153,10 @@ python -m treeskel.segment --join docs/results/segment_lined_up   # 3. the named
 python -m treeskel.model3d build R12N02                    # 4. a tree's 3D model, from its saved out-of-sample mask
 ```
 
+Steps 2 and 3 rewrite their committed results with the same numbers: in session 19, on a fresh clone and
+another machine, every number agreed to a relative 10⁻⁸ or better (the last digits of floating point). Only
+the figures' pixels differ (fonts). `git checkout docs` restores the committed files.
+
 **With the full dataset** in `data/raw/`, in the order of the work (the GPU steps are marked):
 
 1. `python -m treeskel.splits data/raw --load splits.json`: checks the data against the fixed split
@@ -361,7 +365,7 @@ out exactly the trees where a model failed. They were caught by my looking at th
 tests with known answers, by checks on samples that should not differ, and by running each check on all
 449 development trees instead of a few. When I was unsure what a task asked, as with the label audit, I
 said so and it was redone. Every rule for choosing a model was fixed before its result was seen; the test
-rows were used for the final test and once more for one declared secondary result. 575 automated tests
+rows were used for the final test and once more for one declared secondary result. 610 automated tests
 cover the code ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.
