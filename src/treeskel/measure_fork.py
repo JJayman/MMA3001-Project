@@ -127,7 +127,15 @@ def shoulder_triangle(gt: WinterGT, side: str, reach: float) -> np.ndarray:
 
 
 def coverage(obj: np.ndarray, triangle: np.ndarray) -> float:
-    """Fraction of the pixels inside ``triangle`` that are set in ``obj`` (nan if none)."""
+    """Fraction of the pixels inside ``triangle`` that are set in ``obj`` (nan if none).
+
+    Args:
+        obj: Boolean mask.
+        triangle: ``(3, 2)`` ``(row, col)`` corners.
+
+    Returns:
+        The covered fraction, NaN if the triangle holds no pixel.
+    """
     rr, cc = polygon(triangle[:, 0], triangle[:, 1], shape=obj.shape)
     return float(obj[rr, cc].mean()) if len(rr) else float("nan")
 
@@ -137,6 +145,13 @@ def fork_zone(gt: WinterGT, zone: float = 2.5) -> np.ndarray:
 
     The second condition keeps side shoots, posts and ground further from the
     main branches out of the comparison with the depth silhouette.
+
+    Args:
+        gt: The tree's guided ground truth.
+        zone: Reach from the fork, in trunk radii.
+
+    Returns:
+        Boolean mask of the zone, the image's shape.
     """
     radius = float(gt.radii["trunk"][-1])
     paths = np.zeros(gt.tree_mask.shape, bool)
@@ -154,6 +169,12 @@ def crotch_zone(gt: WinterGT) -> np.ndarray:
     one trunk radius of a path). Mask pixels here that are off the depth
     silhouette are almost certainly not wood, because depth reaches past
     the bark's edges.
+
+    Args:
+        gt: The tree's guided ground truth.
+
+    Returns:
+        Boolean mask of the crotch, the image's shape.
     """
     out = np.zeros(gt.tree_mask.shape, bool)
     radius = float(gt.radii["trunk"][-1])
@@ -244,7 +265,14 @@ def _paint(rgb: np.ndarray, mask: np.ndarray, base: np.ndarray) -> np.ndarray:
 
 
 def variant_label(name: str) -> str:
-    """``"k1.4"`` → ``"fill 1.4"``, ``"j1.5"`` → ``"junction 1.5"``, ``"k0.0"`` → ``"round top"``."""
+    """``"k1.4"`` → ``"fill 1.4"``, ``"j1.5"`` → ``"junction 1.5"``, ``"k0.0"`` → ``"round top"``.
+
+    Args:
+        name: A variant's name from :func:`fork_variants`.
+
+    Returns:
+        Its label in tables.
+    """
     value = float(name[1:])
     if name.startswith("k"):
         return f"fill {value:g}" if value > 0 else "round top"
@@ -350,6 +378,9 @@ def matching_length(results: list[dict], lengths: Sequence[float], reach: float,
         exclude: A tree id to leave out.
         prefix: ``"k"`` for ``shoulder_length``, ``"j"`` for ``junction_reach``
             (see :func:`fork_variants`).
+
+    Returns:
+        The matching setting, or NaN.
     """
     rows = [row for r in results if r["tree"] != exclude for row in r["leaders"]]
     target = np.nanmean([row[f"{ref}@{reach}"] for row in rows])
@@ -372,7 +403,17 @@ def _median(values: Sequence[float]) -> float | None:
 
 
 def summarise(results: list[dict], lengths: Sequence[float], reaches: Sequence[float] = (), seed: int = 0) -> dict:
-    """Pool :func:`measure_tree` results into the report."""
+    """Pool :func:`measure_tree` results into the report.
+
+    Args:
+        results: :func:`measure_tree` results.
+        lengths: The shoulder fill lengths measured.
+        reaches: The junction reaches measured.
+        seed: Random seed of the bootstrap intervals.
+
+    Returns:
+        The report (``report.json``).
+    """
     rows = [row for r in results for row in r["leaders"]]
     names = [f"k{k}" for k in lengths] + [f"j{r}" for r in reaches]
     out = {"trees": [r["tree"] for r in results], "n_leaders": len(rows), "lengths": list(lengths),
@@ -455,7 +496,15 @@ def _num(x: float | None, spec: str = ".2f", missing: str = "n/a") -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Measure development-row trees; print and save the results."""
+    """Measure development-row trees; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no annotated development tree was found or an output file could
+        not be written.
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import index_dataset

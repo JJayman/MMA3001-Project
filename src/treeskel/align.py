@@ -89,6 +89,13 @@ def apply_transform(matrix: np.ndarray, pts: np.ndarray) -> np.ndarray:
     """Map ``(N, 2)`` ``(x, y)`` points by a 3x3 transform (with perspective division).
 
     Points that a homography sends to infinity come back as ``inf`` or ``nan``.
+
+    Args:
+        matrix: 3x3 transform of ``(x, y)`` points (affine or homography).
+        pts: ``(N, 2)`` ``(x, y)`` points, or anything that reshapes to that.
+
+    Returns:
+        ``(N, 2)`` float array of the mapped points.
     """
     pts = np.asarray(pts, float).reshape(-1, 2)
     h = np.c_[pts, np.ones(len(pts))] @ np.asarray(matrix, float).T
@@ -103,13 +110,29 @@ def keeps_orientation(matrix: np.ndarray, pts: np.ndarray) -> bool:
     the points it is used for. Where ``w`` crosses zero, the map sends points
     to infinity and turns the image inside out, which no camera move can do,
     so RANSAC rejects such samples. (Always True for affine transforms.)
+
+    Args:
+        matrix: 3x3 transform of ``(x, y)`` points.
+        pts: ``(N, 2)`` ``(x, y)`` points the transform is used for.
+
+    Returns:
+        True if the perspective denominator is positive at every point.
     """
     m = np.asarray(matrix, float)
     return bool(np.all(np.asarray(pts, float).reshape(-1, 2) @ m[2, :2] + m[2, 2] > 0))
 
 
 def residuals(matrix: np.ndarray, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
-    """Distance (px) between each transformed ``src`` point and its ``dst`` point."""
+    """Distance (px) between each transformed ``src`` point and its ``dst`` point.
+
+    Args:
+        matrix: 3x3 transform from ``src`` to ``dst``.
+        src: ``(N, 2)`` ``(x, y)`` points to transform.
+        dst: ``(N, 2)`` ``(x, y)`` points they should land on.
+
+    Returns:
+        ``(N,)`` distances in pixels.
+    """
     return np.hypot(*(apply_transform(matrix, src) - dst).T)
 
 
@@ -188,7 +211,8 @@ def fit_transform(src: np.ndarray, dst: np.ndarray, model: str = "similarity") -
     """Least-squares transform mapping ``src`` onto ``dst``.
 
     Args:
-        src, dst: ``(N, 2)`` matching ``(x, y)`` points.
+        src: ``(N, 2)`` ``(x, y)`` points.
+        dst: ``(N, 2)`` ``(x, y)`` points matching ``src``, row for row.
         model: One of :data:`MODELS`. Translation, similarity and affine
             minimise the sum of squared distances exactly; the homography
             minimises an algebraic error (:func:`_homography`).
@@ -226,6 +250,13 @@ def msac_cost(res: np.ndarray, threshold: float) -> float:
     even if one fits its inliers much more closely. MSAC (Torr and
     Zisserman, 2000) charges each inlier its squared residual and each
     outlier a constant ``t²``.
+
+    Args:
+        res: Residuals of the matches (px).
+        threshold: Inlier threshold ``t`` (px).
+
+    Returns:
+        The cost ``Σ min(r², t²)``.
     """
     return float(np.minimum(res ** 2, threshold ** 2).sum())
 
@@ -269,7 +300,8 @@ def ransac_fit(src: np.ndarray, dst: np.ndarray, model: str = "similarity", thre
     its inliers, and inliers and fit are updated until they stop changing.
 
     Args:
-        src, dst: ``(N, 2)`` matching ``(x, y)`` points (winter, summer).
+        src: ``(N, 2)`` ``(x, y)`` points (winter).
+        dst: ``(N, 2)`` ``(x, y)`` points matching ``src``, row for row (summer).
         model: One of :data:`MODELS`.
         threshold: Largest residual (px) of an inlier.
         max_trials: Upper limit on samples drawn.
@@ -335,6 +367,13 @@ def linear_part(matrix: np.ndarray, at: Sequence[float]) -> np.ndarray:
 
     For an affine transform this is its linear part everywhere; for a
     homography it changes across the image, so it is taken where it matters.
+
+    Args:
+        matrix: 3x3 transform of ``(x, y)`` points.
+        at: ``(x, y)`` point where the Jacobian is taken.
+
+    Returns:
+        The 2x2 Jacobian ``J`` of the transform at ``at``.
     """
     m = np.asarray(matrix, float)
     p = np.array([at[0], at[1], 1.0])
@@ -345,6 +384,10 @@ def linear_part(matrix: np.ndarray, at: Sequence[float]) -> np.ndarray:
 
 def describe(matrix: np.ndarray, at: Sequence[float]) -> dict[str, float]:
     """Scale, rotation and shift of a transform at a point.
+
+    Args:
+        matrix: 3x3 transform of ``(x, y)`` points.
+        at: ``(x, y)`` point where it is described.
 
     Returns:
         ``{"scale": √|det J|, "rotation": degrees (positive = clockwise in
@@ -394,7 +437,16 @@ class FitLimits:
 
 
 def plausible(matrix: np.ndarray, limits: FitLimits = FitLimits(), at: Sequence[float] = (320, 240)) -> bool:
-    """True if a transform's scale and rotation (at ``at``) are within ``limits``."""
+    """True if a transform's scale and rotation (at ``at``) are within ``limits``.
+
+    Args:
+        matrix: 3x3 transform of ``(x, y)`` points.
+        limits: The allowed scale and rotation.
+        at: ``(x, y)`` point where the scale and rotation are measured (the image centre by default).
+
+    Returns:
+        True if the transform could be a real camera move.
+    """
     d = describe(matrix, at)
     lo, hi = limits.scale_range
     return bool(lo <= d["scale"] <= hi and abs(d["rotation"]) <= limits.max_rotation)
@@ -410,6 +462,12 @@ def consistency_table(matches: dict[str, Matches], limits: FitLimits = FitLimits
     similarity, so without that restriction 2 "inliers" mean nothing. This
     needs only the matches, not the images.
 
+    Args:
+        matches: Matches per tree id.
+        limits: The allowed scale and rotation of a hypothesis.
+        threshold: Inlier threshold (px).
+        counts: The inlier counts ``k`` to report trees for.
+
     Returns:
         ``{"trees", "median_matches", "median_inliers", "at_least": {k: trees
         with >= k consistent inliers}, "inliers": {tree: count}}``.
@@ -424,7 +482,15 @@ def consistency_table(matches: dict[str, Matches], limits: FitLimits = FitLimits
 
 
 def hull_fraction(pts: np.ndarray, shape: tuple[int, int]) -> float:
-    """Area of the convex hull of ``(x, y)`` points, as a fraction of an image of ``shape``."""
+    """Area of the convex hull of ``(x, y)`` points, as a fraction of an image of ``shape``.
+
+    Args:
+        pts: ``(N, 2)`` ``(x, y)`` points.
+        shape: Image shape ``(H, W)``.
+
+    Returns:
+        The hull's area over ``H * W``; 0 for fewer than 3 points or points on a line.
+    """
     pts = np.unique(np.asarray(pts, float).reshape(-1, 2), axis=0)
     if len(pts) < 3:
         return 0.0
@@ -483,7 +549,15 @@ def inlier_places(pts: np.ndarray, valid: np.ndarray, near_tree: np.ndarray | No
 
 
 def check_fit(quality: dict, limits: FitLimits = FitLimits()) -> list[str]:
-    """Reasons a fit looks unusable (empty if none), like :func:`treeskel.guided_gt.check_clicks`."""
+    """Reasons a fit looks unusable (empty if none), like :func:`treeskel.guided_gt.check_clicks`.
+
+    Args:
+        quality: A fit's numbers, from :func:`fit_quality`.
+        limits: The thresholds a usable fit must meet.
+
+    Returns:
+        Human-readable reasons the fit fails the checks; empty if it passes.
+    """
     if "scale" not in quality:
         return ["no transform could be fitted"]
     issues = []
@@ -598,6 +672,11 @@ def save_matches(path: str | Path, matches: dict[str, Matches], meta: dict | Non
     Arrays are stored as ``<tree>_winter``, ``<tree>_summer`` and
     ``<tree>_score`` (float32), plus ``meta`` (a JSON string), so the file
     loads with ``allow_pickle=False``.
+
+    Args:
+        path: The ``.npz`` file to write (replaced atomically).
+        matches: Matches per tree id.
+        meta: Settings to store with them (JSON-serialisable), e.g. the matcher's name.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -611,7 +690,14 @@ def save_matches(path: str | Path, matches: dict[str, Matches], meta: dict | Non
 
 
 def load_matches(path: str | Path) -> tuple[dict[str, Matches], dict]:
-    """Read a file written by :func:`save_matches`; a missing file gives ``({}, {})``."""
+    """Read a file written by :func:`save_matches`; a missing file gives ``({}, {})``.
+
+    Args:
+        path: The ``.npz`` file.
+
+    Returns:
+        ``(matches, meta)``: the matches per tree id and the stored settings.
+    """
     path = Path(path)
     if not path.exists():
         return {}, {}
@@ -626,6 +712,14 @@ def sift_match(rgb_winter: np.ndarray, rgb_summer: np.ndarray, max_ratio: float 
 
     Matches must pass Lowe's ratio test (the nearest descriptor is clearly
     nearer than the second nearest) and be mutual nearest neighbours.
+
+    Args:
+        rgb_winter: ``(H, W, 3)`` uint8 winter image.
+        rgb_summer: ``(H, W, 3)`` uint8 summer image.
+        max_ratio: Lowe's ratio: the nearest descriptor's distance over the second nearest's must be below it.
+
+    Returns:
+        The matches as :class:`Matches` (empty if either image has no keypoints).
     """
     from skimage.feature import SIFT, match_descriptors
 
@@ -656,9 +750,13 @@ def disk_lightglue_match(disk, lightglue, rgb_winter: np.ndarray, rgb_summer: np
     Args:
         disk: A ``kornia.feature.DISK`` model.
         lightglue: A ``kornia.feature.LightGlue`` model for DISK features.
-        rgb_winter, rgb_summer: ``(H, W, 3)`` uint8 images (sides divisible by 16).
+        rgb_winter: ``(H, W, 3)`` uint8 winter image (sides divisible by 16).
+        rgb_summer: ``(H, W, 3)`` uint8 summer image (sides divisible by 16).
         device: Torch device of the models.
         max_keypoints: Keypoints detected per image.
+
+    Returns:
+        The matches as :class:`Matches`, scored by LightGlue's confidence.
     """
     import torch
 
@@ -681,9 +779,13 @@ def loftr_match(loftr, rgb_winter: np.ndarray, rgb_summer: np.ndarray, device="c
 
     Args:
         loftr: A ``kornia.feature.LoFTR`` model.
-        rgb_winter, rgb_summer: ``(H, W, 3)`` uint8 images (sides divisible by 8).
+        rgb_winter: ``(H, W, 3)`` uint8 winter image (sides divisible by 8).
+        rgb_summer: ``(H, W, 3)`` uint8 summer image (sides divisible by 8).
         device: Torch device of the model.
         max_matches: Most matches kept (LoFTR can return thousands).
+
+    Returns:
+        The matches as :class:`Matches`, scored by LoFTR's confidence.
     """
     import torch
     from kornia.color import rgb_to_grayscale
@@ -710,6 +812,9 @@ def make_matcher(name: str, device: str | None = None,
         device: ``"cuda"`` or ``"cpu"``; the GPU if one is available by default.
         max_keypoints: Keypoints per image (LightGlue) or matches kept (LoFTR).
 
+    Returns:
+        The matching function.
+
     Raises:
         ValueError: If ``name`` is unknown.
         ImportError: If a learned matcher is asked for without PyTorch/kornia.
@@ -735,7 +840,15 @@ def make_matcher(name: str, device: str | None = None,
 # --------------------------------------------------------------------------
 
 def outline(mask: np.ndarray, width: int = 2) -> np.ndarray:
-    """The pixels of a bool mask within ``width`` px of its edge (for drawing outlines)."""
+    """The pixels of a bool mask within ``width`` px of its edge (for drawing outlines).
+
+    Args:
+        mask: Boolean mask.
+        width: Outline width (px).
+
+    Returns:
+        Boolean mask of the outline.
+    """
     return mask & ~ndi.binary_erosion(mask, iterations=width)
 
 
@@ -746,6 +859,18 @@ def draw_alignment(rgb_winter: np.ndarray, rgb_summer: np.ndarray, mask_winter: 
     Left: the winter image with its mask outlined (magenta). Right: the summer
     image with the warped mask outlined. Inlier matches are joined by green
     lines (at most ``max_lines``, evenly subsampled); outliers are red dots.
+
+    Args:
+        rgb_winter: ``(H, W, 3)`` uint8 winter image.
+        rgb_summer: ``(H, W, 3)`` uint8 summer image.
+        mask_winter: The winter branch mask (boolean, the winter image's shape).
+        matches: The tree's matches.
+        fit: The fitted winter-to-summer transform.
+        label: Text written in the corner.
+        max_lines: Most inlier lines drawn.
+
+    Returns:
+        The picture (PIL image), the two images side by side.
     """
     h, w = rgb_winter.shape[:2]
     left = rgb_winter.copy()
@@ -776,6 +901,17 @@ def draw_summer(rgb_summer: np.ndarray, mask_winter: np.ndarray, matches: Matche
     For contact sheets: whether the warped trunk sits on the summer trunk can
     be judged at a glance. ``width`` is the outline's width (px), thick enough
     to survive shrinking the picture.
+
+    Args:
+        rgb_summer: ``(H, W, 3)`` uint8 summer image.
+        mask_winter: The winter branch mask (boolean, the winter image's shape).
+        matches: The tree's matches.
+        fit: The fitted winter-to-summer transform.
+        label: Text written in the corner.
+        width: Outline width (px).
+
+    Returns:
+        The picture (PIL image), the summer image's size.
     """
     im = rgb_summer.copy()
     if fit.matrix is not None:
@@ -790,7 +926,15 @@ def draw_summer(rgb_summer: np.ndarray, mask_winter: np.ndarray, matches: Matche
 
 
 def contact_sheet(tiles: list[np.ndarray], cols: int = 4) -> Image.Image:
-    """Grid of equally sized tiles (padded with black to fill the last row)."""
+    """Grid of equally sized tiles (padded with black to fill the last row).
+
+    Args:
+        tiles: Images of the same shape (``(H, W, 3)`` uint8).
+        cols: Tiles per row.
+
+    Returns:
+        The grid as one PIL image.
+    """
     tiles = tiles + [np.zeros_like(tiles[0])] * (-len(tiles) % cols)
     rows = [np.concatenate(tiles[i:i + cols], 1) for i in range(0, len(tiles), cols)]
     return Image.fromarray(np.concatenate(rows, 0))
@@ -849,6 +993,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     and model. For ``--model`` (the similarity by default), contact sheets of
     the summer images with the warped winter masks are saved, and
     ``--overlays`` also saves a side-by-side picture per tree.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no tree was selected, no matches were saved for them, the matcher
+        could not be loaded or failed, or an output file could not be written (each is reported).
     """
     from treeskel.guided_gt import load_clicks
     from treeskel.io import index_dataset, load_tree

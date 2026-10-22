@@ -83,6 +83,16 @@ def allocate(counts: dict[int, int], n: int) -> dict[int, int]:
     others have caught up. If the lifts overshoot ``n``, trees are taken back
     from the rows given most beyond their share.
 
+    Args:
+        counts: Trees per row.
+        n: Trees to draw in all.
+
+    Returns:
+        Trees to draw per row.
+
+    Raises:
+        ValueError: If ``n`` is fewer than the rows or more than the trees.
+
     Example:
         >>> allocate({1: 30, 2: 10, 3: 2}, 8)
         {1: 5, 2: 2, 3: 1}
@@ -102,7 +112,16 @@ def allocate(counts: dict[int, int], n: int) -> dict[int, int]:
 
 
 def draw_sample(trees_by_row: dict[int, Sequence[str]], n: int = SAMPLE_SIZE, seed: int = SEED) -> list[str]:
-    """``n`` trees drawn at random within each row (:func:`allocate`), with ``seed``; sorted by tree id."""
+    """``n`` trees drawn at random within each row (:func:`allocate`), with ``seed``; sorted by tree id.
+
+    Args:
+        trees_by_row: The tree ids of each row.
+        n: Trees to draw.
+        seed: Random seed.
+
+    Returns:
+        The drawn tree ids, sorted.
+    """
     rng = np.random.default_rng(seed)
     take = allocate({r: len(t) for r, t in trees_by_row.items()}, n)
     picked = []
@@ -114,7 +133,19 @@ def draw_sample(trees_by_row: dict[int, Sequence[str]], n: int = SAMPLE_SIZE, se
 
 def development_trees(table: str | Path = "data/shape/shape_measures.csv", split: str | Path = "splits.json",
                       overlay: str | Path = "annotations/mask_overlay.json") -> dict[int, list[str]]:
-    """The development trees whose hand mask is lined up (not skipped), by row: the network's training labels."""
+    """The development trees whose hand mask is lined up (not skipped), by row: the network's training labels.
+
+    Args:
+        table: The winter shape table, whose trees are the development trees.
+        split: The fixed split (its test rows).
+        overlay: The hand masks' line-ups (skipped trees are left out).
+
+    Returns:
+        The tree ids per row.
+
+    Raises:
+        ValueError: If the table holds a test-row tree.
+    """
     from treeskel.summer_gt import load_overlays
 
     test_rows = set(json.loads(Path(split).read_text())["test_rows"])
@@ -132,7 +163,12 @@ def development_trees(table: str | Path = "data/shape/shape_measures.csv", split
 
 def write_template(path: Path, trees: Sequence[str]) -> None:
     """The sample as a table to fill in: ``tree, row, trunk, left, right, notes`` (verdicts empty; the row is
-    the tree id's R number)."""
+    the tree id's R number).
+
+    Args:
+        path: The CSV file to write.
+        trees: The sample's tree ids.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -143,6 +179,12 @@ def write_template(path: Path, trees: Sequence[str]) -> None:
 
 def read_verdicts(path: Path) -> list[dict[str, str]]:
     """The filled-in table; every verdict must be one of :data:`VERDICTS` or empty (not judged yet).
+
+    Args:
+        path: The verdict table (``docs/results/label_audit/sample.csv``).
+
+    Returns:
+        The rows as dicts, verdicts as given.
 
     Raises:
         ValueError: A verdict that is not allowed (the row and value are named).
@@ -160,7 +202,12 @@ def read_verdicts(path: Path) -> list[dict[str, str]]:
 
 def write_verdicts(path: Path, rows: Sequence[dict[str, str]]) -> None:
     """Save the table with its verdicts (the columns of :func:`write_template`), through a temporary file, so
-    that a failed write never leaves half a table."""
+    that a failed write never leaves half a table.
+
+    Args:
+        path: The verdict table (``docs/results/label_audit/sample.csv``).
+        rows: The table's rows.
+    """
     path = Path(path)
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", newline="", encoding="utf-8") as f:
@@ -213,11 +260,19 @@ class AuditJudge:
         return self.rows[self.index]["tree"] if self.index < len(self.rows) else None
 
     def judged(self) -> int:
-        """Trees with all three parts judged."""
+        """Trees with all three parts judged.
+
+        Returns:
+            The number of trees judged.
+        """
         return sum(all(r[p] for p in PARTS) for r in self.rows)
 
     def prompt(self) -> str:
-        """The window's title: the tree, the verdicts so far, and the part asked."""
+        """The window's title: the tree, the verdicts so far, and the part asked.
+
+        Returns:
+            The title, or a closing message once every tree is judged.
+        """
         if self.tree is None:
             return f"All {len(self.rows)} trees judged. Press q to save and quit."
         r = self.rows[self.index]
@@ -230,7 +285,11 @@ class AuditJudge:
                 + (f"    {self.message}" if self.message else ""))
 
     def save(self) -> bool:
-        """Write the table; False (with a message) if it cannot be written, e.g. open in Excel."""
+        """Write the table; False (with a message) if it cannot be written, e.g. open in Excel.
+
+        Returns:
+            True if the table was written.
+        """
         try:
             write_verdicts(self.path, self.rows)
         except OSError as e:
@@ -241,7 +300,11 @@ class AuditJudge:
 
     def key(self, key: str) -> None:
         """Handle one key press (see :data:`JUDGE_HELP`). Every change is saved at once, so a save that failed
-        (the table open in another program) is tried again at the next key."""
+        (the table open in another program) is tried again at the next key.
+
+        Args:
+            key: The key's name as matplotlib reports it.
+        """
         k = (key or "").lower()
         if k == "q":
             self.done = self.save()
@@ -327,6 +390,14 @@ def run_judge(judge: AuditJudge, image, show: bool = True):
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """Wilson's 95% interval for a share of ``k`` in ``n`` (NaN, NaN for n = 0).
 
+    Args:
+        k: Count of the outcome.
+        n: Count of trials.
+        z: Normal quantile (1.96 for 95%).
+
+    Returns:
+        ``(low, high)`` shares, within [0, 1].
+
     Example:
         >>> [round(v, 3) for v in wilson(4, 40)]
         [0.04, 0.231]
@@ -341,6 +412,9 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 def summarise(rows: Sequence[dict[str, str]]) -> dict:
     """Per part: verdict counts, and the share ``off`` among the parts judged ``on`` or ``off`` (Wilson 95%).
+
+    Args:
+        rows: The verdict table's rows.
 
     Returns:
         ``{"trees", "judged_trees", "parts": {part: {"on", "off", "hidden", "share_off", "interval"}},
@@ -375,6 +449,9 @@ def draw_panel(rgb: np.ndarray, mask: np.ndarray, label: str) -> Image.Image:
         rgb: ``(480, 640, 3)`` summer photo.
         mask: ``(256, 256)`` bool hand mask in its frame (lined up).
         label: The title (tree id and position in the sample).
+
+    Returns:
+        The panel as a PIL image.
     """
     from PIL import ImageDraw
     from scipy import ndimage as ndi
@@ -396,7 +473,15 @@ def draw_panel(rgb: np.ndarray, mask: np.ndarray, label: str) -> Image.Image:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``sample``: draw and save the sample; ``draw``: its images; ``summary``: the verdicts' summary."""
+    """``sample``: draw and save the sample; ``draw``: its images; ``summary``: the verdicts' summary.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the sample already exists (``sample``), trees were not found in
+        the data, or a file could not be written.
+    """
     ap = argparse.ArgumentParser(prog="python -m treeskel.label_audit", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="command", required=True)
     s = sub.add_parser("sample", help="draw the sample and save it as the table to fill in")

@@ -156,7 +156,11 @@ class WinterGT:
     issues: list[str] = field(default_factory=list)
 
     def summary(self) -> dict:
-        """Plain-data summary (for CSV/JSON): points, rises and QC result."""
+        """Plain-data summary (for CSV/JSON): points, rises and QC result.
+
+        Returns:
+            The summary's fields by name.
+        """
         def rise(p: np.ndarray) -> int:
             """How many rows a path rises from its first point to its last."""
             return int(p[0, 0] - p[-1, 0]) if len(p) else 0
@@ -513,6 +517,14 @@ def overlay(rgb: np.ndarray, gt: WinterGT, label: str = "") -> Image.Image:
 
     Skeleton in blue, left leader red, right leader yellow, trunk white, fork
     circled; the label and PASS/FLAG status are written top-left.
+
+    Args:
+        rgb: The ``(480, 640, 3)`` uint8 winter photo.
+        gt: The extraction's result.
+        label: Text written top-left.
+
+    Returns:
+        The PIL image.
     """
     im = (rgb * 0.5).astype(np.uint8)
     im[gt.skeleton] = (0, 160, 255)
@@ -535,6 +547,12 @@ def save_image(image: Image.Image, path: Path, failed: list[str], **kwargs) -> N
     Explorer preview pane, a sync client) cannot be overwritten. One such file
     should not stop a run over hundreds of trees, so the error is added to
     ``failed`` and reported at the end instead.
+
+    Args:
+        image: The image.
+        path: The file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+        **kwargs: Passed to ``PIL.Image.Image.save`` (e.g. ``quality``).
     """
     try:
         image.save(path, **kwargs)
@@ -543,7 +561,11 @@ def save_image(image: Image.Image, path: Path, failed: list[str], **kwargs) -> N
 
 
 def report_failed(failed: list[str]) -> None:
-    """Print files that could not be written, with the likely cause."""
+    """Print files that could not be written, with the likely cause.
+
+    Args:
+        failed: Files that could not be written.
+    """
     if failed:
         print(f"Could not write {len(failed)} file(s) - are they open in another "
               "program (image viewer, Explorer preview pane, OneDrive)?")
@@ -557,6 +579,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     Writes ``<tree>_winter_gt.png`` (rendered main branches) for every tree
     and ``summary.csv`` with the quality-check result per tree. Usage:
     ``python -m treeskel.winter_gt DATA_DIR --out outputs/winter_gt``.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if an output file could not be written.
     """
     from treeskel.io import index_dataset, load_tree
 

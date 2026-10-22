@@ -118,6 +118,13 @@ def depth_along(depth: np.ndarray, valid: np.ndarray, path: np.ndarray, radius: 
                 min_valid: int = MIN_SAMPLES) -> np.ndarray:
     """The depth value at each point of a path: the median of the readings within ``radius`` px.
 
+    Args:
+        depth: ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of its readings.
+        path: ``(N, 2)`` ``(row, col)`` points.
+        radius: Reach of the median (px).
+        min_valid: Fewest readings within reach.
+
     Returns:
         ``(N,)`` floats, NaN where fewer than ``min_valid`` pixels within reach have a reading.
 
@@ -150,9 +157,17 @@ def fit_plane(points: np.ndarray, k: float = 1.345, iters: int = 50) -> dict:
     where ``d`` is its distance from the plane and ``s`` the distances' robust standard deviation
     (1.4826 × the median absolute deviation).
 
+    Args:
+        points: ``(N, 3)`` points.
+        k: Huber's tuning constant (in robust SDs).
+        iters: Most reweighting rounds.
+
     Returns:
         ``{"normal", "centre", "distances", "weights", "rms", "median_abs", "n"}``: the unit normal points
         towards the camera (at the origin); ``rms`` and ``median_abs`` are of all points' distances.
+
+    Raises:
+        ValueError: If there are fewer than 3 points.
     """
     p = np.asarray(points, float).reshape(-1, 3)
     p = p[np.isfinite(p).all(axis=1)]
@@ -178,6 +193,13 @@ def fit_plane(points: np.ndarray, k: float = 1.345, iters: int = 50) -> dict:
 def on_plane(rays: np.ndarray, plane: dict) -> np.ndarray:
     """Where each ray from the camera meets the plane: ``(N, 3)`` points.
 
+    Args:
+        rays: ``(N, 3)`` ray directions from the camera.
+        plane: From :func:`fit_plane` (``normal`` and ``centre``).
+
+    Returns:
+        The ``(N, 3)`` points.
+
     Example:
         >>> plane = {"normal": np.array([0.0, 0.0, -1.0]), "centre": np.array([0.0, 0.0, 5.0])}
         >>> on_plane(np.array([[0.5, -0.2, 1.0]]), plane).tolist()
@@ -188,14 +210,31 @@ def on_plane(rays: np.ndarray, plane: dict) -> np.ndarray:
 
 
 def angle(a: np.ndarray, b: np.ndarray) -> float:
-    """Angle between two directions (degrees)."""
+    """Angle between two directions (degrees).
+
+    Args:
+        a: A direction (any length).
+        b: Another direction.
+
+    Returns:
+        The angle in [0, 180].
+    """
     cos = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
     return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
 
 def stretch(path: np.ndarray, unit: float, params: ShapeParams = ShapeParams()) -> np.ndarray:
     """Which points of a leader (fork to tip, image px) lie on the stretch its line is fitted to: from
-    ``start`` to ``reach`` units along it, as :func:`treeskel.shape.leader_part`."""
+    ``start`` to ``reach`` units along it, as :func:`treeskel.shape.leader_part`.
+
+    Args:
+        path: ``(N, 2)`` ``(row, col)`` leader path from the fork.
+        unit: The length unit in the path's pixels.
+        params: ``start`` and ``reach``.
+
+    Returns:
+        ``(N,)`` boolean.
+    """
     s = arc_length(np.asarray(path, float))
     return (s >= params.start * unit) & (s <= params.reach * unit)
 
@@ -206,6 +245,14 @@ def ground_up(depth: np.ndarray, valid: np.ndarray, camera: Camera) -> np.ndarra
     The ground blocks of :func:`treeskel.depth3d.ground_blocks` (values of at least
     :data:`treeskel.depth3d.MIN_VALUE`) are put in 3D and a plane fitted (:func:`fit_plane`); its
     normal, which faces the camera above it, points up.
+
+    Args:
+        depth: ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of its readings.
+        camera: The depth map's zero and the focal length.
+
+    Returns:
+        The ``(3,)`` unit vector, or None if too few ground blocks are found.
     """
     b = ground_blocks(depth, valid)
     b = b[b[:, 2] >= MIN_VALUE]
@@ -222,7 +269,8 @@ def tree_measures(paths: dict, depth: np.ndarray, valid: np.ndarray, camera: Cam
     Args:
         paths: ``{"trunk", "left", "right"}`` ``(N, 2)`` ``(row, col)`` photo points: the trunk from the
             root to the fork, each leader from the fork to its tip.
-        depth, valid: The photo's depth and where it has readings.
+        depth: The photo's ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         camera: The depth map and camera.
         fork_radius: The trunk's radius at the fork (photo px).
         zoom: Photo px per winter px (1 for winter; :data:`treeskel.shape.SUMMER_SCALE` for summer), for
@@ -272,7 +320,14 @@ def tree_measures(paths: dict, depth: np.ndarray, valid: np.ndarray, camera: Cam
 
 
 def mask_paths(mask: np.ndarray) -> dict | None:
-    """A 256x256 summer mask's trunk and leaders in photo px, and its trunk radius at the fork, or None."""
+    """A 256x256 summer mask's trunk and leaders in photo px, and its trunk radius at the fork, or None.
+
+    Args:
+        mask: A 256x256 boolean branch mask.
+
+    Returns:
+        ``{"trunk", "left", "right", "fork_radius"}`` in photo px, or None if no fork is found.
+    """
     from treeskel.io import IMAGE_SHAPE, MASK_SHAPE
     from treeskel.shape import mask_branches, mask_to_image
 
@@ -288,6 +343,9 @@ def measure_tree(job: tuple) -> list[dict]:
     Args:
         job: ``(record, winter_trace, hand_mask or None, unet_mask or None)``; the trace as
             :func:`treeskel.shape.load_traces` gives it, the masks 256x256 (the hand mask lined up).
+
+    Returns:
+        One row per source and camera setting: the tree's 3D measures, or the ``error`` that stopped them.
     """
     from treeskel.io import load_tree
 
@@ -315,7 +373,14 @@ def measure_tree(job: tuple) -> list[dict]:
 # --------------------------------------------------------------------------
 
 def scales(rows: Sequence[dict]) -> dict[str, float]:
-    """Metres per unit for each setting: the winter forks' median distance put at :data:`DISTANCE_M`."""
+    """Metres per unit for each setting: the winter forks' median distance put at :data:`DISTANCE_M`.
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+
+    Returns:
+        ``{setting: metres per unit}``.
+    """
     out = {}
     for setting in SETTINGS:
         f = [r["fork_distance"] for r in rows if r["source"] == "winter" and r["setting"] == setting
@@ -325,7 +390,15 @@ def scales(rows: Sequence[dict]) -> dict[str, float]:
 
 
 def to_metres(rows: Sequence[dict], per_unit: dict[str, float]) -> list[dict]:
-    """The rows with their sizes in metres (each setting's own scale)."""
+    """The rows with their sizes in metres (each setting's own scale).
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+        per_unit: From :func:`scales`.
+
+    Returns:
+        New rows; the sizes in metres.
+    """
     return [{**r, **{k: r[k] * per_unit[r["setting"]] for k in SIZES}} for r in rows]
 
 
@@ -347,6 +420,12 @@ barely move."""
 
 def paired(rows: Sequence[dict], source: str, measure: str, setting: str = "main") -> dict:
     """A summer source against winter, tree by tree, on one measure: error and agreement.
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+        source: The summer source (``"hand masks"`` or ``"U-Net"``).
+        measure: The measure compared.
+        setting: The camera setting (:data:`SETTINGS`).
 
     Returns:
         ``{"n", "mae", "median_abs", "bias", "r", "spearman"}``: the mean and median absolute difference,
@@ -375,6 +454,11 @@ def plane_against_photo(rows: Sequence[dict], source: str, setting: str = "main"
     For each tree with both: ``|summer − winter|`` of the V opening in the plane against the same in the
     photo. The in-plane V does not depend on where the camera stood, which changed between the seasons.
 
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+        source: The summer source (``"hand masks"`` or ``"U-Net"``).
+        setting: The camera setting (:data:`SETTINGS`).
+
     Returns:
         ``{"n", "plane_closer", "wilcoxon_p", "median_plane", "median_photo"}``.
     """
@@ -400,13 +484,29 @@ def plane_against_photo(rows: Sequence[dict], source: str, setting: str = "main"
 
 
 def turned(rows: Sequence[dict], source: str, setting: str = "main") -> list[str]:
-    """The trees whose plane is turned more than :data:`TURNED` from the camera (likely failed fits)."""
+    """The trees whose plane is turned more than :data:`TURNED` from the camera (likely failed fits).
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+        source: The source (``"winter"`` or a summer source).
+        setting: The camera setting (:data:`SETTINGS`).
+
+    Returns:
+        The tree ids, sorted.
+    """
     return sorted(r["tree"] for r in rows if r["source"] == source and r["setting"] == setting
                   and np.isfinite(r["turn"]) and abs(r["turn"]) > TURNED)
 
 
 def summarise(rows: Sequence[dict]) -> dict:
-    """The report: winter's 3D measures under every setting (sizes in metres), and summer against winter."""
+    """The report: winter's 3D measures under every setting (sizes in metres), and summer against winter.
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+
+    Returns:
+        The report (``report.json``).
+    """
     per_unit = scales(rows)
     rows_m = to_metres(rows, per_unit)
     report = {"settings": {k: {"zero": c.zero, "focal": c.focal, "metres_per_unit": per_unit[k]}
@@ -446,7 +546,14 @@ LABELS = {"v_opening_3d": ("V opening in the plane", "deg", 1), "v_opening_2d": 
 
 
 def report_lines(report: dict) -> list[str]:
-    """The report as text."""
+    """The report as text.
+
+    Args:
+        report: From :func:`summarise`.
+
+    Returns:
+        The lines of text.
+    """
     out = [f"3D measures of {report['n_trees']} development trees. Winter traces (the truth), median "
            "[quartiles]; sizes with the median fork at "
            f"{report['distance_m']:g} m (they scale with it: {report['distance_range_m'][0]:g}-"
@@ -501,7 +608,13 @@ SUMMER_STYLE = {"hand masks": ("#2a78d6", "o"), "U-Net": ("#e34948", "h")}
 
 def plot_figure(rows: Sequence[dict], path: Path, failed: list[str]) -> None:
     """Three panels: winter's V opening in the plane against the photo's; the 3D correction under every
-    camera setting (median and quartiles); and summer's correction against winter's, tree by tree."""
+    camera setting (median and quartiles); and summer's correction against winter's, tree by tree.
+
+    Args:
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -584,7 +697,12 @@ def plot_figure(rows: Sequence[dict], path: Path, failed: list[str]) -> None:
 # --------------------------------------------------------------------------
 
 def save_rows(path: Path, rows: Sequence[dict]) -> None:
-    """Write the per-tree rows (sizes in units of the scale), floats to 4 decimals."""
+    """Write the per-tree rows (sizes in units of the scale), floats to 4 decimals.
+
+    Args:
+        path: The CSV file.
+        rows: One row per tree, source and camera setting (:func:`measure_tree`).
+    """
     fields = list(dict.fromkeys(k for r in rows for k in r))
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -593,7 +711,14 @@ def save_rows(path: Path, rows: Sequence[dict]) -> None:
 
 
 def load_rows(path: Path) -> list[dict]:
-    """Read :func:`save_rows`'s file back."""
+    """Read :func:`save_rows`'s file back.
+
+    Args:
+        path: A file from :func:`save_rows`.
+
+    Returns:
+        The rows.
+    """
     rows = []
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -603,7 +728,15 @@ def load_rows(path: Path) -> list[dict]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Measure the development trees in 3D; print and save the results."""
+    """Measure the development trees in 3D; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no development tree with a winter trace was found or an output
+        file could not be written.
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import index_dataset

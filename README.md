@@ -9,6 +9,12 @@ build the ground truth. The intended use is perception for orchard robots
 (pruning, harvesting, path planning), which must avoid or target branches they
 cannot directly see.
 
+**The engineering problem:** a pruning or harvesting robot is a machine whose arm must plan its motion around
+the tree, avoid striking the wood, and place its cutter or gripper relative to the branches. Its motion
+planner needs the positions and angles of the trunk and leaders, including the parts the leaves hide; an
+error there is a collision or a missed cut. This project estimates that structure from one summer camera
+photo, and measures how far the estimate is from the branches photographed bare in winter.
+
 ## Results at a glance
 
 The headline measure is the **V opening**, the angle between the two leaders. Skill is how much a method
@@ -107,6 +113,13 @@ LICENSE          GNU GPL v3
 
 ## Setup
 
+**Environment:** Python 3.10 or later. Tested on Windows 11 with Python 3.12.4, PyTorch 2.14.0 (CUDA 12.6)
+and an NVIDIA GTX 1080 Ti (every GPU run), and on Linux with Python 3.13 and PyTorch 2.14.1 on the CPU (the
+tests and the test report). The dependencies are listed in `pyproject.toml` (and `requirements.txt`): numpy,
+scipy, scikit-learn, scikit-image, pillow and matplotlib for everything but the networks; PyTorch,
+torchvision and kornia for the networks, as optional extras (below). Every tool runs from the repository's
+folder.
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -129,7 +142,50 @@ pip install torchvision "torch==2.7.1+cu126" --index-url https://download.pytorc
 Use the version printed and its `+cu…` part in both places; a version without
 `+cu…` is the CPU-only build: `pip install torchvision "torch==<version>"`.
 
+## Reproducing the results
+
+**With this repository alone** (no dataset, no GPU), from the committed clicks, measures and saved masks:
+
+```bash
+pytest                                                     # 1. the tests (the PyTorch ones skip without it)
+python -m treeskel.shape_model                             # 2. the ridge model on the saved summer features
+python -m treeskel.segment --join docs/results/segment_lined_up   # 3. the named U-Net's saved development masks, joined and scored
+python -m treeskel.model3d build R12N02                    # 4. a tree's 3D model, from its saved out-of-sample mask
+```
+
+Steps 2 and 3 rewrite their committed results with the same numbers: in session 19, on a fresh clone and
+another machine, every number agreed to a relative 10⁻⁸ or better (the last digits of floating point). Only
+the figures' pixels differ (fonts). `git checkout docs` restores the committed files.
+
+**With the full dataset** in `data/raw/`, in the order of the work (the GPU steps are marked):
+
+1. `python -m treeskel.splits data/raw --load splits.json`: checks the data against the fixed split
+   (541 trees, test rows 3, 12 and 16).
+2. `python -m treeskel.guided_gt data/raw --overlays`: the winter ground truth, traced through the committed
+   clicks (`annotations/winter_clicks.json`), with an overlay per tree to check by eye.
+3. `python -m treeskel.shape data/raw`: the winter shape measures and the summer image features
+   (`data/shape/`; the features need torchvision).
+4. `python -m treeskel.segment data/raw --mask-overlay annotations/mask_overlay.json` (GPU, 5 folds), then
+   `python -m treeskel.segment --join docs/results/segment_lined_up`: the named U-Net, trained on the hand
+   masks as lined up in `annotations/mask_overlay.json`, scored on the development rows (V opening skill
+   +0.75).
+5. `python -m treeskel.score_baseline data/raw`: the automatic winter baseline, scored against the ground
+   truth and beside the U-Net.
+6. `python -m treeskel.final_test data/raw` (GPU): the one evaluation on the test rows. It is done: it
+   refuses to run while `docs/results/final_test/report.json` exists.
+7. `python -m treeskel.benchmark`, then `--flops` (GPU and CPU): run time, memory, FLOPs and the profile.
+8. `python -m treeskel.depth3d data/raw --calibrate`, `tree3d data/raw`, `bend3d data/raw` and
+   `bend3d data/raw --typical`: the 3D steps.
+
+A new training is another sample of the same recipe, not the same network: seven trainings ranged 4.00–4.47°
+in V-opening error ([`docs/results/segment_variants/`](docs/results/segment_variants/)). Each step's
+README in `docs/results/` gives its command, its output and the numbers it produced.
+
 ## Usage
+
+Every command, including the methods tried and not adopted (the section above gives the order for the
+main results):
+
 
 ```bash
 pytest                                     # run the tests
@@ -196,6 +252,47 @@ The full dataset ("Dataset (With Summer GT)", 562 trees in 20 rows) comes from t
 and is not redistributed here. Put it in `data/raw/`, which is git-ignored. 541 trees in 19 rows are used:
 row 4 is excluded because its winter depth images are copies of R03N34's.
 
+**Data ownership:** only 26 trees of it are committed, so that the tests and examples run without the full
+dataset: the 9-tree sample in `data/sample/` and the 17 trees used to tune the ground-truth tracing in
+[`data/tuning/`](data/tuning/README.md). These images remain the teaching team's and are not covered by this
+repository's licence, which applies to the code and documentation.
+
+## Inputs and outputs
+
+**Inputs** (per tree; the dataset's file names are `R<row>N<tree>_<Summer|Winter>_<RGB|D|GT>-H-M-S.png`):
+
+| Input | Format | Units and range | Use |
+|---|---|---|---|
+| Summer colour photo | PNG, 640x480, RGB, 8 bits | 0–255 per channel | The input to the prediction. The network sees the centre 480x480 (columns 80–559), resized to 256x256 |
+| Summer depth image | PNG, 640x480, greyscale (3 equal channels), 8 bits | 1–255, brighter is nearer; 0 = no reading. Depth along the camera's axis ≈ 0.01197 m × (300 − value) (calibrated in `treeskel.depth3d`) | 3D only (the tree's plane and bends) |
+| Winter colour photo and depth | As the summer ones | As above; the winter depth is moved 5 rows up and 1 column right on loading | The ground truth only, never an input to a prediction |
+| Hand mask (`GT`) | PNG, 256x256, black and white | The centre 480x480 of the summer photo | Training labels on the development rows; lined up by hand (`annotations/mask_overlay.json`) |
+| Clicks and alignments | JSON in `annotations/` | Pixels (row, column) in the 640x480 photos | The ground truth's 4 clicks (and corrections) per tree; the hand masks' shifts |
+
+**Outputs:**
+
+| Output | Format | Units | Meaning and intended use |
+|---|---|---|---|
+| Branch mask | 256x256 boolean, saved packed in `predicted_masks.npz` | Pixels of the centre 480x480 | Where the trunk and the two leaders are in the summer photo, including under the leaves |
+| Shape measures | `predictions.csv`, `report.json` | Degrees | The V opening (angle between the leaders; the headline), each leader's angle from the trunk and from the vertical, the V's lean, the leaders' bends. The structure a planner needs, independent of image alignment |
+| Scores | `report.json`, per-tree CSV | Degrees (mean absolute error), skill (1 perfect, 0 the average tree) | How far each method is from the winter truth |
+| 3D model | `.html` viewer and `.ply` meshes (`outputs/model3d/`) | Metres; camera frame turned so `y` is up and `z` points at the camera, fork at the origin | The tree to look at and turn; positions for a planner. Sizes assume 2.0 m from the camera to the fork; angles do not |
+
+**Invalid, missing and unsupported inputs:**
+
+- A photo or depth image that is not 640x480, a mask that is not 256x256, or a "depth" image whose colour
+  channels differ: an error naming the file (`treeskel.io`).
+- Depth value 0 (no reading): treated as missing, never as a distance.
+- A badly named, repeated or incomplete set of files: listed by the dataset index (`unrecognised`,
+  `duplicates`, `incomplete`) and left out, so one bad file does not stop a run over the dataset
+  (`python -m treeskel.splits data/raw --check-images` also finds identical images, as in row 4).
+- `model3d build`: an unknown tree id, a photo with no depth image beside it, a mask with no fork, or too
+  little depth on the skeleton gives a message for that tree; the others are still built, and the command
+  exits with status 1.
+- **Not detected:** photos from another camera or depth encoding, other framings, and trees that are not a
+  trunk with two leaders (three leaders, or no fork). The code assumes this dataset's camera and the open-V
+  trellis; on such photos its answers would be wrong without a warning.
+
 ## Validation design
 
 Whole orchard rows are held out as a final test set (rows 3, 12 and 16: 92 of the 541 trees, 17%), and
@@ -210,11 +307,32 @@ more in session 16, for one secondary result declared and committed before it ra
 trainings of the named model ([`docs/results/final_test_ensemble/`](docs/results/final_test_ensemble/)).
 It showed no gain and changed nothing; the final test stays the headline.
 
+## Limitations
+
+- **Scope:** one orchard, one camera and its 8-bit depth export, one summer and one winter capture, and
+  trees trained to a trunk with two leaders. Only the main branches are estimated, not side branches or
+  shoots.
+- **Leaders that stop short:** on 31 of 444 development trees (7%) the U-Net's mask has a leader that stops
+  under the leaves. They carry a third of the V opening's squared error, and none of the three ways tried
+  to complete them helped ([`docs/results/final_test/naming_rule.md`](docs/results/final_test/naming_rule.md)).
+- **The training labels:** the provided hand masks sat 20–60 px off the visible trunk, by a different amount
+  per tree. They were lined up by hand; an audit of 40 random trees still found 2 of 75 leaders off
+  (3%, 95% interval 1–9%; [`docs/results/label_audit/`](docs/results/label_audit/)).
+- **Training to training:** seven trainings of the same recipe range 4.00–4.47° in V-opening error on the
+  development rows, and four score +0.81 to +0.88 on the test rows; the final test's network was the best
+  of the four. So the headline is one sample of the recipe.
+- **The test rows** were used twice: the final test, and one secondary result declared before it ran.
+- **3D:** sizes rest on an assumed 2.0 m from the camera to the fork (angles need only the depth's zero and
+  the focal length, whose ranges are reported); one depth step is about 1.2 cm. Summer depth sees the trunk
+  but almost never the leaders (3% of their readings), so in summer the leaders' bends mostly follow the
+  typical winter shape. The tree's lean from the vertical cannot be determined.
+- **The ground truth** assumes the trees did not change between the two captures; which season was
+  photographed first is not known.
 
 ## How I used AI in this project
 
-I used an AI assistant, Claude Code (Anthropic), throughout the project, in 17 work sessions from
-23 September to 15 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
+I used an AI assistant, Claude Code (Anthropic), throughout the project, in 19 work sessions from
+23 September to 22 October 2026. Each session's notes in [`docs/progress/`](docs/progress/) end with what
 was mine, what the AI did, and the mistakes it made and how they were caught.
 
 **What I did:**
@@ -247,7 +365,7 @@ out exactly the trees where a model failed. They were caught by my looking at th
 tests with known answers, by checks on samples that should not differ, and by running each check on all
 449 development trees instead of a few. When I was unsure what a task asked, as with the label audit, I
 said so and it was redone. Every rule for choosing a model was fixed before its result was seen; the test
-rows were used for the final test and once more for one declared secondary result. 575 automated tests
+rows were used for the final test and once more for one declared secondary result. 610 automated tests
 cover the code ([`docs/test_report.html`](docs/test_report.html)).
 
 I am writing the report myself, and I am responsible for the project and its results.

@@ -97,6 +97,9 @@ def timed(fn: Callable[[], object], repeats: int = 5, warmup: int = 1, sync: Cal
         sync: Called before each clock reading (``torch.cuda.synchronize`` on the GPU, whose calls
             return before the work is done).
 
+    Returns:
+        ``{"median_s", "min_s", "repeats"}``: the median and fastest call (s), and the calls timed.
+
     Example:
         >>> t = timed(lambda: sum(range(1000)), repeats=3)
         >>> sorted(t) == ["median_s", "min_s", "repeats"] and t["min_s"] <= t["median_s"]
@@ -118,6 +121,12 @@ def timed(fn: Callable[[], object], repeats: int = 5, warmup: int = 1, sync: Cal
 def peak_python_mb(fn: Callable[[], object]) -> float:
     """The peak memory (MB) Python and NumPy allocate while ``fn`` runs, above what was in use before.
 
+    Args:
+        fn: The work to measure.
+
+    Returns:
+        The peak, in MB (10^6 bytes), traced by ``tracemalloc``; memory on a GPU is not included.
+
     Example:
         >>> 7.5 < peak_python_mb(lambda: np.ones(1_000_000)) < 8.5        # 8 MB of float64
         True
@@ -133,7 +142,14 @@ def peak_python_mb(fn: Callable[[], object]) -> float:
 
 
 def n_parameters(model) -> int:
-    """Number of parameters of a PyTorch model."""
+    """Number of parameters of a PyTorch model.
+
+    Args:
+        model: A ``torch.nn.Module``.
+
+    Returns:
+        The number of parameters.
+    """
     return int(sum(p.numel() for p in model.parameters()))
 
 
@@ -174,6 +190,12 @@ def mask_post_processing(masks: dict[str, np.ndarray], n: int = 20, repeats: int
 
     Args:
         masks: Saved 256x256 masks (:func:`treeskel.segment.load_masks`); the first ``n`` (by tree) are used.
+        n: Masks timed.
+        repeats: Timed calls per mask.
+
+    Returns:
+        ``{"seconds", "seconds_max", "peak_mb", "n_masks"}``: the median and slowest seconds per mask, the
+        largest peak memory (MB) and the masks timed.
     """
     from treeskel.segment import join_pieces, mask_shape
 
@@ -189,7 +211,16 @@ def mask_post_processing(masks: dict[str, np.ndarray], n: int = 20, repeats: int
 
 def ridge_training(features: Path, table: Path, split: Path) -> dict:
     """Seconds to train and cross-validate the ridge model as its run did: 5 row-grouped folds, the penalty
-    chosen in each by inner folds, on the committed summer features; and the size of one fitted model."""
+    chosen in each by inner folds, on the committed summer features; and the size of one fitted model.
+
+    Args:
+        features: The committed summer features (``data/shape/summer_resnet18.npz``).
+        table: The winter shape measures (``data/shape/shape_measures.csv``).
+        split: The fixed split (``splits.json``).
+
+    Returns:
+        ``{"seconds_5_folds", "n_trees", "n_features", "parameters"}``.
+    """
     from treeskel.shape import MEASURES, load_features
     from treeskel.shape_model import cross_validate, feature_matrix, load_table
 
@@ -213,7 +244,12 @@ def ridge_training(features: Path, table: Path, split: Path) -> dict:
 # --------------------------------------------------------------------------
 
 def network_specs() -> list[dict]:
-    """Each network as measured: name, input size, the recipe's training batch, and how to build it."""
+    """Each network as measured: name, input size, the recipe's training batch, and how to build it.
+
+    Returns:
+        One dict per network: ``name``, ``size`` (``(height, width)``), ``batch`` (None for the fixed feature
+        network), ``kind`` and ``build`` (a function making the untrained model).
+    """
     from treeskel.segment import SegParams, UNet
     from treeskel.shape import MEASURES, make_resnet18
     from treeskel.shape_cnn import CNNParams, make_model
@@ -234,7 +270,15 @@ def network_specs() -> list[dict]:
 
 
 def prediction(model, x) -> Callable[[], None]:
-    """One prediction, as every model here makes it: ``model`` on the photo ``x`` and on its mirror image."""
+    """One prediction, as every model here makes it: ``model`` on the photo ``x`` and on its mirror image.
+
+    Args:
+        model: A PyTorch model on the photo's device.
+        x: The ``(1, C, H, W)`` input tensor.
+
+    Returns:
+        A function that makes the prediction once.
+    """
     import torch
 
     def predict():
@@ -256,6 +300,12 @@ def _loss(kind: str, out, torch):
 
 def measure_network(spec: dict, device: str, repeats: int = 5, train: bool = True) -> dict:
     """Parameters, prediction time per photo (with its mirror image) and one training step, on ``device``.
+
+    Args:
+        spec: One entry of :func:`network_specs`.
+        device: ``"cuda"`` or ``"cpu"``.
+        repeats: Timed calls.
+        train: Also time one training step.
 
     Returns:
         ``{"parameters", "weights_mb", "predict_s", "predict_peak_mb", "train_step_s", "train_peak_mb"}``;
@@ -305,7 +355,15 @@ def measure_network(spec: dict, device: str, repeats: int = 5, train: bool = Tru
 
 
 def recorded_training(name: str, results: Path = RESULTS) -> dict | None:
-    """The development run's training time and chosen epochs (``report.json``), or None if not found."""
+    """The development run's training time and chosen epochs (``report.json``), or None if not found.
+
+    Args:
+        name: The network's name, as in :func:`network_specs`.
+        results: The results folder (``docs/results``).
+
+    Returns:
+        ``{"run", "minutes_5_folds", "device", "median_epochs"}``, or None if the run's report is not found.
+    """
     folder = RECORDED.get(name)
     path = results / folder / "report.json" if folder else None
     if path is None or not path.exists():
@@ -317,7 +375,14 @@ def recorded_training(name: str, results: Path = RESULTS) -> dict | None:
 
 
 def final_training(results: Path = RESULTS) -> dict | None:
-    """The final test's one training of the named U-Net on all development trees (``report.json``)."""
+    """The final test's one training of the named U-Net on all development trees (``report.json``).
+
+    Args:
+        results: The results folder (``docs/results``).
+
+    Returns:
+        ``{"minutes", "epochs", "batch", "n_trees"}``, or None if the final test's report is not found.
+    """
     path = results / "final_test" / "report.json"
     if not path.exists():
         return None
@@ -328,6 +393,15 @@ def final_training(results: Path = RESULTS) -> dict | None:
 
 def estimated_minutes(step_s: float | None, batch: int | None, epochs: float | None, n_trees: int = N_DEV) -> float | None:
     """Training minutes from a measured step: ``ceil(n_trees / batch)`` steps per epoch, times ``epochs``.
+
+    Args:
+        step_s: Seconds per training step (None if not measured).
+        batch: Training batch size.
+        epochs: Epochs trained.
+        n_trees: Training trees.
+
+    Returns:
+        The minutes, rounded to 3 decimals, or None if any input is None.
 
     Example:
         >>> estimated_minutes(0.06, 8, 34)                  # 57 steps per epoch
@@ -355,6 +429,9 @@ def count_flops(fn: Callable[[], object]) -> int:
 
     Args:
         fn: The work, e.g. one forward pass or :func:`prediction`.
+
+    Returns:
+        The operations counted.
     """
     from torch.utils.flop_counter import FlopCounterMode
 
@@ -376,6 +453,9 @@ def memory_traffic(fn: Callable[[], object]) -> dict:
     For example, that convolution of :func:`count_flops` in 32-bit floats reads its image and weights,
     4 x (3 x 16 x 16 + 8 x 3 x 3 x 3) bytes, and writes 4 x 8 x 16 x 16; an in-place ReLU after it reads and
     writes those 8,192 bytes again (tested in ``tests/test_benchmark.py``).
+
+    Args:
+        fn: The work, e.g. one forward pass or :func:`prediction`.
 
     Returns:
         ``{"read_bytes", "written_bytes", "operations", "by_operation"}``: the totals, the number of
@@ -427,6 +507,12 @@ def roofline(flops: float, traffic_bytes: float, peak_flops: float, bandwidth: f
     seconds. Its arithmetic intensity (operations per byte) above the device's ridge point
     (``peak_flops / bandwidth``) means the arithmetic, not the memory, sets that lower limit.
 
+    Args:
+        flops: Operations of the work.
+        traffic_bytes: Bytes it moves to and from memory.
+        peak_flops: The device's peak operations per second.
+        bandwidth: The device's memory bandwidth (bytes/s).
+
     Returns:
         ``{"intensity", "ridge", "compute_s", "memory_s", "bound"}``, ``bound`` "compute" or "memory".
 
@@ -473,6 +559,15 @@ def profile_prediction(predict: Callable[[], None], device: str, warmup: int = 2
 
     On a GPU it records the kernels too (through NVIDIA's CUPTI); if the profiler fails, or sees no kernels
     on a GPU, the result says so in ``"error"`` instead of stopping the benchmark.
+
+    Args:
+        predict: One prediction, from :func:`prediction`.
+        device: ``"cuda"`` or ``"cpu"``.
+        warmup: Untimed predictions first.
+
+    Returns:
+        The :func:`summarise_events` dict, with an ``"error"`` entry if the profiler failed or saw no GPU
+        kernels.
     """
     import torch
     from torch.profiler import ProfilerActivity, profile
@@ -564,7 +659,14 @@ def _f(x, spec: str) -> str:
 
 
 def report_lines(report: dict) -> list[str]:
-    """The report as text, for the console and ``output.txt``."""
+    """The report as text, for the console and ``output.txt``.
+
+    Args:
+        report: The benchmark's report (``report.json``).
+
+    Returns:
+        The lines of text.
+    """
     m = report["machine"]
     out = [f"Machine: {m['cpu']}; {m['gpu'] or 'no GPU'}; PyTorch {m['torch']}; {m['threads']} CPU threads.", ""]
     gt = report.get("ground_truths", {})
@@ -625,7 +727,14 @@ def report_lines(report: dict) -> list[str]:
 
 
 def flops_lines(report: dict) -> list[str]:
-    """The ``--flops`` report as text, for the console and ``flops_output.txt``."""
+    """The ``--flops`` report as text, for the console and ``flops_output.txt``.
+
+    Args:
+        report: The ``--flops`` report (``flops.json``).
+
+    Returns:
+        The lines of text.
+    """
     m = report["machine"]
     nets = report["networks"]
     out = [f"Machine: {m['cpu']}; {m['gpu'] or 'no GPU'}; PyTorch {m['torch']}; {m['threads']} CPU threads.", "",
@@ -684,7 +793,11 @@ def flops_lines(report: dict) -> list[str]:
 
 
 def machine() -> dict:
-    """The machine the benchmark ran on."""
+    """The machine the benchmark ran on.
+
+    Returns:
+        ``{"cpu", "system", "threads", "cpu_count", "gpu", "torch", "python"}``; ``gpu`` is None without CUDA.
+    """
     import os
 
     import torch
@@ -696,7 +809,15 @@ def machine() -> dict:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Measure everything and save ``report.json`` and ``output.txt``."""
+    """Measure everything and save ``report.json`` and ``output.txt``.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if an output file could not be written; with ``--flops``, that of
+        :func:`flops_main`.
+    """
     from treeskel.guided_gt import load_clicks
     from treeskel.io import index_dataset
     from treeskel.segment import load_masks
@@ -798,7 +919,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def flops_main(args: argparse.Namespace, repeats: int) -> int:
-    """``--flops``: measure :func:`flop_report` and save ``flops.json`` and ``flops_output.txt`` in ``--out``."""
+    """``--flops``: measure :func:`flop_report` and save ``flops.json`` and ``flops_output.txt`` in ``--out``.
+
+    Args:
+        args: The parsed command line of :func:`main`.
+        repeats: Timed calls per measurement.
+
+    Returns:
+        The exit status: 0 on success, 1 if an output file could not be written, 2 if only one of
+        ``--peak-tflops`` and ``--bandwidth-gbs`` was given.
+    """
     import torch
 
     out = Path(args.out)

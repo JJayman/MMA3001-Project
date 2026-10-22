@@ -142,6 +142,17 @@ def train(data_dirs: Sequence[str], weights: Path = WEIGHTS, device: str | None 
     (:func:`treeskel.final_test.named_recipe`), so the saved network is the final test's network again
     (up to the GPU's non-determinism). No choice is made here.
 
+    Args:
+        data_dirs: Dataset folders holding the development trees.
+        weights: Where the network is saved (``models/``, git-ignored).
+        device: ``"cuda"`` or ``"cpu"``; the GPU if one is available by default.
+        random_weights: Start the encoder from random weights instead of ImageNet's (for tests; needs no
+            download).
+        epochs: Epochs to train; the recipe's by default.
+        split: The fixed split (its test rows are never loaded).
+        model_file: The file naming the model (the recipe).
+        progress: Prints a progress line.
+
     Returns:
         What was saved besides the weights (the recipe, epochs, trees, minutes).
     """
@@ -193,6 +204,9 @@ def trained_trees(meta: dict, split: str | Path = "splits.json", model_file: Pat
         meta: What ``train`` saved besides the weights (:func:`load_network`'s third value).
         split: The split file, for the test rows (older networks only).
         model_file: The file naming the model, for the line-up file (older networks only).
+
+    Returns:
+        The tree ids.
     """
     if "trees" in meta:
         return set(meta["trees"])
@@ -206,7 +220,14 @@ def trained_trees(meta: dict, split: str | Path = "splits.json", model_file: Pat
 
 
 def saved_source(path: str | Path) -> str:
-    """The viewer's caption for masks read from ``path`` (``build --mask saved``)."""
+    """The viewer's caption for masks read from ``path`` (``build --mask saved``).
+
+    Args:
+        path: The folder of saved masks.
+
+    Returns:
+        The caption.
+    """
     path = Path(path)
     if path.resolve() == SAVED_MASKS.resolve():
         return "Branches from the 5-fold development run (a network that never saw this row)"
@@ -216,7 +237,16 @@ def saved_source(path: str | Path) -> str:
 
 
 def load_network(weights: Path = WEIGHTS, device: str | None = None):
-    """The saved network (no download: the weights replace ImageNet's), its device and what ``train`` saved."""
+    """The saved network (no download: the weights replace ImageNet's), its device and what ``train`` saved.
+
+    Args:
+        weights: The file :func:`train` saved.
+        device: ``"cuda"`` or ``"cpu"``; the GPU if one is available by default.
+
+    Returns:
+        ``(model, device, meta)``: the U-Net in evaluation mode, its device, and what :func:`train` saved
+        (with ``params``, the recipe's :class:`~treeskel.segment.SegParams`).
+    """
     import torch
 
     from treeskel.segment import SegParams, UNet
@@ -235,7 +265,21 @@ def load_network(weights: Path = WEIGHTS, device: str | None = None):
 
 def predict_mask(model, device: str, rgb: np.ndarray, params, join_gap: float | None) -> np.ndarray:
     """The network's 256x256 branch mask for one 640x480 summer photo (the hand masks' frame: the centre
-    480x480), its mirror image averaged in, its pieces joined."""
+    480x480), its mirror image averaged in, its pieces joined.
+
+    Args:
+        model: The U-Net from :func:`load_network`.
+        device: Its device.
+        rgb: ``(480, 640, 3)`` uint8 summer photo.
+        params: The recipe's :class:`~treeskel.segment.SegParams`.
+        join_gap: Largest gap (mask px) between pieces that are joined; None to leave them.
+
+    Returns:
+        The 256x256 boolean mask.
+
+    Raises:
+        ValueError: If the network is not a square 256x256 one.
+    """
     import torch
     from PIL import Image
 
@@ -260,6 +304,11 @@ def predict_mask(model, device: str, rgb: np.ndarray, params, join_gap: float | 
 
 def smooth_line(points: np.ndarray, step: float = STEP_M, smooth: float = SMOOTH_M) -> tuple[np.ndarray, np.ndarray]:
     """A 3D polyline resampled every ``step`` along its length and smoothed over about ``smooth``.
+
+    Args:
+        points: ``(N, 3)`` points along the line (m).
+        step: Spacing of the resampled points (m).
+        smooth: Smoothing length (m).
 
     Returns:
         ``(points, s)``: the resampled, smoothed points and their distance along the original line. The
@@ -291,7 +340,14 @@ def smooth_line(points: np.ndarray, step: float = STEP_M, smooth: float = SMOOTH
 
 def frames(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Tangents and two normals along a line, turning as little as possible (parallel transport), so a
-    tube built on them does not twist."""
+    tube built on them does not twist.
+
+    Args:
+        points: ``(N, 3)`` points along the line.
+
+    Returns:
+        ``(tangents, normals, binormals)``, each ``(N, 3)`` unit vectors.
+    """
     p = np.asarray(points, float)
     t = np.gradient(p, axis=0)
     t /= np.maximum(np.linalg.norm(t, axis=1, keepdims=True), 1e-12)
@@ -308,6 +364,15 @@ def frames(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def tube(points: np.ndarray, radii: np.ndarray, sides: int = 16, caps: bool = True) -> dict:
     """A closed tube of the given radii around a line: ``{"vertices", "normals", "faces"}``.
+
+    Args:
+        points: ``(N, 3)`` centre-line points.
+        radii: ``(N,)`` radius at each point.
+        sides: Vertices around each ring.
+        caps: Close the ends.
+
+    Returns:
+        The mesh.
 
     Example:
         >>> m = tube(np.array([[0.0, 0, 0], [0, 0, 1], [0, 0, 2]]), np.array([0.5, 0.5, 0.5]), sides=8)
@@ -336,7 +401,17 @@ def tube(points: np.ndarray, radii: np.ndarray, sides: int = 16, caps: bool = Tr
 
 
 def ball(centre: np.ndarray, radius: float, rings: int = 10, sides: int = 16) -> dict:
-    """A ball (UV sphere): ``{"vertices", "normals", "faces"}``."""
+    """A ball (UV sphere): ``{"vertices", "normals", "faces"}``.
+
+    Args:
+        centre: ``(3,)`` centre.
+        radius: Radius.
+        rings: Rings from pole to pole.
+        sides: Vertices around each ring.
+
+    Returns:
+        The mesh.
+    """
     th = np.linspace(0, np.pi, rings + 1)
     ph = 2 * np.pi * np.arange(sides) / sides
     n = np.stack([np.sin(th)[:, None] * np.cos(ph)[None], np.cos(th)[:, None] * np.ones_like(ph)[None],
@@ -349,7 +424,14 @@ def ball(centre: np.ndarray, radius: float, rings: int = 10, sides: int = 16) ->
 
 
 def merge(meshes: Sequence[dict]) -> dict:
-    """Several meshes as one (with per-vertex ``colours`` and ``bend`` if every mesh has them)."""
+    """Several meshes as one (with per-vertex ``colours`` and ``bend`` if every mesh has them).
+
+    Args:
+        meshes: Meshes as made by :func:`tube` and :func:`ball`.
+
+    Returns:
+        The merged mesh.
+    """
     keys = ["vertices", "normals", "faces"] + [k for k in ("colours", "bend") if all(k in m for m in meshes)]
     out = {key: [] for key in keys}
     k = 0
@@ -361,14 +443,30 @@ def merge(meshes: Sequence[dict]) -> dict:
 
 
 def tube_colours(colours: np.ndarray, sides: int = 16, caps: bool = True) -> np.ndarray:
-    """Per-vertex colours of a :func:`tube` from one colour per centre-line point (its rings and caps)."""
+    """Per-vertex colours of a :func:`tube` from one colour per centre-line point (its rings and caps).
+
+    Args:
+        colours: ``(N, 3)`` colour per centre-line point.
+        sides: As for :func:`tube`.
+        caps: As for :func:`tube`.
+
+    Returns:
+        ``(V, 3)`` colour per vertex of the tube.
+    """
     c = np.repeat(np.asarray(colours, float).reshape(-1, 3), sides, axis=0)
     return np.vstack([c, colours[:1], colours[-1:]]) if caps else c
 
 
 def bend_params(report: Path = BENDS_REPORT):
     """The prior ``build`` bends with: the one :mod:`treeskel.bend3d`'s 449-tree run chose, if saved, else the
-    default of :class:`treeskel.bend3d.BendParams`."""
+    default of :class:`treeskel.bend3d.BendParams`.
+
+    Args:
+        report: The 449-tree run's report (``docs/results/bend3d/report.json``).
+
+    Returns:
+        A :class:`treeskel.bend3d.BendParams`.
+    """
     from treeskel.bend3d import BendParams, params_of
 
     if Path(report).exists():
@@ -378,7 +476,15 @@ def bend_params(report: Path = BENDS_REPORT):
 
 def typical_prior(report: Path = TYPICAL_REPORT, shape: Path = TYPICAL_SHAPE) -> dict | None:
     """The typical winter shape to use as the prior's mean, if :mod:`treeskel.bend3d`'s typical-shape run is
-    saved and its rule (fixed before the run) passed; otherwise None (the plane)."""
+    saved and its rule (fixed before the run) passed; otherwise None (the plane).
+
+    Args:
+        report: The typical-shape run's report, with the rule's verdict.
+        shape: The saved typical shape (``typical_shape.json``).
+
+    Returns:
+        The typical shape (:func:`treeskel.bend3d.typical_shape`), or None.
+    """
     if not (Path(report).exists() and Path(shape).exists()):
         return None
     if not json.loads(Path(report).read_text()).get("rule", {}).get("adopt"):
@@ -392,7 +498,15 @@ VIEW_FLIP = np.array([1.0, -1.0, -1.0])
 
 def to_view(points: np.ndarray, origin: np.ndarray) -> np.ndarray:
     """Camera-frame points (``y`` down, ``z`` away) as the model's: ``y`` up, ``z`` towards the camera,
-    ``origin`` (the fork) at 0."""
+    ``origin`` (the fork) at 0.
+
+    Args:
+        points: ``(N, 3)`` camera-frame points (m).
+        origin: ``(3,)`` the fork, camera frame.
+
+    Returns:
+        ``(N, 3)`` points in the model's frame (m).
+    """
     q = np.asarray(points, float) - origin
     return q * np.array([1.0, -1.0, -1.0])
 
@@ -403,7 +517,9 @@ def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.n
     """The 3D model of one summer photo and its 256x256 branch mask.
 
     Args:
-        rgb, depth, valid: The summer photo, its depth and where the depth has readings.
+        rgb: The ``(480, 640, 3)`` uint8 summer photo.
+        depth: Its ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         mask: The 256x256 branch mask.
         camera: The depth map and camera.
         per_unit: Metres per depth unit.
@@ -507,7 +623,14 @@ def tree_model(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask: np.n
 
 def write_ply_mesh(path: Path, mesh: dict, colour: tuple[float, float, float] = BARK) -> None:
     """A binary PLY mesh with normals and a colour per vertex (Blender, MeshLab, Windows 3D Viewer): the mesh's
-    own ``colours`` if it has them, else ``colour``."""
+    own ``colours`` if it has them, else ``colour``.
+
+    Args:
+        path: The ``.ply`` file.
+        mesh: A mesh ``{"vertices", "normals", "faces"}`` (and per-vertex ``colours``, ``bend`` if made with
+            them).
+        colour: RGB in [0, 1], for a mesh without colours.
+    """
     v = np.asarray(mesh["vertices"], "<f4")
     n = np.asarray(mesh["normals"], "<f4")
     rgb = _rgb8(mesh, colour)
@@ -532,7 +655,13 @@ def write_ply_mesh(path: Path, mesh: dict, colour: tuple[float, float, float] = 
 
 
 def write_ply_points(path: Path, points: np.ndarray, colours: np.ndarray) -> None:
-    """A binary PLY point cloud with a colour per point."""
+    """A binary PLY point cloud with a colour per point.
+
+    Args:
+        path: The ``.ply`` file.
+        points: ``(N, 3)`` points.
+        colours: ``(N, 3)`` RGB in [0, 1].
+    """
     pt = np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("red", "u1"), ("green", "u1"), ("blue", "u1")])
     pa = np.empty(len(points), pt)
     for i, k in enumerate(("x", "y", "z")):
@@ -547,7 +676,14 @@ def write_ply_points(path: Path, points: np.ndarray, colours: np.ndarray) -> Non
 
 
 def read_ply(path: Path) -> dict:
-    """Read back a PLY written by this module: ``{"vertex": structured array, "face": index array or None}``."""
+    """Read back a PLY written by this module: ``{"vertex": structured array, "face": index array or None}``.
+
+    Args:
+        path: A ``.ply`` file from :func:`write_ply_mesh` or :func:`write_ply_points`.
+
+    Returns:
+        The vertices and the faces (None for a point cloud).
+    """
     data = Path(path).read_bytes()
     end = data.index(b"end_header\n") + len(b"end_header\n")
     header = data[:end].decode("ascii").splitlines()
@@ -576,7 +712,16 @@ def _b64(a: np.ndarray, dtype: str) -> str:
 
 
 def viewer_data(model: dict, title: str, source: str) -> dict:
-    """What the viewer page needs: the arrays (base64, little-endian) and the text."""
+    """What the viewer page needs: the arrays (base64, little-endian) and the text.
+
+    Args:
+        model: From :func:`tree_model`.
+        title: The page's title.
+        source: Where the branches came from (shown on the page).
+
+    Returns:
+        The data, ready for JSON.
+    """
     b, leaves = model["branches"], model["leaves"]
     m = model["measures"]
 
@@ -616,7 +761,14 @@ def viewer_data(model: dict, title: str, source: str) -> dict:
 
 
 def write_html(path: Path, model: dict, title: str, source: str) -> None:
-    """The self-contained viewer page (WebGL 2, no libraries, no internet)."""
+    """The self-contained viewer page (WebGL 2, no libraries, no internet).
+
+    Args:
+        path: The ``.html`` file.
+        model: From :func:`tree_model`.
+        title: The page's title.
+        source: Where the branches came from (shown on the page).
+    """
     data = json.dumps(viewer_data(model, title, source)).replace("</", "<\\/")
     page = VIEWER.replace("__TITLE__", _html_escape(title)).replace("__DATA__", data)
     Path(path).write_text(page, encoding="utf-8")
@@ -917,6 +1069,12 @@ class Photo:
 def tree_id(text: str) -> str | None:
     """``text`` as a tree id in the dataset's form, or None if it is not one.
 
+    Args:
+        text: Any text, e.g. a command-line argument.
+
+    Returns:
+        The id, e.g. ``"R12N02"``, or None.
+
     Example:
         >>> tree_id("r12n2"), tree_id("R05N12"), tree_id("photo.png")
         ('R12N02', 'R05N12', None)
@@ -930,6 +1088,12 @@ def depth_for(photo: str | Path) -> Path | None:
 
     The last ``RGB`` in the name becomes ``D`` (the dataset's own naming: ``R12N02_Summer_RGB-13-45-33.png``
     and ``R12N02_Summer_D-13-45-33.png``), or ``Depth``; ``color`` or ``colour`` becomes ``depth``.
+
+    Args:
+        photo: The colour photo's path.
+
+    Returns:
+        The depth image's path, or None if none exists.
     """
     photo = Path(photo)
     for old, new in _DEPTH_NAMES:
@@ -1046,6 +1210,13 @@ def auto_masks(row: int, test_rows: set[int]) -> Path:
     results; a development tree's is the 5-fold run's (:data:`SAVED_MASKS`), from a network that never saw
     its row. Either way no trained network is needed. ``train``'s network learned every development tree, so
     on one of them it would show what it learned, not how well it predicts (session 14).
+
+    Args:
+        row: The tree's orchard row.
+        test_rows: The test rows.
+
+    Returns:
+        The folder of saved masks.
     """
     return FINAL_TEST_MASKS if row in test_rows else SAVED_MASKS
 
@@ -1056,6 +1227,22 @@ def build(name: str, rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask
 
     ``bends`` (a :class:`treeskel.bend3d.BendParams`) lets the branches bend out of the plane, and ``typical``
     (a typical winter shape) is then the prior's mean (:func:`tree_model`).
+
+    Args:
+        name: The tree's name (the files' stem).
+        rgb: ``(480, 640, 3)`` uint8 summer photo.
+        depth: Its ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
+        mask: 256x256 boolean branch mask.
+        out: Output folder.
+        title: The page's title.
+        source: Where the branches came from (shown on the page).
+        bends: The prior of the bends; None for the plane.
+        typical: The typical winter shape as the prior's mean; None for the plane.
+
+    Returns:
+        ``{"files", "measures", "n_points", "n_triangles"}``: the paths of the ``html``, ``branches`` and
+        ``leaves`` files, the tree's measures, and the sizes of the cloud and the mesh.
     """
     model = tree_model(rgb, depth, valid, mask, bends=bends, typical=typical)
     out.mkdir(parents=True, exist_ok=True)
@@ -1068,7 +1255,16 @@ def build(name: str, rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, mask
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``train`` the network once, or ``build`` models from summer photos."""
+    """``train`` the network once, or ``build`` models from summer photos.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 if every model was made (or the network trained), 1 if an input could not be used,
+        the split file is missing, the network is needed but not trained, or a model could not be made (each
+        is reported).
+    """
     from treeskel.io import load_depth, load_rgb, load_tree
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.model3d", description=__doc__.splitlines()[0])

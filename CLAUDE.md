@@ -167,7 +167,10 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
   to `main`. Commit messages explain why, not just what.
 - **Code:** Google-style docstrings (the HTML docs are built by pdoc with
   `-d google`; command examples in docstrings go in a fenced block, since
-  reST's `Usage::` shows literally), inline
+  reST's `Usage::` shows literally): every public function lists each
+  argument in `Args:` (one per entry, in order), and has `Returns:` if it
+  returns a value and `Raises:` if it raises (`tests/test_docstrings.py`
+  checks this against the signatures); inline
   comments on intent, and a test for every behaviour. Synthetic data with a
   known answer is preferred; use the sample for integration tests.
 - **Validation habits that caught real errors:**
@@ -184,7 +187,7 @@ outputs (e.g. `data/matches/*.npz`) are committed for analysis.
 
 ## Current status and next steps
 
-See the latest file in `docs/progress/`. As of session 18:
+See the latest file in `docs/progress/`. As of session 19 (the last):
 
 - **Winter masks and depth registration** (sessions 8–9): settled, see the
   fixed decisions above.
@@ -249,11 +252,12 @@ See the latest file in `docs/progress/`. As of session 18:
      (R01N04, R03N10). See `docs/results/model3d/README.md`.
   2. The report: session 18's to-do list (`docs/progress/2026-10-18-session-18.md`, Next steps): the
      profiled kernel sentence, the mechanical-engineering link, the AI reflection's effect on workflow, the
-     test count (575), reference [7]'s commit after the last merge, and the 10-page limit.
+     test count (610 since session 19), reference [7]'s commit after the last merge, and the 10-page limit.
+     The student set the report aside in session 19 ("ignore the report").
   3. **Before submission: the repository requirements** (the brief, as the student quoted it in session 17:
      ReadMe; HTML documentation; licence; source code, functional `main`, with inline comments and docstrings;
      test functions and a test report; an accessible link; a zipped clone on Moodle). All met as of
-     session 18. **The repository was private in session 17**: the link is accessible only once it is public
+     session 18; session 19 checked them against the marking guide's top band and closed the gaps (below). **The repository was private in session 17**: the link is accessible only once it is public
      or the markers are given access (the student's choice; making it public also publishes the 26 trees of
      the teaching team's data in `data/sample` and `data/tuning`, 135 images with the history, and the
      student's university email on their commits). The zip should be of a fresh `git clone` (no data/raw, .venv, models or
@@ -262,15 +266,15 @@ See the latest file in `docs/progress/`. As of session 18:
      `pytest --html=docs/test_report.html --self-contained-html` (on the
      student's PC: `pip install pytest-html` first if missing).
 
-     | Requirement | Status (session 18) |
+     | Requirement | Status (session 19) |
      |---|---|
-     | ReadMe | results at a glance (session 16's mask experiments added), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named and both uses of them stated; the AI-use section in the student's first person (session 14; updated in session 16) |
-     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work; rebuilt after session 18's change |
+     | ReadMe | results at a glance (session 16's mask experiments added), documentation links (HTML docs, test report, 3D viewer examples), 9-tree sample, test rows named and both uses of them stated; the AI-use section in the student's first person (session 14; updated in session 16; 19 sessions in session 19); session 19 added the engineering problem, the environment, the order to reproduce the results, data ownership, inputs and outputs (formats, units, invalid inputs) and the limitations |
+     | HTML documentation | `docs/html/` (pdoc, Google format), 27 modules (`seg_compare`, `label_audit` added in session 16); the package page lists them in the order of the work; rebuilt after session 19's docstrings (identical to a fresh build) |
      | Licence | `LICENSE`, GNU GPL v3 |
-     | Source code, functional `main` | 575 passed, 0 skipped (session 18, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
-     | Docstrings and inline comments | 546 of 546 public functions, classes and methods, and every nested helper (session 18: session 17's count plus 9 public and 7 nested; session 17 reported 73 of 73 nested by a narrower count, 86 of 86 counting every function and class defined inside a function); comments on intent in the longest functions |
-     | Test functions | 31 test files, 503 test functions in `tests/` (session 18) |
-     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 18's code change: 575 passed, 0 skipped |
+     | Source code, functional `main` | 610 passed, 0 skipped (session 19, the assistant's environment); 504 passed, 0 skipped on the student's PC in session 15 |
+     | Docstrings and inline comments | 546 of 546 public functions, classes and methods, and every nested helper (session 18: session 17's count plus 9 public and 7 nested; session 17 reported 73 of 73 nested by a narrower count, 86 of 86 counting every function and class defined inside a function); comments on intent in the longest functions. Session 19: every public function and method (526) lists its arguments in `Args:`, and has `Returns:`/`Raises:` where it returns or raises; dataclasses' `Attributes:` match their fields; checked by `tests/test_docstrings.py` |
+     | Test functions | 32 test files, 511 test functions in `tests/` (session 19) |
+     | Test report | `docs/test_report.html` (pytest-html), made in the assistant's environment (PyTorch and kornia from PyPI) after session 19's docstrings: 610 passed, 0 skipped |
   4. Optional: the 3D step once on the test rows (with the caveat).
 - **Session 15: bends out of the plane** (PR #56 and the next; `docs/results/bend3d/`, all 449
   development trees, the student's PC, 57 min):
@@ -356,6 +360,14 @@ See the latest file in `docs/progress/`. As of session 18:
   too small to fill the GPU at batch 1. Other gaps found: the link to mechanical engineering is not stated; the AI
   reflection does not say directly how AI changed the student's understanding or workflow; the body ends
   exactly at the foot of page 10.
+- **Session 19: the repository against the marking guide** (the student's request; the last session).
+  The brief's checklist was met; the gaps were against the top band. The README gained the engineering
+  problem, the environment, an ordered path to reproduce the results, data ownership (the 26 committed
+  trees stay the teaching team's; the GPL covers the code and documentation), inputs and outputs, and the
+  limitations; `data/tuning/README.md` is new; `data/sample/README.md` no longer calls the depth mapping a
+  hypothesis. 385 public functions gained `Args`/`Returns`/`Raises` sections and 29 grouped or stale `Args`
+  sections were split or completed (no code changed); `tests/test_docstrings.py` enforces it. HTML docs
+  and test report rebuilt (610 passed). See `docs/progress/2026-10-22-session-19.md`.
 - **Winter-to-summer pixel alignment was abandoned** in session 7
   (`docs/results/align/`).
 - Still open: the crotch; the colour fit's window dependence; which season

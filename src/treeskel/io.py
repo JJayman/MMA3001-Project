@@ -223,7 +223,11 @@ class TreeRecord:
     paths: dict[tuple[str, str], Path] = field(default_factory=dict)
 
     def missing(self) -> list[tuple[str, str]]:
-        """Return the ``(season, modality)`` pairs that have no file."""
+        """Return the ``(season, modality)`` pairs that have no file.
+
+        Returns:
+            The missing ``(season, modality)`` pairs; empty for a complete tree.
+        """
         return [
             (s, mod)
             for s in SEASONS

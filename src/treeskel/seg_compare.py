@@ -138,7 +138,14 @@ MIN_PIECE = ShapeParams().min_points
 
 
 def joined(name: str) -> str:
-    """The folder of a run's joined masks: ``<name>_joined`` (the masks every rule scores)."""
+    """The folder of a run's joined masks: ``<name>_joined`` (the masks every rule scores).
+
+    Args:
+        name: A run's folder name.
+
+    Returns:
+        The joined run's folder name.
+    """
     return name if name.endswith("_joined") else f"{name}_joined"
 
 
@@ -147,7 +154,14 @@ def joined(name: str) -> str:
 # --------------------------------------------------------------------------
 
 def leader_reach(params: ShapeParams = ShapeParams()) -> float:
-    """The stretch the angles are fitted over, in mask px: a leader shorter than this is *short*."""
+    """The stretch the angles are fitted over, in mask px: a leader shorter than this is *short*.
+
+    Args:
+        params: The shape measures' settings (their fitted stretch).
+
+    Returns:
+        The reach in mask px.
+    """
     return params.reach * unit_px(0.0, params, MASK_ZOOM)
 
 
@@ -201,6 +215,10 @@ def structure(mask: np.ndarray, params: ShapeParams = ShapeParams()) -> dict[str
 
 def centre_line_scores(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
     """clDice of a mask against a hand mask, with its two halves (:func:`treeskel.segment.cl_dice`).
+
+    Args:
+        pred: Predicted 256x256 boolean mask.
+        truth: Hand 256x256 boolean mask.
 
     Returns:
         ``{"cldice", "tprec", "tsens"}``: ``tprec`` the share of the prediction's centre line inside the hand
@@ -307,6 +325,11 @@ def run_table(folder: Path, hands: dict[str, np.ndarray] | None = None, measure:
     making stubs. With ``hands``, also :func:`centre_line_scores` and the
     pixel Dice against the hand masks.
 
+    Args:
+        folder: A saved run's folder (its ``predictions.csv`` and ``predicted_masks.npz``).
+        hands: Hand masks per tree id, for the centre-line and pixel scores; None to leave them out.
+        measure: The measure scored.
+
     Returns:
         ``{tree: {"pred", "winter", "error", "filled", <structure>, ...}}``; trees whose winter value is
         unknown are left out.
@@ -333,6 +356,10 @@ def run_table(folder: Path, hands: dict[str, np.ndarray] | None = None, measure:
 def paired(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
     """``a`` against ``b`` tree by tree, on the trees both have a finite value for.
 
+    Args:
+        a: Values per tree.
+        b: Values per tree, to compare with ``a``.
+
     Returns:
         ``{"n", "mean_a", "mean_b", "a_lower", "a_higher", "p"}``: the means, the shares of trees where ``a``
         is lower or higher, and the Wilcoxon signed-rank p (zero differences dropped; 1 if all are zero).
@@ -349,12 +376,28 @@ def paired(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
 
 
 def column(table: dict[str, dict[str, float]], key: str) -> dict[str, float]:
-    """``{tree: value}`` of one column of :func:`run_table`."""
+    """``{tree: value}`` of one column of :func:`run_table`.
+
+    Args:
+        table: A :func:`run_table`.
+        key: The column.
+
+    Returns:
+        The column's values per tree.
+    """
     return {t: float(r.get(key, float("nan"))) for t, r in table.items()}
 
 
 def tree_mean(tables: Sequence[dict[str, dict[str, float]]], key: str) -> dict[str, float]:
-    """``{tree: mean of key over the tables}`` for the trees in every table (NaN values skipped; NaN if all are)."""
+    """``{tree: mean of key over the tables}`` for the trees in every table (NaN values skipped; NaN if all are).
+
+    Args:
+        tables: Several :func:`run_table` tables.
+        key: The column averaged.
+
+    Returns:
+        The means per tree.
+    """
     trees = set.intersection(*(set(t) for t in tables))
     out = {}
     for t in sorted(trees):
@@ -373,6 +416,11 @@ def verdict(candidate: Sequence[dict], comparator: Sequence[dict], alpha: float 
     Passed if the candidate's mean absolute error on the V opening is lower
     with Wilcoxon p < ``alpha``, and neither guard (:data:`GUARDS`) is higher
     with p < ``alpha``.
+
+    Args:
+        candidate: The change's runs (:func:`run_table` each).
+        comparator: The named recipe's runs.
+        alpha: The test's significance level.
 
     Returns:
         ``{"error": paired(...), "guards": {name: paired(...)}, "better", "guards_hold", "passed"}``.
@@ -404,6 +452,7 @@ def decide(tables: dict[str, dict], alpha: float = ALPHA) -> dict:
 
     Args:
         tables: ``{run name: run_table(<run>_joined)}``; every run of the rule must be there.
+        alpha: The test's significance level.
 
     Returns:
         ``{"complete": bool, "missing": [...], "cldice": verdict, "ensemble": verdict, "candidate": {"loss",
@@ -435,6 +484,9 @@ def decide(tables: dict[str, dict], alpha: float = ALPHA) -> dict:
 def stability(tables: Sequence[dict[str, dict]]) -> dict:
     """How far samples of one recipe are from each other, over every pair of them, tree by tree.
 
+    Args:
+        tables: One :func:`run_table` per run of the recipe.
+
     Returns:
         ``{"pairs", "median_difference", "over_5", "status_flips"}``: the median of the absolute
         differences in the V opening, the share of tree pairs more than 5° apart, and the share whose
@@ -456,7 +508,15 @@ def stability(tables: Sequence[dict[str, dict]]) -> dict:
 
 def null_check(tables: dict[str, dict], names: Sequence[str] = REPLICATES) -> list[dict]:
     """Every pair of the named recipe's samples, tree by tree on the V opening's error: how often the rule's
-    test would call two samples of one recipe different."""
+    test would call two samples of one recipe different.
+
+    Args:
+        tables: ``{run name: run_table}``.
+        names: The named recipe's runs to pair up.
+
+    Returns:
+        One dict per pair: the two runs' names (``a``, ``b``) and :func:`paired`'s comparison of their errors.
+    """
     have = [n for n in names if n in tables]
     out = []
     for i in range(len(have)):
@@ -468,6 +528,11 @@ def null_check(tables: dict[str, dict], names: Sequence[str] = REPLICATES) -> li
 
 def disagreement_check(members: Sequence[dict], ensemble: dict, top: float = 0.1) -> dict:
     """Does the members' spread on the V opening flag the trees the ensemble gets wrong?
+
+    Args:
+        members: The ensemble's members (:func:`run_table` each).
+        ensemble: The ensemble's :func:`run_table`.
+        top: The share of trees flagged.
 
     Returns:
         ``{"n", "spearman", "p", "mae_flagged", "mae_rest", "worst_caught"}``: the rank correlation of each
@@ -498,7 +563,16 @@ STRUCTURE_SUMMARY = ("fork", "incomplete", "short_leaders", "side_branches", "st
 
 
 def summarise_run(table: dict[str, dict], report: dict | None = None) -> dict:
-    """A run's headline numbers: the V opening's MAE and skill, and its masks' structure."""
+    """A run's headline numbers: the V opening's MAE and skill, and its masks' structure.
+
+    Args:
+        table: A :func:`run_table`.
+        report: The run's ``report.json``, for its skill; None to leave the skill out.
+
+    Returns:
+        ``{"n", "v_opening_mae", "v_opening_skill", <structure means and counts>, "no_fork", "stubs",
+        "incomplete_trees"}``.
+    """
     def finite(key):
         """The run's finite values of one column, over its trees."""
         return np.array([r[key] for r in table.values() if key in r and np.isfinite(r[key])], float)
@@ -524,7 +598,14 @@ def summarise_run(table: dict[str, dict], report: dict | None = None) -> dict:
 # --------------------------------------------------------------------------
 
 def present_runs(results: Path) -> list[str]:
-    """The variants whose joined masks are saved in ``results``, in the rule's order."""
+    """The variants whose joined masks are saved in ``results``, in the rule's order.
+
+    Args:
+        results: The results folder (``docs/results``).
+
+    Returns:
+        The run names.
+    """
     names = list(REPLICATES) + list(CLDICE) + list(ENSEMBLES) + [SECOND_ENSEMBLE[0], *SECOND_ENSEMBLE[1]]
     seen: list[str] = []
     for n in names:
@@ -590,7 +671,12 @@ def _p(v: float) -> str:
 
 
 def print_report(report: dict, progress: Callable[[str], None] = print) -> None:
-    """Print :func:`compare`'s report: each run, the rule's verdict, then the diagnostics."""
+    """Print :func:`compare`'s report: each run, the rule's verdict, then the diagnostics.
+
+    Args:
+        report: From :func:`compare`.
+        progress: Prints a line.
+    """
     runs = report["runs"]
     progress("\nEach run, its joined masks (development trees, out of fold):")
     progress(f"  {'run':40s} {'V MAE':>6s} {'skill':>6s} {'no fork':>7s} {'incompl.':>8s} {'side br.':>8s} "
@@ -653,7 +739,12 @@ def print_report(report: dict, progress: Callable[[str], None] = print) -> None:
 
 
 def write_trees(path: Path, tables: dict[str, dict]) -> None:
-    """Every run's per-tree values, one row per tree and run."""
+    """Every run's per-tree values, one row per tree and run.
+
+    Args:
+        path: The CSV file.
+        tables: ``{run name: run_table}``.
+    """
     keys = ["pred", "winter", "error", "filled", "fork", "left_length", "right_length", "short_leaders", "incomplete",
             "side_branches", "side_reach", "stray_pieces", "extra_fraction", "cldice", "tprec", "tsens", "dice"]
     with open(path, "w", newline="") as f:
@@ -666,7 +757,17 @@ def write_trees(path: Path, tables: dict[str, dict]) -> None:
 
 def load_hands(data_dirs: Sequence[str], overlay: str | None, trees: Sequence[str] | None = None,
                test_rows: set[int] | None = None) -> dict[str, np.ndarray]:
-    """The lined-up hand masks of the development trees (``overlay``: ``annotations/mask_overlay.json``)."""
+    """The lined-up hand masks of the development trees (``overlay``: ``annotations/mask_overlay.json``).
+
+    Args:
+        data_dirs: Dataset folders.
+        overlay: The hand masks' line-ups; None for the masks as drawn.
+        trees: Only these tree ids (all if None).
+        test_rows: Rows left out.
+
+    Returns:
+        256x256 boolean hand masks per tree id (trees skipped in the line-up are left out).
+    """
     from treeskel.io import index_dataset
     from treeskel.segment import hand_mask
     from treeskel.summer_gt import load_overlays
@@ -685,7 +786,15 @@ def load_hands(data_dirs: Sequence[str], overlay: str | None, trees: Sequence[st
 
 def main(argv: Sequence[str] | None = None) -> int:
     """``ensemble``: build an ensemble from saved runs (and join it); ``compare``: score every variant and apply
-    the rule."""
+    the rule.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if the ensemble's folder already holds a run or the ensemble cannot
+        be built, no variant's masks are saved, or an output file could not be written.
+    """
     ap = argparse.ArgumentParser(prog="python -m treeskel.seg_compare", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="command", required=True)
     e = sub.add_parser("ensemble", help="average saved runs' probabilities into an ensemble, then join its masks")

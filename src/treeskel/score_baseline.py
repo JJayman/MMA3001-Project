@@ -129,6 +129,13 @@ TABLE = Path("data/shape/shape_measures.csv")
 def nearest(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Distance from each point of ``a`` to the nearest point of ``b`` (``inf`` if ``b`` is empty).
 
+    Args:
+        a: ``(N, 2)`` points.
+        b: ``(M, 2)`` points.
+
+    Returns:
+        ``(N,)`` distances.
+
     Example:
         >>> nearest(np.array([[0, 0], [0, 5]]), np.array([[0, 3]])).tolist()
         [3.0, 2.0]
@@ -215,6 +222,12 @@ def baseline_shape(baseline: WinterGT) -> dict[str, float]:
 
     The trunk radius at the fork, which :func:`treeskel.shape.shape_measures` only records (its unit is
     fixed in pixels), is the depth silhouette's half-width there.
+
+    Args:
+        baseline: The automatic method's result for the tree.
+
+    Returns:
+        ``{measure: degrees}`` for every name in :data:`treeskel.shape.MEASURES`.
     """
     if baseline.fork is None or not all(len(getattr(baseline, p)) for p in PARTS):
         return dict.fromkeys(MEASURES, float("nan"))
@@ -225,6 +238,12 @@ def baseline_shape(baseline: WinterGT) -> dict[str, float]:
 def issue_type(issue: str) -> str:
     """A quality-check issue without its numbers, so issues can be counted by type.
 
+    Args:
+        issue: One issue from the baseline's quality check.
+
+    Returns:
+        The issue's type.
+
     Example:
         >>> issue_type("left leader rises 52 px (< 139)")
         'left leader rises too little'
@@ -234,7 +253,15 @@ def issue_type(issue: str) -> str:
 
 def score_tree(baseline: WinterGT, guided: WinterGT) -> dict:
     """Every score of one tree: the quality check, :func:`path_scores`, the masks' overlap, and both
-    methods' shape measures (``baseline_<measure>``, ``guided_<measure>``)."""
+    methods' shape measures (``baseline_<measure>``, ``guided_<measure>``).
+
+    Args:
+        baseline: The automatic method's result.
+        guided: The guided ground truth.
+
+    Returns:
+        The scores, by name.
+    """
     from treeskel.segment import mask_scores
 
     guided_mask = render_main_branches(guided)
@@ -249,6 +276,10 @@ def score_tree(baseline: WinterGT, guided: WinterGT) -> dict:
 
 def run_tree(rec, clicks: Clicks) -> tuple[dict, WinterGT, WinterGT, np.ndarray]:
     """Load one tree's winter images (depth registered), run both methods, time them and score.
+
+    Args:
+        rec: The tree's record.
+        clicks: The tree's winter clicks.
 
     Returns:
         ``(row, baseline, guided, rgb)``; ``row`` holds :func:`score_tree`'s scores, the tree's id and row,
@@ -304,6 +335,9 @@ def _group(rows: Sequence[dict]) -> dict:
 def quality_check(rows: Sequence[dict]) -> dict:
     """How well the baseline's own quality check separates traced from untraced trees.
 
+    Args:
+        rows: One row per tree, from :func:`run_tree`.
+
     Returns:
         Per level of :data:`TRACED`: the passed trees not traced and the flagged trees traced (counts and
         shares), and a Mann-Whitney test of F1 between passed and flagged trees; plus the issues by type.
@@ -329,6 +363,9 @@ def quality_check(rows: Sequence[dict]) -> dict:
 
 def session4_check(rows: Sequence[dict]) -> dict:
     """The trees the student judged wrong in session 4 against the other trees of the same rows.
+
+    Args:
+        rows: One row per tree, from :func:`run_tree`.
 
     Returns:
         ``{"listed": ..., "others": ...}`` with each group's count, median F1 and fork distance and its
@@ -358,7 +395,14 @@ def session4_check(rows: Sequence[dict]) -> dict:
 
 def read_predictions(path: str | Path) -> dict[str, dict[str, dict[str, float]]]:
     """``{tree: {measure: {"fold", "winter", "mean shape", "hand masks", "segmentation"}}}`` from a
-    ``predictions.csv`` of :mod:`treeskel.segment` (missing values as NaN)."""
+    ``predictions.csv`` of :mod:`treeskel.segment` (missing values as NaN).
+
+    Args:
+        path: A ``predictions.csv``.
+
+    Returns:
+        The values per tree and measure.
+    """
     out: dict[str, dict[str, dict[str, float]]] = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -435,7 +479,16 @@ def shape_scores(rows: Sequence[dict], predictions: str | Path = PREDICTIONS, ta
 def summarise(rows: Sequence[dict], predictions: str | Path | None = PREDICTIONS,
               table: str | Path = TABLE) -> dict:
     """The whole report: paths and masks (all trees, passed and flagged), the quality check, the
-    session-4 verdicts, run times, and (if ``predictions`` exists) the shape scores."""
+    session-4 verdicts, run times, and (if ``predictions`` exists) the shape scores.
+
+    Args:
+        rows: One row per tree, from :func:`run_tree`.
+        predictions: The named U-Net's ``predictions.csv``, for the shape scores; None to leave them out.
+        table: The winter shape table (the lines through the clicks).
+
+    Returns:
+        The report (``report.json``).
+    """
     report = {
         "n_trees": len(rows),
         "levels": list(TRACED),
@@ -458,7 +511,14 @@ def _fmt(x, spec: str = ".2f") -> str:
 
 
 def report_lines(report: dict) -> list[str]:
-    """The report as text, for the console and ``output.txt``."""
+    """The report as text, for the console and ``output.txt``.
+
+    Args:
+        report: From :func:`summarise`.
+
+    Returns:
+        The lines of text.
+    """
     p, qc, s4 = report["paths"], report["quality_check"], report["session4"]
     lv0, lv1 = (f"{v:g}" for v in TRACED)
     out = [f"Winter baseline against the guided ground truth: {report['n_trees']} development trees.",
@@ -531,7 +591,12 @@ def report_lines(report: dict) -> list[str]:
 # --------------------------------------------------------------------------
 
 def save_rows(path: Path, rows: Sequence[dict]) -> None:
-    """Write the per-tree rows (floats to 4 decimals)."""
+    """Write the per-tree rows (floats to 4 decimals).
+
+    Args:
+        path: The CSV file.
+        rows: One row per tree, from :func:`run_tree`.
+    """
     fields = list(dict.fromkeys(k for r in rows for k in r))
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -540,7 +605,14 @@ def save_rows(path: Path, rows: Sequence[dict]) -> None:
 
 
 def load_rows(path: Path) -> list[dict]:
-    """Read :func:`save_rows`'s file back (numbers as floats, ``ok``/``no_fork`` as bools)."""
+    """Read :func:`save_rows`'s file back (numbers as floats, ``ok``/``no_fork`` as bools).
+
+    Args:
+        path: A CSV file from :func:`save_rows`.
+
+    Returns:
+        The rows.
+    """
     rows = []
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -560,7 +632,15 @@ def load_rows(path: Path) -> list[dict]:
 
 def example_trees(rows: Sequence[dict], k: int = 4) -> list[tuple[str, str]]:
     """Trees for the figure, as ``(tree, group)``: the passed trees with the lowest F1, passed trees at
-    evenly spaced quantiles of F1 (worst to best), and flagged trees at the two ends."""
+    evenly spaced quantiles of F1 (worst to best), and flagged trees at the two ends.
+
+    Args:
+        rows: One row per tree, from :func:`run_tree`.
+        k: Trees per group.
+
+    Returns:
+        ``(tree id, group)`` pairs.
+    """
     passed = sorted((r["f1"], r["tree"]) for r in rows if r["ok"])
     flagged = sorted((r["f1"], r["tree"]) for r in rows if not r["ok"])
     picks = [(t, "passed QC, lowest F1") for _, t in passed[:k]]
@@ -576,7 +656,18 @@ def example_trees(rows: Sequence[dict], k: int = 4) -> list[tuple[str, str]]:
 
 def draw_tree(rgb: np.ndarray, baseline: WinterGT, guided: WinterGT, label: str, scale: float = 0.5):
     """One tree on its winter photo: the guided mask tinted cyan with its forks circled, and the
-    baseline's trunk (white), left (red) and right (yellow) leaders and fork (PIL image, resized)."""
+    baseline's trunk (white), left (red) and right (yellow) leaders and fork (PIL image, resized).
+
+    Args:
+        rgb: The ``(480, 640, 3)`` uint8 winter photo.
+        baseline: The automatic method's result.
+        guided: The guided ground truth.
+        label: Text written on the tile.
+        scale: Size of the tile relative to the photo.
+
+    Returns:
+        The tile.
+    """
     from PIL import Image, ImageDraw, ImageFont
 
     img = (rgb * 0.6).astype(np.uint8)
@@ -600,7 +691,17 @@ def draw_tree(rgb: np.ndarray, baseline: WinterGT, guided: WinterGT, label: str,
 
 
 def figure(records: dict, clicks: dict[str, Clicks], rows: Sequence[dict], columns: int = 4):
-    """A contact sheet of :func:`example_trees`, re-running both methods on those trees."""
+    """A contact sheet of :func:`example_trees`, re-running both methods on those trees.
+
+    Args:
+        records: The tree records by id.
+        clicks: The winter clicks by id.
+        rows: One row per tree, from :func:`run_tree`.
+        columns: Tiles per row.
+
+    Returns:
+        The contact sheet (PIL image), or None if no example tree is found.
+    """
     from PIL import Image
 
     by_tree = {r["tree"]: r for r in rows}
@@ -622,7 +723,15 @@ def figure(records: dict, clicks: dict[str, Clicks], rows: Sequence[dict], colum
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Score the baseline on the development rows; print and save the results."""
+    """Score the baseline on the development rows; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no annotated development tree was found or an output file could
+        not be written.
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import index_dataset

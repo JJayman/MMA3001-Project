@@ -95,7 +95,11 @@ class Annotator:
 
     # --- events -------------------------------------------------------------
     def prompt(self) -> str:
-        """Instruction for the window title."""
+        """Instruction for the window title.
+
+        Returns:
+            The instruction for the current step, or a closing message once every tree is done.
+        """
         if self.done:
             return "All trees done - press q to save and quit"
         head = f"{self.tree.tree_id} ({self.i + 1}/{len(self.trees)}): "
@@ -104,7 +108,12 @@ class Annotator:
         return head + "Enter = accept, click to correct, u = undo, r = reset, s = skip"
 
     def click(self, row: float, col: float) -> None:
-        """Handle a left click at image coordinates ``(row, col)``."""
+        """Handle a left click at image coordinates ``(row, col)``.
+
+        Args:
+            row: Image row of the click (px).
+            col: Image column of the click (px).
+        """
         if self.done:
             return
         p = (int(round(row)), int(round(col)))
@@ -121,7 +130,11 @@ class Annotator:
             self._retrace()
 
     def key(self, key: str) -> None:
-        """Handle a key press."""
+        """Handle a key press.
+
+        Args:
+            key: The key's name as matplotlib reports it (e.g. ``"enter"``, ``"u"``, ``"q"``).
+        """
         if key == "q":
             save_clicks(self.clicks_path, self.saved)
             self.done = True
@@ -158,7 +171,11 @@ class Annotator:
 
 
 def run_gui(ann: Annotator) -> None:  # pragma: no cover - needs a display
-    """Open the matplotlib window and connect mouse and keyboard events."""
+    """Open the matplotlib window and connect mouse and keyboard events.
+
+    Args:
+        ann: The annotator whose trees are shown.
+    """
     import matplotlib.pyplot as plt
 
     for k in ("keymap.save", "keymap.quit", "keymap.back", "keymap.forward", "keymap.pan"):
@@ -208,7 +225,14 @@ def run_gui(ann: Annotator) -> None:  # pragma: no cover - needs a display
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs a display
-    """Start the click tool (see the module docstring for usage)."""
+    """Start the click tool (see the module docstring for usage).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0 (the clicks are saved as they are made).
+    """
     from treeskel.splits import load_split
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.annotate", description=__doc__.splitlines()[0])

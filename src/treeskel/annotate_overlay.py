@@ -93,7 +93,14 @@ STEPS = {"shift": 1.0, "shift_big": 10.0, "roll": 0.2, "roll_big": 1.0, "scale":
 
 
 def median_overlay(overlays: Sequence[Overlay]) -> Overlay:
-    """Parameter-wise median of some transforms (the identity if there are none)."""
+    """Parameter-wise median of some transforms (the identity if there are none).
+
+    Args:
+        overlays: Transforms set by hand.
+
+    Returns:
+        An :class:`~treeskel.summer_gt.Overlay` whose every parameter is the median of theirs.
+    """
     if not overlays:
         return Overlay()
     return Overlay(**{k: float(np.median([getattr(o, k) for o in overlays])) for k in Overlay.PARAMS})
@@ -106,6 +113,14 @@ def depth_silhouette(depth: np.ndarray, valid: np.ndarray, min_area: int = 150) 
     behind are out of range in winter), opened by one pixel, without pieces
     smaller than ``min_area`` px. Its outline is much cleaner than edges in
     the colour photo, where grass and the rows behind give edges everywhere.
+
+    Args:
+        depth: ``(480, 640)`` uint8 winter depth.
+        valid: Boolean mask of the depth's readings.
+        min_area: Smallest piece kept (px).
+
+    Returns:
+        Boolean ``(480, 640)`` mask of the silhouette.
     """
     fg = ndi.binary_opening(foreground_mask(depth, valid), iterations=1)
     lab, n = ndi.label(fg)
@@ -134,6 +149,9 @@ def fast_warp(image: np.ndarray, matrix: np.ndarray, nearest: bool = False,
         matrix: 3x3 winter-to-summer ``(x, y)`` transform.
         nearest: Nearest-neighbour instead of bilinear sampling.
         out_size: Output ``(width, height)``.
+
+    Returns:
+        The warped ``uint8`` image, ``out_size`` in size, with as many channels as ``image``.
     """
     inv = _HALF @ np.linalg.inv(matrix) @ np.linalg.inv(_HALF)
     inv = inv / inv[2, 2]
@@ -180,7 +198,11 @@ class OverlayAnnotator:
         return self.trees[self.i] if self.i < len(self.trees) else None
 
     def start(self) -> Overlay:
-        """Starting transform: the saved one, else the median of the row's trees, else of all trees."""
+        """Starting transform: the saved one, else the median of the row's trees, else of all trees.
+
+        Returns:
+            The transform to show first.
+        """
         tid = self.tree.tree_id
         old = self.saved.get(tid)
         if old is not None and not old.skip:
@@ -216,7 +238,11 @@ class OverlayAnnotator:
 
     # --- the transform ------------------------------------------------------
     def matrix(self) -> np.ndarray:
-        """The current winter-to-summer transform."""
+        """The current winter-to-summer transform.
+
+        Returns:
+            The 3x3 ``(x, y)`` transform of the current settings.
+        """
         return self.ov.matrix()
 
     def composite(self) -> np.ndarray:
@@ -264,25 +290,48 @@ class OverlayAnnotator:
             self.ov.dy += before[1] - after[1]
 
     def shift(self, ddx: float, ddy: float) -> None:
-        """Move the winter photo by ``(ddx, ddy)`` px."""
+        """Move the winter photo by ``(ddx, ddy)`` px.
+
+        Args:
+            ddx: Rightward move (px).
+            ddy: Downward move (px).
+        """
         self._change(dx=self.ov.dx + ddx, dy=self.ov.dy + ddy)
 
     def rescale(self, factor: float, about: tuple[float, float] | None = None) -> None:
-        """Scale by ``factor``, keeping the summer point ``about`` (``(x, y)``) fixed, or the fork."""
+        """Scale by ``factor``, keeping the summer point ``about`` (``(x, y)``) fixed, or the fork.
+
+        Args:
+            factor: Scale factor (above 1 enlarges the winter photo).
+            about: The summer ``(x, y)`` point kept fixed; the fork by default.
+        """
         q = self.pin if about is None else apply_transform(np.linalg.inv(self.matrix()), [about])[0]
         self._change(pin_xy=q, scale=self.ov.scale * factor)
 
     def rotate(self, degrees: float) -> None:
-        """Roll by ``degrees`` (clockwise), keeping the fork fixed."""
+        """Roll by ``degrees`` (clockwise), keeping the fork fixed.
+
+        Args:
+            degrees: Roll to add (degrees, positive clockwise).
+        """
         self._change(pin_xy=self.pin, roll=self.ov.roll + degrees)
 
     def tilt(self, pitch: float = 0.0, yaw: float = 0.0) -> None:
-        """Add perspective (degrees), keeping the fork fixed."""
+        """Add perspective (degrees), keeping the fork fixed.
+
+        Args:
+            pitch: Tilt to add about the image's horizontal axis (degrees).
+            yaw: Tilt to add about the image's vertical axis (degrees).
+        """
         self._change(pin_xy=self.pin, pitch=self.ov.pitch + pitch, yaw=self.ov.yaw + yaw)
 
     # --- events -------------------------------------------------------------
     def prompt(self) -> str:
-        """Current tree, transform and help, for the window title."""
+        """Current tree, transform and help, for the window title.
+
+        Returns:
+            The window title, or a closing message once every tree is done.
+        """
         if self.done:
             return "All trees done - press q to save and quit"
         o = self.ov
@@ -296,7 +345,11 @@ class OverlayAnnotator:
                 "e outlines, m mask | Enter accept, u undo, r reset, s skip, f flag mask, n/p, q quit")
 
     def key(self, key: str) -> None:
-        """Handle a key press."""
+        """Handle a key press.
+
+        Args:
+            key: The key's name as matplotlib reports it (e.g. ``"enter"``, ``"left"``, ``"q"``).
+        """
         if key == "q":
             save_overlays(self.path, self.saved)
             self.done = True
@@ -479,7 +532,14 @@ def run_gui(ann: OverlayAnnotator, show: bool = True, help_text: str = HELP):
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - needs a display
-    """Start the overlay tool (see the module docstring for usage)."""
+    """Start the overlay tool (see the module docstring for usage).
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status, 0 (the transforms are saved as they are made).
+    """
     from treeskel.splits import load_split
 
     ap = argparse.ArgumentParser(prog="python -m treeskel.annotate_overlay", description=__doc__.splitlines()[0])

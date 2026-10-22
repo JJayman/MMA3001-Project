@@ -162,7 +162,15 @@ MIN_ROW_TREES = 3
 # --- the leaders' cross-sections --------------------------------------------------------------
 
 def silhouette(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """The depth foreground as :func:`treeskel.guided_gt.guided_gt` builds it (closed by a disc of 2)."""
+    """The depth foreground as :func:`treeskel.guided_gt.guided_gt` builds it (closed by a disc of 2).
+
+    Args:
+        depth: ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of its readings.
+
+    Returns:
+        Boolean mask of the foreground.
+    """
     return ndi.binary_closing(foreground_mask(depth, valid), disk(2))
 
 
@@ -174,6 +182,9 @@ def edge_contrast(grey: np.ndarray, edge: np.ndarray, outward: int, reach: int =
         edge: ``(N,)`` edge offsets (px, from :func:`treeskel.guided_gt.profile_edges`).
         outward: −1 for the ``first`` edge, +1 for the ``last``.
         reach: Samples averaged each side, as in :func:`treeskel.measure_width.edge_overshoot`.
+
+    Returns:
+        ``(N,)`` absolute differences of the mean grey levels.
     """
     half, width = grey.shape[1] // 2, grey.shape[1]
     rows = np.arange(len(grey))[:, None]
@@ -260,7 +271,17 @@ def depth_runs(fg: np.ndarray, gt: WinterGT, sections: dict[str, np.ndarray],
 
 
 def centre_difference(first, last, d0, d1) -> np.ndarray:
-    """The depth run's centre minus the bark's centre, along each cross-section's normal (px)."""
+    """The depth run's centre minus the bark's centre, along each cross-section's normal (px).
+
+    Args:
+        first: Colour edge offsets per cross-section (px).
+        last: The other colour edge's offsets (px).
+        d0: The depth run's first offsets (px).
+        d1: Its last offsets (px).
+
+    Returns:
+        ``(N,)`` differences (px).
+    """
     return (np.asarray(d0) + np.asarray(d1)) / 2.0 - (np.asarray(first) + np.asarray(last)) / 2.0
 
 
@@ -321,6 +342,16 @@ def edge_overshoots(n_row, first, last, d0, d1) -> tuple[np.ndarray, np.ndarray]
 
     The normal points along increasing offsets, so where it points up
     (``n_row < 0``) the ``last`` edge is the upper one.
+
+    Args:
+        n_row: Each cross-section normal's row component.
+        first: Colour edge offsets per cross-section (px).
+        last: The other colour edge's offsets (px).
+        d0: The depth run's first offsets (px).
+        d1: Its last offsets (px).
+
+    Returns:
+        ``(upper, lower)``: ``(N,)`` overshoots (px) past each edge.
     """
     past_first = np.asarray(first) - np.asarray(d0)
     past_last = np.asarray(d1) - np.asarray(last)
@@ -336,6 +367,12 @@ def huber_fit(X: np.ndarray, y: np.ndarray, k: float = 1.345, iters: int = 40) -
     Iteratively reweighted: residuals within ``k`` robust standard deviations
     (1.4826 × the median absolute deviation of the residuals from their
     median) get full weight, larger ones ``k·σ/|r|``.
+
+    Args:
+        X: ``(n, p)`` design matrix.
+        y: ``(n,)`` values.
+        k: Huber's tuning constant (in robust SDs).
+        iters: Most reweighting rounds.
 
     Returns:
         ``c``; zeros if ``y`` is empty.
@@ -362,6 +399,11 @@ def fit_shift(n_row, n_col, delta) -> tuple[float, float]:
     :func:`huber_fit`. Normals in both directions are needed for both parts:
     vertical branches say nothing about ``dy``.
 
+    Args:
+        n_row: Each cross-section normal's row component.
+        n_col: Each normal's column component.
+        delta: Each cross-section's centre difference (px).
+
     Returns:
         ``(dy, dx)`` in px; nan if there are fewer than 3 cross-sections.
     """
@@ -377,6 +419,14 @@ def fit_affine(n_row, n_col, row, col, delta, shape: tuple[int, int] = (480, 640
     ``A`` holds scale, rotation and shear. It is reported as the change of
     each part of the shift from the image's centre to its bottom and right
     edges (px), so a pure shift gives zeros.
+
+    Args:
+        n_row: Each cross-section normal's row component.
+        n_col: Each normal's column component.
+        row: Each cross-section's image row.
+        col: Each cross-section's image column.
+        delta: Each cross-section's centre difference (px).
+        shape: Image shape ``(H, W)``.
 
     Returns:
         ``{"dy", "dx", "dy_to_bottom", "dy_to_right", "dx_to_bottom", "dx_to_right"}``.
@@ -423,7 +473,8 @@ def split_half(first: np.ndarray, second: np.ndarray) -> dict:
     ``t`` and their correlation is the share of the spread that is real.
 
     Args:
-        first, second: One estimate per tree from each half (nan skipped).
+        first: One estimate per tree from the first half (nan skipped).
+        second: The same trees' estimates from the second half.
 
     Returns:
         ``{"n_trees", "pearson", "spearman", "real_sd", "noise_sd"}``: the
@@ -467,10 +518,13 @@ def mi_surface(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, reach: int
     channel; the depth as no reading, or in bins of ``step`` levels.
 
     Args:
-        rgb, depth, valid: One tree's images for one season.
+        rgb: One tree's ``(480, 640, 3)`` uint8 photo, for one season.
+        depth: Its ``(480, 640)`` uint8 depth.
+        valid: Boolean mask of the depth's readings.
         reach: Largest shift tried each way (px).
         bands: Row ranges measured on their own as well.
-        levels, step: Coding of the colour and the depth.
+        levels: Levels per colour channel in the colour's code.
+        step: Depth values per bin of the depth's code (no reading is a bin of its own).
         margin: Colour pixels this close to the edge are not compared (at
             least ``reach``, the default). A depth moved on loading has an
             edge of "no reading" where the move uncovered it; paired with the
@@ -702,6 +756,9 @@ def correction_estimates(results: list[dict]) -> dict:
     it would be none. ``*_clear``: only cross-sections whose two edges are
     both clear.
 
+    Args:
+        results: One :func:`measure_tree` result per tree.
+
     Returns:
         ``{key: {"move": [rows, cols] (cols None for the re-traced ones) or
         None, "n": cross-sections at no move, ...}}`` for each key of
@@ -770,7 +827,16 @@ def _mi_estimates(surfaces: np.ndarray, rng: np.random.Generator, n_boot: int) -
 
 
 def summarise(results: list[dict], n_boot: int = N_BOOT, seed: int = 0) -> dict:
-    """Pool :func:`measure_tree` results into the report (see the module docstring)."""
+    """Pool :func:`measure_tree` results into the report (see the module docstring).
+
+    Args:
+        results: One :func:`measure_tree` result per tree.
+        n_boot: Bootstrap samples.
+        seed: Random seed of the bootstrap.
+
+    Returns:
+        The report (``report.json``).
+    """
     rng = np.random.default_rng(seed)
     moves = list(TRIAL_MOVES)
     home = moves.index((0, 0))
@@ -920,7 +986,11 @@ def _no_nan(value):
 
 
 def print_report(report: dict) -> None:
-    """Print the main numbers of :func:`summarise`'s report."""
+    """Print the main numbers of :func:`summarise`'s report.
+
+    Args:
+        report: From :func:`summarise`.
+    """
     ld, fx, zm, eq = report["loaded"], report["fixed_set"], report["zero_move"], report["edges_equal"]
     print(f"\n{report['n_trees']} trees. Shifts are where the depth sits relative to the colour (dy > 0: lower); "
           "the correction moves the depth the other way.")
@@ -1000,7 +1070,15 @@ def print_report(report: dict) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Measure development-row trees; print and save the results."""
+    """Measure development-row trees; print and save the results.
+
+    Args:
+        argv: Command-line arguments; ``None`` reads ``sys.argv[1:]``.
+
+    Returns:
+        The exit status: 0 on success, 1 if no annotated development tree was found or an output file could
+        not be written.
+    """
     from concurrent.futures import ProcessPoolExecutor
 
     from treeskel.io import DEPTH_SHIFT, index_dataset
@@ -1088,6 +1166,11 @@ def plot_rows(report: dict, path: Path, failed: list[str]) -> None:
     on the depth run, and the trees traced again with the moved depth. Dots
     are each orchard row's estimate, dodged within the row; a line of the
     same colour marks the estimate from all trees, which the legend gives.
+
+    Args:
+        report: From :func:`summarise`.
+        path: The figure file to write.
+        failed: Files that could not be written are added to it (a viewer can lock a file on Windows).
     """
     import matplotlib
 
