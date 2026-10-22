@@ -368,8 +368,8 @@ See the latest file in `docs/progress/`. As of session 19 (the last):
   hypothesis. 385 public functions gained `Args`/`Returns`/`Raises` sections and 29 grouped or stale `Args`
   sections were split or completed (no code changed); `tests/test_docstrings.py` enforces it. HTML docs
   and test report rebuilt (610 passed). After PR #70, the student's four observations: the README's AI
-  section gained why AI was used and how it changed the workflow and understanding (drafted from the notes,
-  for the student to check); `model3d`'s introduction now says unseen sections follow the typical winter
+  section gained why AI was used (drafted from the notes, for the student to check) and how it changed
+  the student's understanding and workflow (written by the student); `model3d`'s introduction now says unseen sections follow the typical winter
   shape; the limitations open with what the validation supports (2D angles; 3D is an estimate) and the
   test intervals' within-row caveat; reproduction states its prerequisites (no weights committed).
   See `docs/progress/2026-10-22-session-19.md`.

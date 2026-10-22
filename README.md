@@ -396,19 +396,24 @@ and the results of the runs on my computer.
   a different season), and proposed checks such as synthetic trees with known answers and the null check
   between trainings.
 
-**How it changed my workflow and understanding:**
+**How it changed my understanding and workflow:**
 
-- *The project's memory moved into the repository.* The AI forgets between chats, so from session 5 each
-  session started a new chat and ended with notes in `docs/progress/`, with the fixed decisions in
-  `CLAUDE.md`. Every number and decision can be traced, and those notes are what this section rests on.
-- *Every change went through a branch and a pull request that I merged* (more than 70), so nothing reached
-  `main` without my seeing it.
-- *Checking became most of the work.* Because the AI was confidently wrong often enough, I fixed each rule
-  for choosing a model before its result was seen, asked for checks on all 449 development trees instead of
-  a few, and looked at the images myself. Asking what a term or a result meant was a check as well: in
-  sessions 14 and 17 my questions exposed a wrong count and misleading wording.
-- *What I understand:* the methods through what they assume, what they were checked against and where they
-  fail, more than through every line of the code, which the AI wrote.
+The assistant explained each new method clearly, which let me use methods I had not met before. Its
+explanations sounded equally convincing whether they were right or wrong, though, and the lessons I value most
+came from the times they were wrong. It expected lining up the masks to help little, because angles do not
+depend on position, yet the error more than halved: misplaced labels damage what a network learns, not just
+how it is scored. Its first 3D summary said that each tree’s 3D correction to the V opening did not repeat
+between seasons (r = 0.04), until its figure showed that six failed fits had swamped the correlation (rank
+correlation 0.52). Since then I summarise with medians and ranks. Several of its claims from 21 local trees
+failed on all 449; a preview put the trunk 25° out of the plane, against 14° on the full set. I learned to
+treat an explanation as a hypothesis until it had been measured, and a small sample as a preview.
+
+AI also changed how I worked. Code and analyses were cheap, so the risk moved from having too little evidence
+to choosing among too many results. I responded by fixing each decision rule before its run, saving every
+prediction and checking on all development trees. My time went less into writing code and more into deciding
+what to test, looking at images and questioning results. The cost is that I know much of the code through its
+tests and outputs rather than from writing it, which is why I relied on known-answer tests and reran the
+experiments myself.
 
 **How the work was checked:** the AI was wrong often enough that nothing was taken on trust. Its mistakes
 included judging an image offset by eye, a tuning measure biased towards the old settings, branch widths
